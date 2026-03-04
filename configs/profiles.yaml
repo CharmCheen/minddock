@@ -1,0 +1,13 @@
+﻿profiles:
+  - name: default
+    enabled_skills: ["ask", "summarize"]
+    retrieval:
+      top_k: 8
+      rerank: false
+    output:
+      language: "zh"
+      template: |
+        ## 答案
+        {{answer}}
+        ## 引用
+        {{citations}}

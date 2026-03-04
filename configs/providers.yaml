@@ -1,0 +1,16 @@
+﻿providers:
+  parser:
+    type: default
+  vector_store:
+    type: platform_kb
+  llm:
+    router:
+      type: openai
+      model: gpt-4o-mini
+    main:
+      type: openai
+      model: gpt-4o
+    validator:
+      enabled: false
+      type: openai
+      model: gpt-4o-mini

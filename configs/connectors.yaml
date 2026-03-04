@@ -1,0 +1,9 @@
+﻿connectors:
+  - type: local_folder
+    enabled: true
+    args:
+      folder: "./data/raw"
+  - type: web_url
+    enabled: false
+    args:
+      urls: []

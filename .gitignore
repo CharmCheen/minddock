@@ -1,0 +1,39 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+
+# Build/Test artifacts
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# IDE/OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Runtime data
+logs/*
+!logs/.gitkeep
+
+# Local data
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/index/*
+!data/index/.gitkeep
+
+# Environment
+.env
+.env.*

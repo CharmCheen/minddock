@@ -14,6 +14,7 @@ venv/
 htmlcov/
 dist/
 build/
+*.egg-info/
 
 # IDE/OS
 .vscode/
@@ -33,6 +34,7 @@ data/processed/*
 !data/processed/.gitkeep
 data/index/*
 !data/index/.gitkeep
+data/chroma/
 
 # Environment
 .env

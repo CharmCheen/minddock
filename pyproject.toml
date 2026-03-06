@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pka"
+version = "0.1.0"
+description = "Personal Knowledge Assistant backend skeleton"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0,<1.0.0",
+  "uvicorn[standard]>=0.30.0,<1.0.0",
+  "pydantic-settings>=2.3.0,<3.0.0",
+  "chromadb>=0.5.0,<1.0.0",
+  "sentence-transformers>=3.0.0,<4.0.0"
+]
+
+[tool.uv]
+package = false
+
+[tool.setuptools.packages.find]
+include = ["app*", "domain*", "ports*"]

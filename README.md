@@ -1,25 +1,77 @@
-﻿# Agentic RAG PKM Assistant (V0.1)
+﻿# 个人知识管理助手（RAG+Agent）- 第1步最小骨架
 
-本仓库用于实现「基于 AI 智能平台的个人知识管理助手（Agentic RAG PKM Assistant）」。
-当前阶段已完成工程初始化与目录规范化，后续按 SRS/HLD/Extension Guide 逐步实现。
+当前版本仅提供可运行的 FastAPI 服务与健康检查接口，暂不包含 RAG/向量库/LLM 功能。
 
-## 当前目标（来自文档）
-- 多源知识接入与规范化入库（解析/清洗/分块/向量化/索引）
-- 证据驱动跨文档问答（答案必须带引用）
-- 多文档主题总结（Map-Reduce + 引用）
-- Profile 可配置（输出模板、检索参数、技能组合）
-- 可扩展架构（Ports & Adapters + Contract Tests）
+## 1. 创建虚拟环境并激活
 
-## 目录说明
-- `core/`: 任务编排与流程控制
-- `domain/`: 领域模型（RawDoc/Chunk/Citation/Profile）
-- `ports/`: 扩展边界接口契约
-- `adapters/`: 连接器/解析器/向量库/LLM/插件等可替换实现
-- `configs/`: connectors/plugins/providers/profiles 配置
-- `tests/contract/`: 扩展契约测试
-- `docs/`: SRS/HLD/扩展开发指南
+### Windows (PowerShell)
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
 
-## 后续实施建议
-1. 先固化 `ports` 与 `domain` 契约。
-2. 实现 MVP：`local_folder` + `web_url` 接入，问答与总结两条技能链。
-3. 建立 contract test，保证新增扩展不破坏核心流程。
+### macOS / Linux
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+## 2. 安装依赖
+
+### 使用 pip
+```bash
+pip install -U pip
+pip install fastapi uvicorn[standard] pydantic-settings
+```
+
+### 或使用 uv（可选）
+```bash
+uv sync
+```
+
+## 3. 启动服务
+
+```bash
+uvicorn app.main:app --reload
+```
+
+服务默认监听 `http://127.0.0.1:8000`。
+
+## 4. 健康检查
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+期望返回：
+
+```json
+{"status":"ok","service":"pka","version":"0.1.0"}
+```
+
+## 5. 可选环境变量
+
+- `APP_NAME`：服务名称（默认 `pka`）
+- `APP_VERSION`：服务版本（默认 `0.1.0`）
+- `LOG_LEVEL`：日志级别（默认 `INFO`）
+
+## STEP 2 - Document ingestion
+
+Run ingestion CLI:
+
+```bash
+python -m app.rag.ingest --rebuild
+```
+
+Place your knowledge files under `knowledge_base/`.
+Only `.md` and `.txt` files are processed in this step.
+
+The pipeline will:
+- Load documents from `knowledge_base`
+- Split content into chunks
+- Generate embeddings
+- Store chunks and metadata into local Chroma at `data/chroma`
+
+Note:
+- If `sentence-transformers` model download/init fails, ingestion falls back to a deterministic dummy embedding.
+- Dummy embedding is for local development only.

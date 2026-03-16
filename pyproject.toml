@@ -3,17 +3,24 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pka"
+name = "minddock"
 version = "0.1.0"
-description = "Personal Knowledge Assistant backend skeleton"
+description = "MindDock: open-source personal knowledge assistant backend"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115.0,<1.0.0",
   "uvicorn[standard]>=0.30.0,<1.0.0",
   "pydantic-settings>=2.3.0,<3.0.0",
+  "httpx>=0.28.0,<1.0.0",
+  "watchdog>=6.0.0,<7.0.0",
   "chromadb>=0.5.0,<1.0.0",
   "sentence-transformers>=3.0.0,<4.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0,<9.0.0"
 ]
 
 [tool.uv]
@@ -21,3 +28,7 @@ package = false
 
 [tool.setuptools.packages.find]
 include = ["app*", "domain*", "ports*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

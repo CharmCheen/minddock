@@ -1,6 +1,7 @@
-﻿"""FastAPI application entrypoint."""
+"""FastAPI application entrypoint."""
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -12,17 +13,10 @@ settings = get_settings()
 setup_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(
-    title=settings.app_name,
-    version=settings.app_version,
-)
 
-app.include_router(api_router)
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    """Log startup details to aid debugging."""
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Log startup details using the supported FastAPI lifespan hook."""
 
     logger.info(
         "Service starting",
@@ -32,3 +26,13 @@ def on_startup() -> None:
             "log_level": settings.log_level,
         },
     )
+    yield
+
+
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    lifespan=lifespan,
+)
+
+app.include_router(api_router)

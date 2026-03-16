@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from app.core.config import get_settings
 
 COLLECTION_NAME = "knowledge_base"
 
 
+@lru_cache
 def get_vectorstore():
     """Return a persistent Chroma collection."""
 
@@ -20,3 +23,58 @@ def get_vectorstore():
     settings = get_settings()
     client = chromadb.PersistentClient(path=settings.chroma_dir)
     return client.get_or_create_collection(name=COLLECTION_NAME)
+
+
+def search_collection(query_embedding: list[float], top_k: int) -> list[dict[str, object]]:
+    """Search the persistent Chroma collection and normalize the results."""
+
+    collection = get_vectorstore()
+    total = collection.count()
+    if total == 0:
+        return []
+
+    result = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=min(top_k, total),
+        include=["documents", "metadatas", "distances"],
+    )
+
+    documents = result.get("documents") or [[]]
+    metadatas = result.get("metadatas") or [[]]
+    distances = result.get("distances") or [[]]
+
+    hits: list[dict[str, object]] = []
+    for index, text in enumerate(documents[0]):
+        metadata = metadatas[0][index] or {}
+        distance = distances[0][index] if distances and distances[0] else None
+        hits.append(
+            {
+                "text": text,
+                "metadata": metadata,
+                "distance": distance,
+            }
+        )
+
+    return hits
+
+
+def delete_document(doc_id: str) -> int:
+    """Delete all chunks for a single document id and return the deleted chunk count."""
+
+    collection = get_vectorstore()
+    result = collection.get(where={"doc_id": doc_id}, include=[])
+    ids = result.get("ids") or []
+    if not ids:
+        return 0
+
+    collection.delete(where={"doc_id": doc_id})
+    return len(ids)
+
+
+def count_document_chunks(doc_id: str) -> int:
+    """Return the number of chunks currently stored for a document id."""
+
+    collection = get_vectorstore()
+    result = collection.get(where={"doc_id": doc_id}, include=[])
+    ids = result.get("ids") or []
+    return len(ids)

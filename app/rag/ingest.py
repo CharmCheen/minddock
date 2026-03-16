@@ -16,14 +16,50 @@ from app.rag.vectorstore import get_vectorstore
 SUPPORTED_EXTENSIONS = {".md", ".txt"}
 
 
-def _build_doc_id(path: Path) -> str:
+def build_doc_id(path: Path) -> str:
     return hashlib.sha1(path.as_posix().encode("utf-8")).hexdigest()
 
 
-def _iter_docs(kb_dir: Path) -> Iterator[Path]:
+def iter_docs(kb_dir: Path) -> Iterator[Path]:
     for path in kb_dir.rglob("*"):
         if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
             yield path
+
+
+def build_document_payload(path: Path, kb_dir: Path) -> dict[str, object]:
+    relative = path.relative_to(kb_dir)
+    source_path = relative.as_posix()
+    doc_id = build_doc_id(relative)
+
+    ids: list[str] = []
+    documents: list[str] = []
+    metadatas: list[dict[str, str]] = []
+
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    for index, chunk in enumerate(split_text(text)):
+        chunk_text = (chunk.get("text") or "").strip()
+        if not chunk_text:
+            continue
+
+        chunk_id = f"{doc_id}:{index}"
+        metadata = {
+            "doc_id": doc_id,
+            "source_path": source_path,
+            "chunk_id": chunk_id,
+            "section": str(chunk.get("section") or ""),
+        }
+
+        ids.append(chunk_id)
+        documents.append(chunk_text)
+        metadatas.append(metadata)
+
+    return {
+        "doc_id": doc_id,
+        "source_path": source_path,
+        "ids": ids,
+        "documents": documents,
+        "metadatas": metadatas,
+    }
 
 
 def ingest(rebuild: bool = False) -> None:
@@ -37,7 +73,7 @@ def ingest(rebuild: bool = False) -> None:
     collection = get_vectorstore()
     embedder = get_embedding_backend(settings.embedding_model)
 
-    doc_paths = sorted(_iter_docs(kb_dir)) if kb_dir.exists() else []
+    doc_paths = sorted(iter_docs(kb_dir)) if kb_dir.exists() else []
     loaded_documents = len(doc_paths)
 
     ids: list[str] = []
@@ -45,27 +81,10 @@ def ingest(rebuild: bool = False) -> None:
     metadatas: list[dict[str, str]] = []
 
     for path in doc_paths:
-        relative = path.relative_to(kb_dir)
-        source_path = relative.as_posix()
-        doc_id = _build_doc_id(relative)
-
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        for index, chunk in enumerate(split_text(text)):
-            chunk_text = (chunk.get("text") or "").strip()
-            if not chunk_text:
-                continue
-
-            chunk_id = f"{doc_id}:{index}"
-            metadata = {
-                "doc_id": doc_id,
-                "source_path": source_path,
-                "chunk_id": chunk_id,
-                "section": str(chunk.get("section") or ""),
-            }
-
-            ids.append(chunk_id)
-            documents.append(chunk_text)
-            metadatas.append(metadata)
+        payload = build_document_payload(path=path, kb_dir=kb_dir)
+        ids.extend(payload["ids"])
+        documents.extend(payload["documents"])
+        metadatas.extend(payload["metadatas"])
 
     total_chunks = len(documents)
     if total_chunks:

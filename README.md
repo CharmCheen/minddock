@@ -1,8 +1,29 @@
-﻿# 个人知识管理助手（RAG+Agent）- 第1步最小骨架
+# MindDock
 
-当前版本仅提供可运行的 FastAPI 服务与健康检查接口，暂不包含 RAG/向量库/LLM 功能。
+Open-source personal knowledge assistant backend powered by RAG and agent workflows.
 
-## 1. 创建虚拟环境并激活
+## Overview
+
+Current version provides a runnable FastAPI service with base health-check endpoints.
+RAG, vector store, and LLM features are included incrementally in the project structure.
+
+## Current Scope
+
+- FastAPI backend with `/`, `/health`, `/search`, and `/chat`
+- Local knowledge ingestion for `.md` and `.txt`
+- Chroma-backed persistence
+- Minimal grounded response flow with citations
+- Domain and port contracts for future extension
+
+## Project Docs
+
+- `docs/STATUS.md`: current implementation status
+- `docs/ROADMAP.md`: planned milestones
+- `docs/TEST_PLAN.md`: test scope and local validation
+- `docs/CHANGELOG.md`: active modification log, must be updated before every push
+- `CONTRIBUTING.md`: contribution rules and push workflow
+
+## 1. Create and Activate a Virtual Environment
 
 ### Windows (PowerShell)
 ```powershell
@@ -16,62 +37,83 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-## 2. 安装依赖
+## 2. Install Dependencies
 
-### 使用 pip
+### Using pip
 ```bash
 pip install -U pip
 pip install fastapi uvicorn[standard] pydantic-settings
 ```
 
-### 或使用 uv（可选）
+### Or using uv
 ```bash
 uv sync
 ```
 
-## 3. 启动服务
+### Development dependencies
+```bash
+pip install -e ".[dev]"
+```
+
+## 3. Start the Service
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-服务默认监听 `http://127.0.0.1:8000`。
+The service listens on `http://127.0.0.1:8000` by default.
 
-## 4. 健康检查
+## 4. Health Check
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-期望返回：
+Expected response:
 
 ```json
-{"status":"ok","service":"pka","version":"0.1.0"}
+{"status":"ok","service":"MindDock","version":"0.1.0"}
 ```
 
-## 5. 可选环境变量
+## 5. Optional Environment Variables
 
-- `APP_NAME`：服务名称（默认 `pka`）
-- `APP_VERSION`：服务版本（默认 `0.1.0`）
-- `LOG_LEVEL`：日志级别（默认 `INFO`）
+- `APP_NAME`: service name, default `MindDock`
+- `APP_VERSION`: service version, default `0.1.0`
+- `LOG_LEVEL`: log level, default `INFO`
 
-## STEP 2 - Document ingestion
+## Document Ingestion
 
-Run ingestion CLI:
+Run the ingestion CLI:
 
 ```bash
 python -m app.rag.ingest --rebuild
 ```
 
-Place your knowledge files under `knowledge_base/`.
-Only `.md` and `.txt` files are processed in this step.
+Place knowledge files under `knowledge_base/`.
+Only `.md` and `.txt` files are processed at this stage.
 
 The pipeline will:
+
 - Load documents from `knowledge_base`
 - Split content into chunks
 - Generate embeddings
-- Store chunks and metadata into local Chroma at `data/chroma`
+- Store chunks and metadata in local Chroma at `data/chroma`
 
-Note:
-- If `sentence-transformers` model download/init fails, ingestion falls back to a deterministic dummy embedding.
-- Dummy embedding is for local development only.
+Notes:
+
+- If `sentence-transformers` model download or initialization fails, ingestion falls back to a deterministic dummy embedding
+- Dummy embeddings are for local development only
+
+## Tests
+
+Run:
+
+```bash
+python -m pytest
+```
+
+## Open Source Notes
+
+- License: `MIT`
+- Please update `docs/CHANGELOG.md` before every push
+- Historical stage reports under `docs/reports/` are preserved as records and should not be rewritten during routine maintenance

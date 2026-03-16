@@ -26,6 +26,7 @@ Thumbs.db
 # Runtime data
 logs/*
 !logs/.gitkeep
+*.log
 
 # Local data
 data/raw/*
@@ -39,3 +40,6 @@ data/chroma/
 # Environment
 .env
 .env.*
+
+# Test artifacts
+.ruff_cache/

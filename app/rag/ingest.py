@@ -30,6 +30,7 @@ def build_document_payload(path: Path, kb_dir: Path) -> dict[str, object]:
     relative = path.relative_to(kb_dir)
     source_path = relative.as_posix()
     doc_id = build_doc_id(relative)
+    title = path.stem
 
     ids: list[str] = []
     documents: list[str] = []
@@ -42,11 +43,18 @@ def build_document_payload(path: Path, kb_dir: Path) -> dict[str, object]:
             continue
 
         chunk_id = f"{doc_id}:{index}"
+        section = str(chunk.get("section") or "").strip()
+        location = section or source_path
+        ref = title if not section else f"{title} > {section}"
         metadata = {
             "doc_id": doc_id,
+            "source": source_path,
             "source_path": source_path,
+            "title": title,
             "chunk_id": chunk_id,
-            "section": str(chunk.get("section") or ""),
+            "section": section,
+            "location": location,
+            "ref": ref,
         }
 
         ids.append(chunk_id)

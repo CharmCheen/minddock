@@ -6,7 +6,7 @@ import logging
 
 import httpx
 
-from ports.llm import LLMProvider
+from ports.llm import EvidenceItem, LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class OpenAICompatibleLLM(LLMProvider):
     def name(self) -> str:
         return "openai-compatible"
 
-    def generate(self, query: str, evidence: list[dict[str, object]]) -> str:
+    def generate(self, query: str, evidence: list[EvidenceItem]) -> str:
         messages = self._build_messages(query=query, evidence=evidence)
         payload = {
             "model": self._model,
@@ -71,7 +71,7 @@ class OpenAICompatibleLLM(LLMProvider):
 
         raise RuntimeError("LLM response did not include textual content")
 
-    def _build_messages(self, query: str, evidence: list[dict[str, object]]) -> list[dict[str, str]]:
+    def _build_messages(self, query: str, evidence: list[EvidenceItem]) -> list[dict[str, str]]:
         evidence_lines = []
         for item in evidence:
             source = str(item.get("source", ""))
@@ -105,7 +105,7 @@ class FallbackLLM(LLMProvider):
     def name(self) -> str:
         return f"{self._primary.name()}+fallback"
 
-    def generate(self, query: str, evidence: list[dict[str, object]]) -> str:
+    def generate(self, query: str, evidence: list[EvidenceItem]) -> str:
         try:
             return self._primary.generate(query=query, evidence=evidence)
         except Exception:

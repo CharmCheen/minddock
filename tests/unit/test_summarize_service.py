@@ -1,5 +1,5 @@
 from app.llm.mock import INSUFFICIENT_EVIDENCE
-from app.services.chat_service import ChatService
+from app.services.summarize_service import SummarizeService
 
 
 class FakeSearchService:
@@ -23,36 +23,17 @@ class PassthroughCompressor:
 
 
 class FakeLLM:
+    def __init__(self) -> None:
+        self.last_query = ""
+        self.last_evidence: list[dict[str, object]] = []
+
     def generate(self, query: str, evidence: list[dict[str, object]]) -> str:
-        return f"answer for {query} with {len(evidence)} evidence"
+        self.last_query = query
+        self.last_evidence = evidence
+        return f"summary for {len(evidence)} evidence"
 
 
-def test_chat_returns_insufficient_evidence_when_no_grounded_hits() -> None:
-    service = ChatService(
-        search_service=FakeSearchService(
-            [
-                {
-                    "text": "weak",
-                    "doc_id": "d1",
-                    "chunk_id": "c1",
-                    "source": "doc.md",
-                    "distance": 9.9,
-                }
-            ]
-        ),
-        reranker=PassthroughReranker(),
-        compressor=PassthroughCompressor(),
-        llm=FakeLLM(),
-    )
-
-    result = service.chat(query="test", top_k=3)
-
-    assert result["answer"] == INSUFFICIENT_EVIDENCE
-    assert result["citations"] == []
-    assert result["retrieved_count"] == 0
-
-
-def test_chat_returns_answer_and_citations_for_grounded_hits() -> None:
+def test_summarize_returns_summary_and_citations() -> None:
     search_service = FakeSearchService(
         [
             {
@@ -68,24 +49,38 @@ def test_chat_returns_answer_and_citations_for_grounded_hits() -> None:
             }
         ]
     )
-    service = ChatService(
+    llm = FakeLLM()
+    service = SummarizeService(
         search_service=search_service,
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        llm=llm,
+    )
+
+    result = service.summarize(
+        topic="storage design",
+        top_k=3,
+        filters={"source": "kb/doc.md", "section": "Storage"},
+    )
+
+    assert result["summary"] == "summary for 1 evidence"
+    assert result["retrieved_count"] == 1
+    assert result["citations"][0]["ref"] == "doc > Storage"
+    assert search_service.last_filters == {"source": "kb/doc.md", "section": "Storage"}
+    assert "Summarize the topic" in llm.last_query
+    assert "storage design" in llm.last_query
+
+
+def test_summarize_returns_insufficient_evidence_when_no_hits() -> None:
+    service = SummarizeService(
+        search_service=FakeSearchService([]),
         reranker=PassthroughReranker(),
         compressor=PassthroughCompressor(),
         llm=FakeLLM(),
     )
 
-    result = service.chat(
-        query="where is data stored",
-        top_k=3,
-        filters={"source": "kb/doc.md", "section": "Storage"},
-    )
+    result = service.summarize(topic="empty", top_k=3)
 
-    assert result["answer"] == "answer for where is data stored with 1 evidence"
-    assert result["retrieved_count"] == 1
-    assert result["citations"][0]["chunk_id"] == "c1"
-    assert result["citations"][0]["source"] == "kb/doc.md"
-    assert result["citations"][0]["section"] == "Storage"
-    assert result["citations"][0]["location"] == "Storage"
-    assert result["citations"][0]["ref"] == "doc > Storage"
-    assert search_service.last_filters == {"source": "kb/doc.md", "section": "Storage"}
+    assert result["summary"] == INSUFFICIENT_EVIDENCE
+    assert result["citations"] == []
+    assert result["retrieved_count"] == 0

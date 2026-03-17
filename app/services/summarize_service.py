@@ -1,4 +1,4 @@
-"""Application service for grounded chat responses."""
+"""Application service for minimal grounded summaries."""
 
 from __future__ import annotations
 
@@ -13,31 +13,36 @@ from ports.llm import LLMProvider
 
 
 @dataclass
-class ChatService:
-    """Build a minimal retrieve-then-generate pipeline with citations."""
+class SummarizeService:
+    """Build a minimal retrieve-then-summarize pipeline with citations."""
 
     search_service: SearchService = field(default_factory=SearchService)
     reranker: Reranker = field(default_factory=get_reranker)
     compressor: Compressor = field(default_factory=get_compressor)
     llm: LLMProvider = field(default_factory=get_llm_provider)
 
-    def chat(self, query: str, top_k: int, filters: dict[str, str] | None = None) -> dict[str, object]:
-        hits = self.search_service.retrieve(query=query, top_k=top_k, filters=filters)
+    def summarize(self, topic: str, top_k: int, filters: dict[str, str] | None = None) -> dict[str, object]:
+        hits = self.search_service.retrieve(query=topic, top_k=top_k, filters=filters)
         grounded_hits = select_grounded_hits(hits)
         if not grounded_hits:
             return {
-                "answer": INSUFFICIENT_EVIDENCE,
+                "summary": INSUFFICIENT_EVIDENCE,
                 "citations": [],
                 "retrieved_count": 0,
             }
 
-        reranked_hits = self.reranker.rerank(query=query, hits=grounded_hits)
-        compressed_hits = self.compressor.compress(query=query, hits=reranked_hits)
+        reranked_hits = self.reranker.rerank(query=topic, hits=grounded_hits)
+        compressed_hits = self.compressor.compress(query=topic, hits=reranked_hits)
         context = build_context(compressed_hits)
-        answer = self.llm.generate(query=query, evidence=context)
+        summary_query = (
+            "Summarize the topic using only the provided evidence. "
+            "Keep it concise, grounded, and synthesis-oriented.\n"
+            f"Topic: {topic}"
+        )
+        summary = self.llm.generate(query=summary_query, evidence=context)
         citations = [build_citation(hit) for hit in compressed_hits]
         return {
-            "answer": answer,
+            "summary": summary,
             "citations": citations,
             "retrieved_count": len(compressed_hits),
         }

@@ -1,7 +1,9 @@
-﻿"""LLM provider contract."""
+"""LLM provider contract."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+
+
+EvidenceItem = dict[str, object]
 
 
 class LLMProvider(ABC):
@@ -12,5 +14,5 @@ class LLMProvider(ABC):
         """Return the provider identifier."""
 
     @abstractmethod
-    def generate(self, messages: List[Dict[str, Any]], **kwargs: Any) -> str:
-        """Generate text output from message history."""
+    def generate(self, query: str, evidence: list[EvidenceItem]) -> str:
+        """Generate a grounded answer from the query and retrieved evidence."""

@@ -1,4 +1,4 @@
-﻿"""Chroma vector store helpers."""
+"""Chroma vector store helpers."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from functools import lru_cache
 from app.core.config import get_settings
 
 COLLECTION_NAME = "knowledge_base"
+SUPPORTED_FILTER_FIELDS = {"source", "section"}
 
 
 @lru_cache
@@ -25,7 +26,28 @@ def get_vectorstore():
     return client.get_or_create_collection(name=COLLECTION_NAME)
 
 
-def search_collection(query_embedding: list[float], top_k: int) -> list[dict[str, object]]:
+def _build_where(filters: dict[str, str] | None) -> dict[str, str] | None:
+    """Normalize supported metadata filters for Chroma `where` queries."""
+
+    if not filters:
+        return None
+
+    where: dict[str, str] = {}
+    for key, value in filters.items():
+        if key not in SUPPORTED_FILTER_FIELDS:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            where[key] = normalized
+
+    return where or None
+
+
+def search_collection(
+    query_embedding: list[float],
+    top_k: int,
+    filters: dict[str, str] | None = None,
+) -> list[dict[str, object]]:
     """Search the persistent Chroma collection and normalize the results."""
 
     collection = get_vectorstore()
@@ -37,6 +59,7 @@ def search_collection(query_embedding: list[float], top_k: int) -> list[dict[str
         query_embeddings=[query_embedding],
         n_results=min(top_k, total),
         include=["documents", "metadatas", "distances"],
+        where=_build_where(filters),
     )
 
     documents = result.get("documents") or [[]]

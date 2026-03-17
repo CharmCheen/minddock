@@ -1,8 +1,12 @@
-﻿# RAG 系统
-RAG 是 Retrieval-Augmented Generation。
+# Storage
+MindDock stores document chunks and metadata in a local Chroma database.
+The default persistence directory is `data/chroma`.
+This section is useful for `/search`, `/chat`, and `/summarize` demos about storage design.
 
-## 优点
-可以减少幻觉（hallucination），并提供引用。
+# Citations
+Chat and summarize responses return citations with `source`, `section`, `location`, and `ref`.
+These fields make it easier to explain where an answer or summary came from during a defense.
 
-## 流程
-文档入库 -> 向量检索 -> LLM 生成
+# Incremental Updates
+The knowledge base supports both full rebuild and per-file incremental maintenance.
+For a live demo, you can create, modify, or delete this file while the watcher is running.

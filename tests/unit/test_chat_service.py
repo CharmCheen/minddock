@@ -1,3 +1,5 @@
+"""Unit tests for ChatService."""
+
 from app.llm.mock import INSUFFICIENT_EVIDENCE
 from app.services.chat_service import ChatService
 
@@ -64,6 +66,8 @@ def test_chat_returns_answer_and_citations_for_grounded_hits() -> None:
                 "section": "Storage",
                 "location": "Storage",
                 "ref": "doc > Storage",
+                "page": None,
+                "anchor": None,
                 "distance": 0.2,
             }
         ]
@@ -88,4 +92,6 @@ def test_chat_returns_answer_and_citations_for_grounded_hits() -> None:
     assert result["citations"][0]["section"] == "Storage"
     assert result["citations"][0]["location"] == "Storage"
     assert result["citations"][0]["ref"] == "doc > Storage"
+    assert result["citations"][0]["page"] is None
+    assert result["citations"][0]["anchor"] is None
     assert search_service.last_filters == {"source": "kb/doc.md", "section": "Storage"}

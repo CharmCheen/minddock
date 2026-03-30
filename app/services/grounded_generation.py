@@ -38,8 +38,12 @@ def build_context(hits: list[dict[str, object]]) -> list[EvidenceItem]:
     return context
 
 
-def build_citation(hit: dict[str, object]) -> dict[str, str | None]:
-    """Build a traceable citation from a retrieved hit."""
+def build_citation(hit: dict[str, object]) -> dict[str, str | int | None]:
+    """Build a traceable citation dict from a retrieved hit.
+
+    Guaranteed output keys: doc_id, chunk_id, source, snippet,
+    page, anchor, title, section, location, ref.
+    """
 
     text = str(hit["text"]).strip().replace("\n", " ")
     source = str(hit.get("source", ""))
@@ -47,11 +51,29 @@ def build_citation(hit: dict[str, object]) -> dict[str, str | None]:
     section = str(hit.get("section", "")).strip()
     location = str(hit.get("location", "")).strip()
     ref = str(hit.get("ref", "")).strip()
+
+    # page: preserve as int if present and numeric, else None
+    raw_page = hit.get("page")
+    page: int | None = None
+    if raw_page is not None:
+        try:
+            page = int(raw_page)
+        except (ValueError, TypeError):
+            page = None
+
+    anchor: str | None = None
+    raw_anchor = hit.get("anchor")
+    if raw_anchor is not None:
+        anchor_str = str(raw_anchor).strip()
+        anchor = anchor_str or None
+
     return {
         "doc_id": str(hit["doc_id"]),
         "chunk_id": str(hit["chunk_id"]),
         "source": source,
         "snippet": text[:SNIPPET_LIMIT],
+        "page": page,
+        "anchor": anchor,
         "title": title or None,
         "section": section or None,
         "location": location or None,

@@ -30,6 +30,25 @@ Not implemented yet:
 
 ## Quick Start
 
+### Local Run Overview
+
+The minimal local flow is:
+
+1. create and activate a virtual environment
+2. install dependencies
+3. place `.md` or `.txt` files under `knowledge_base/`
+4. run a full ingest to build the Chroma index
+5. start FastAPI with Uvicorn
+6. optionally start the watcher in a second terminal for incremental updates
+
+If you only want the shortest happy path, run these commands from the repository root after activating the virtual environment:
+
+```powershell
+pip install -e ".[dev]"
+python -m app.rag.ingest --rebuild
+python -m uvicorn app.main:app --reload
+```
+
 ### 1. Create and activate a virtual environment
 
 Windows PowerShell:
@@ -62,6 +81,8 @@ pip install fastapi uvicorn[standard] pydantic-settings chromadb sentence-transf
 pip install -e ".[dev]"
 ```
 
+If `pip install -e ".[dev]"` succeeds, that is usually enough for local development.
+
 ### 3. Prepare demo data
 
 Put one or more `.md` or `.txt` files under `knowledge_base/`.
@@ -72,6 +93,31 @@ Example:
 knowledge_base/
   example.md
 ```
+
+The repository already includes `knowledge_base/example.md`, so a fresh clone can run directly.
+
+### Optional environment variables
+
+The project has sensible defaults, so no `.env` file is required for a minimal local run.
+
+Common optional variables:
+
+```text
+KB_DIR=knowledge_base
+CHROMA_DIR=data/chroma
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+LLM_API_KEY=
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
+WATCH_ENABLED=false
+WATCH_PATH=knowledge_base
+```
+
+Notes:
+
+- leave `LLM_API_KEY` empty for an offline-friendly demo path
+- if `sentence-transformers` cannot load, the system falls back to `DummyEmbedding`
+- `WATCH_ENABLED` must be `true` before starting the watcher
 
 ### 4. Build the knowledge base
 
@@ -97,6 +143,18 @@ Default address:
 
 ```text
 http://127.0.0.1:8000
+```
+
+Windows PowerShell alternative:
+
+```powershell
+python -m uvicorn app.main:app --reload
+```
+
+Open the interactive API docs at:
+
+```text
+http://127.0.0.1:8000/docs
 ```
 
 ## Health Check
@@ -292,6 +350,13 @@ set WATCH_ENABLED=true
 python -m app.rag.watcher
 ```
 
+Windows PowerShell:
+
+```powershell
+$env:WATCH_ENABLED="true"
+python -m app.rag.watcher
+```
+
 What it is best for:
 
 - manual demo
@@ -314,6 +379,11 @@ See also:
 3. Show `/chat`
 4. Show `/summarize`
 5. Show incremental update with watcher
+
+For local development, it is usually easiest to keep two terminals open:
+
+1. terminal A: `python -m uvicorn app.main:app --reload`
+2. terminal B: `$env:WATCH_ENABLED="true"` then `python -m app.rag.watcher`
 
 This order works well because it moves from infrastructure to user-facing capability.
 

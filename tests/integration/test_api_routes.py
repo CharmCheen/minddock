@@ -1,3 +1,5 @@
+"""Integration tests for API routes using FastAPI TestClient."""
+
 from fastapi.testclient import TestClient
 
 from app.llm.mock import MockLLM
@@ -18,6 +20,10 @@ def test_root_and_health_endpoints() -> None:
     assert health_response.json()["status"] == "ok"
 
 
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+
 def test_search_endpoint_with_stubbed_service(monkeypatch) -> None:
     from app.api import routes
 
@@ -34,6 +40,18 @@ def test_search_endpoint_with_stubbed_service(monkeypatch) -> None:
                     "chunk_id": "c1",
                     "source": "kb/doc.md",
                     "distance": 0.1,
+                    "citation": {
+                        "doc_id": "d1",
+                        "chunk_id": "c1",
+                        "source": "kb/doc.md",
+                        "snippet": "stubbed hit",
+                        "page": None,
+                        "anchor": None,
+                        "title": None,
+                        "section": None,
+                        "location": None,
+                        "ref": "kb/doc.md",
+                    },
                 }
             ],
         }
@@ -46,6 +64,8 @@ def test_search_endpoint_with_stubbed_service(monkeypatch) -> None:
     body = response.json()
     assert body["query"] == "test query"
     assert body["hits"][0]["chunk_id"] == "c1"
+    assert body["hits"][0]["citation"]["snippet"] == "stubbed hit"
+    assert body["hits"][0]["citation"]["page"] is None
 
 
 def test_search_endpoint_forwards_filters(monkeypatch) -> None:
@@ -77,6 +97,10 @@ def test_search_endpoint_forwards_filters(monkeypatch) -> None:
     assert captured["filters"] == {"source": "kb/doc.md", "section": "Storage"}
 
 
+# ---------------------------------------------------------------------------
+# Chat
+# ---------------------------------------------------------------------------
+
 def test_chat_endpoint_with_stubbed_service(monkeypatch) -> None:
     from app.api import routes
 
@@ -91,6 +115,8 @@ def test_chat_endpoint_with_stubbed_service(monkeypatch) -> None:
                     "chunk_id": "c1",
                     "source": "kb/doc.md",
                     "snippet": "stubbed snippet",
+                    "page": None,
+                    "anchor": None,
                     "title": "doc",
                     "section": "Storage",
                     "location": "Storage",
@@ -109,6 +135,7 @@ def test_chat_endpoint_with_stubbed_service(monkeypatch) -> None:
     assert body["answer"] == "stubbed answer"
     assert body["retrieved_count"] == 1
     assert body["citations"][0]["section"] == "Storage"
+    assert body["citations"][0]["page"] is None
 
 
 def test_chat_endpoint_without_api_key_uses_mock_llm_and_filters(monkeypatch) -> None:
@@ -129,6 +156,8 @@ def test_chat_endpoint_without_api_key_uses_mock_llm_and_filters(monkeypatch) ->
                     "section": "Storage",
                     "location": "Storage",
                     "ref": "doc > Storage",
+                    "page": None,
+                    "anchor": None,
                     "distance": 0.1,
                 }
             ]
@@ -168,7 +197,12 @@ def test_chat_endpoint_without_api_key_uses_mock_llm_and_filters(monkeypatch) ->
     assert body["retrieved_count"] == 1
     assert body["citations"][0]["chunk_id"] == "c1"
     assert body["citations"][0]["section"] == "Storage"
+    assert body["citations"][0]["page"] is None
 
+
+# ---------------------------------------------------------------------------
+# Summarize
+# ---------------------------------------------------------------------------
 
 def test_summarize_endpoint_without_api_key_returns_summary(monkeypatch) -> None:
     from app.api import routes
@@ -188,6 +222,8 @@ def test_summarize_endpoint_without_api_key_returns_summary(monkeypatch) -> None
                     "section": "Storage",
                     "location": "Storage",
                     "ref": "doc > Storage",
+                    "page": None,
+                    "anchor": None,
                     "distance": 0.1,
                 }
             ]
@@ -262,3 +298,53 @@ def test_summarize_endpoint_returns_insufficient_evidence_when_empty(monkeypatch
     assert body["summary"] == "证据不足，无法给出可靠结论。"
     assert body["citations"] == []
     assert body["retrieved_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Ingest
+# ---------------------------------------------------------------------------
+
+def test_ingest_endpoint_with_stubbed_service(monkeypatch) -> None:
+    from app.api import routes
+
+    client = TestClient(app)
+
+    def fake_ingest(rebuild: bool = False) -> dict[str, int]:
+        return {"documents": 4, "chunks": 20}
+
+    monkeypatch.setattr(routes.ingest_service, "ingest", fake_ingest)
+
+    response = client.post("/ingest", json={"rebuild": False})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["documents"] == 4
+    assert body["chunks"] == 20
+
+
+def test_ingest_endpoint_rebuild_flag(monkeypatch) -> None:
+    from app.api import routes
+
+    client = TestClient(app)
+    captured: dict[str, object] = {}
+
+    def fake_ingest(rebuild: bool = False) -> dict[str, int]:
+        captured["rebuild"] = rebuild
+        return {"documents": 0, "chunks": 0}
+
+    monkeypatch.setattr(routes.ingest_service, "ingest", fake_ingest)
+
+    response = client.post("/ingest", json={"rebuild": True})
+
+    assert response.status_code == 200
+    assert captured["rebuild"] is True
+
+
+# ---------------------------------------------------------------------------
+# Validation errors
+# ---------------------------------------------------------------------------
+
+def test_search_empty_query_returns_422() -> None:
+    client = TestClient(app)
+    response = client.post("/search", json={"query": "   "})
+    assert response.status_code == 422

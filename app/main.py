@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.api.routes import router as api_router
 from app.core.config import get_settings
+from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 
 settings = get_settings()
@@ -35,4 +36,5 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+register_exception_handlers(app)
 app.include_router(api_router)

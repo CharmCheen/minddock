@@ -1,3 +1,5 @@
+"""Unit tests for SummarizeService."""
+
 from app.llm.mock import INSUFFICIENT_EVIDENCE
 from app.services.summarize_service import SummarizeService
 
@@ -45,6 +47,8 @@ def test_summarize_returns_summary_and_citations() -> None:
                 "section": "Storage",
                 "location": "Storage",
                 "ref": "doc > Storage",
+                "page": None,
+                "anchor": None,
                 "distance": 0.2,
             }
         ]
@@ -66,6 +70,8 @@ def test_summarize_returns_summary_and_citations() -> None:
     assert result["summary"] == "summary for 1 evidence"
     assert result["retrieved_count"] == 1
     assert result["citations"][0]["ref"] == "doc > Storage"
+    assert result["citations"][0]["page"] is None
+    assert result["citations"][0]["anchor"] is None
     assert search_service.last_filters == {"source": "kb/doc.md", "section": "Storage"}
     assert "Summarize the topic" in llm.last_query
     assert "storage design" in llm.last_query

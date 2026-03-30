@@ -1,50 +1,78 @@
 # Project Status
 
-Last updated: 2026-03-17
+Last updated: 2026-03-30
 
-## Summary
+## Current Stage
 
-MindDock is in a defense-ready MVP stage. The repository has a working backend foundation and a complete minimal demo flow for ingest, retrieval, grounded Q&A, grounded summarization, and incremental maintenance, but it is still intentionally limited relative to the full SRS and HLD scope.
+MindDock is currently in the MVP stage.
 
-## Implemented
+The core backend loop is already runnable:
 
-- FastAPI application bootstrap and base routes
-- Health check and service info endpoints
-- Local knowledge ingestion for Markdown and text files
-- Chroma-backed vector storage helpers
-- Minimal semantic search service
-- Minimal grounded chat service with citations
-- Minimal grounded summarize service with citations
-- Stable `domain` and `ports` contracts
+- local knowledge ingest
+- Chroma persistence
+- `/search`
+- `/chat`
+- `/summarize`
+- watcher-based incremental maintenance
 
-## Partially Implemented
+The project is still being iterated toward a more complete graduation-project backend with better retrieval quality, more stable edge-case behavior, and stronger engineering discipline.
 
-- Config-driven provider selection
-- Rerank and compression extension points
-- Incremental indexing and watcher-related files now have baseline tests for create/modify/delete behavior, while the long-running observer loop remains primarily a manual demo path
+Recommended local/demo environment:
 
-## Not Yet Implemented
+- `conda`
+- Python `3.11`
+- create from `environment.yml`
 
-- PDF and web ingestion
-- Profile-driven runtime orchestration
-- Multi-document summarization
-- Structured output workflows
-- Active reminder or briefing workflows
-- CI automation
+## Completed Items
 
-## Current Risks
+- FastAPI backend startup
+- `GET /`
+- `GET /health`
+- local ingestion pipeline
+- `.md`, `.txt`, and `.pdf` ingestion
+- Chroma local persistence
+- search response with structured citations
+- grounded chat response with citations
+- grounded summarize response with citations
+- watcher-based create / modify / delete incremental update
+- fallback local demo path without a remote LLM key
+- baseline unit / integration / contract tests in the repository
+- short demo command layer via `python -m app.demo ...`
+- fixed log directory with info / debug / trace level files under `logs/`
 
-- Automated test coverage is still minimal
-- README and implementation must be kept in sync as features evolve
-- Retrieval quality and citation fidelity need measurable validation
-- Dependency consistency still relies on local environment discipline
-- Watcher reliability still depends on the local OS file event environment, so the incremental service is the primary correctness boundary for automated verification
-- Demo quality still depends on whether the environment uses real embeddings or the DummyEmbedding fallback
+## In Progress
 
-## Maintenance Rule
+- stabilizing filtered retrieval behavior
+- improving rebuild behavior for long-running API mode
+- keeping repository documentation aligned with actual code status
+- preparing the project for clearer defense/demo presentation
+- standardizing local/demo environment usage around conda
 
-Before every push:
+## Known Issues
 
-1. Update `docs/CHANGELOG.md`
-2. Update this file if the project status changed materially
-3. Do not edit historical stage reports for routine repository maintenance
+- multi-filter search is brittle and can fail at runtime against the current Chroma query behavior
+- `/ingest` with `rebuild=true` can fail in long-running API mode on Windows because Chroma files may be locked
+- rerank and compress are still placeholder no-op hooks
+- retrieval quality is weaker when the app falls back to `DummyEmbedding`
+- real OpenAI-compatible remote provider support exists in code, but local demos may still use the fallback path
+- CI workflow is not configured yet
+
+## Next Priorities
+
+1. fix the real runtime issues in search filtering and rebuild mode
+2. improve retrieval quality and local demo consistency
+3. add URL ingestion
+4. replace or narrow the rerank/compress placeholders with a concrete implementation
+5. add CI and keep tests easy to run locally
+6. continue syncing README, status, and demo docs with code changes
+
+## Documentation Update Rule
+
+Update this file before or immediately after each important push that changes:
+
+- what features are actually working
+- what the recommended demo path is
+- what issues are currently blocking or partially implemented
+- what the next short-term iteration priorities are
+
+This file is intended to be the lightweight project-progress ledger for the repository.

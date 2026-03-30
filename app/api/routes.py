@@ -15,6 +15,7 @@ from app.api.schemas import (
     SummarizeResponse,
 )
 from app.core.config import get_settings
+from app.core.logging import TRACE_LEVEL_NUM
 from app.services.chat_service import ChatService
 from app.services.ingest_service import IngestService
 from app.services.search_service import SearchService
@@ -29,14 +30,10 @@ summarize_service = SummarizeService()
 ingest_service = IngestService()
 
 
-# ---------------------------------------------------------------------------
-# Health / root
-# ---------------------------------------------------------------------------
-
 @router.get("/", summary="Service info")
 def root() -> dict[str, str]:
     settings = get_settings()
-    logger.debug("Root endpoint called")
+    logger.log(TRACE_LEVEL_NUM, "Root endpoint called")
     return {
         "service": settings.app_name,
         "version": settings.app_version,
@@ -46,7 +43,7 @@ def root() -> dict[str, str]:
 @router.get("/health", summary="Health check")
 def health() -> dict[str, str]:
     settings = get_settings()
-    logger.debug("Health endpoint called")
+    logger.log(TRACE_LEVEL_NUM, "Health endpoint called")
     return {
         "status": "ok",
         "service": settings.app_name,
@@ -54,20 +51,12 @@ def health() -> dict[str, str]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Ingest
-# ---------------------------------------------------------------------------
-
 @router.post("/ingest", response_model=IngestResponse, summary="Ingest knowledge base documents")
 def ingest(payload: IngestRequest) -> IngestResponse:
     logger.info("Ingest endpoint called: rebuild=%s", payload.rebuild)
     result = ingest_service.ingest(rebuild=payload.rebuild)
     return IngestResponse(**result)
 
-
-# ---------------------------------------------------------------------------
-# Search
-# ---------------------------------------------------------------------------
 
 @router.post("/search", response_model=SearchResponse, summary="Semantic search with citations")
 def search(payload: SearchRequest) -> SearchResponse:
@@ -77,10 +66,6 @@ def search(payload: SearchRequest) -> SearchResponse:
     return SearchResponse(**result)
 
 
-# ---------------------------------------------------------------------------
-# Chat
-# ---------------------------------------------------------------------------
-
 @router.post("/chat", response_model=ChatResponse, summary="Grounded chat with citations")
 def chat(payload: ChatRequest) -> ChatResponse:
     logger.debug("Chat endpoint called: top_k=%d", payload.top_k)
@@ -88,10 +73,6 @@ def chat(payload: ChatRequest) -> ChatResponse:
     result = chat_service.chat(query=payload.query, top_k=payload.top_k, filters=filters)
     return ChatResponse(**result)
 
-
-# ---------------------------------------------------------------------------
-# Summarize
-# ---------------------------------------------------------------------------
 
 @router.post("/summarize", response_model=SummarizeResponse, summary="Grounded summarization")
 def summarize(payload: SummarizeRequest) -> SummarizeResponse:

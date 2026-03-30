@@ -4,22 +4,23 @@
 
 This demo shows the difference between:
 
-- full rebuild via `python -m app.rag.ingest --rebuild`
-- per-file incremental maintenance via `python -m app.rag.watcher`
+- full rebuild via `python -m app.demo ingest`
+- per-file incremental maintenance via `python -m app.demo watch`
 
 ## Recommended Demo Flow
 
 1. Rebuild the knowledge base once:
 
-```bash
-python -m app.rag.ingest --rebuild
+```powershell
+conda activate minddock
+python -m app.demo ingest
 ```
 
 2. Start the watcher in a separate terminal:
 
-```bash
-set WATCH_ENABLED=true
-python -m app.rag.watcher
+```powershell
+conda activate minddock
+python -m app.demo watch
 ```
 
 3. Under `knowledge_base/`, perform these actions:

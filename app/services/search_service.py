@@ -32,9 +32,9 @@ class SearchService:
 
         raw_hits = search_collection(query_embedding=query_embedding, top_k=top_k, filters=filters)
 
-        logger.info(
-            "Vector search completed: query_preview=%s top_k=%d raw_hits=%d",
-            query[:60], top_k, len(raw_hits),
+        logger.debug(
+            "Vector search completed: query_preview=%s top_k=%d raw_hits=%d filters=%s",
+            query[:60], top_k, len(raw_hits), filters,
         )
 
         hits = []

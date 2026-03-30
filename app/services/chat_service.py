@@ -48,6 +48,14 @@ class ChatService:
             reranked_hits = self.reranker.rerank(query=query, hits=grounded_hits)
             compressed_hits = self.compressor.compress(query=query, hits=reranked_hits)
             context = build_context(compressed_hits)
+            logger.debug(
+                "Chat context assembled: query_preview=%s grounded=%d reranked=%d compressed=%d context_chars=%d",
+                query[:60],
+                len(grounded_hits),
+                len(reranked_hits),
+                len(compressed_hits),
+                len(context),
+            )
             answer = self.llm.generate(query=query, evidence=context)
             citations = [build_citation(hit) for hit in compressed_hits]
 

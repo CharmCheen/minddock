@@ -9,6 +9,7 @@ venv/
 
 # Build/Test artifacts
 .pytest_cache/
+.pytest_tmp/
 .mypy_cache/
 .coverage
 htmlcov/
@@ -40,6 +41,7 @@ data/chroma/
 # Environment
 .env
 .env.*
+*.local.ps1
 
 # Test artifacts
 .ruff_cache/

@@ -11,10 +11,6 @@ from fastapi.responses import JSONResponse
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Custom exceptions
-# ---------------------------------------------------------------------------
-
 class ServiceError(Exception):
     """Base exception for all service-layer errors."""
 
@@ -47,9 +43,12 @@ class ChatError(ServiceError):
     error_category: str = "chat_error"
 
 
-# ---------------------------------------------------------------------------
-# FastAPI exception handler registration
-# ---------------------------------------------------------------------------
+class SummarizeError(ServiceError):
+    """Raised when grounded summarization fails."""
+
+    status_code: int = 500
+    error_category: str = "summarize_error"
+
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register global exception handlers so routes stay clean."""

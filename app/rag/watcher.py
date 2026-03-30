@@ -50,7 +50,7 @@ def run_watcher() -> None:
         ) from exc
 
     settings = get_settings()
-    setup_logging(settings.log_level)
+    setup_logging(settings.log_level, settings.log_dir, settings.app_name)
     if not settings.watch_enabled:
         raise RuntimeError("WATCH_ENABLED must be true before starting the watcher")
 
@@ -64,10 +64,11 @@ def run_watcher() -> None:
     observer.start()
 
     logger.info(
-        "Knowledge base watcher started: watch_path=%s recursive=%s debounce_seconds=%s",
+        "Knowledge base watcher started: watch_path=%s recursive=%s debounce_seconds=%s log_dir=%s",
         str(watch_path),
         settings.watch_recursive,
         settings.watch_debounce_seconds,
+        settings.log_dir,
     )
 
     try:

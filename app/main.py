@@ -11,7 +11,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 
 settings = get_settings()
-setup_logging(settings.log_level)
+setup_logging(settings.log_level, settings.log_dir, settings.app_name)
 logger = logging.getLogger(__name__)
 
 
@@ -25,6 +25,7 @@ async def lifespan(_: FastAPI):
             "service": settings.app_name,
             "version": settings.app_version,
             "log_level": settings.log_level,
+            "log_dir": settings.log_dir,
         },
     )
     yield

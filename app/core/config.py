@@ -1,4 +1,4 @@
-﻿"""Application settings loaded from environment variables."""
+"""Application settings loaded from environment variables."""
 
 from functools import lru_cache
 
@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 KB_DIR = "knowledge_base"
 CHROMA_DIR = "data/chroma"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+LOG_DIR = "logs"
 LLM_BASE_URL = "https://api.openai.com/v1"
 LLM_MODEL = "gpt-4o-mini"
 LLM_TIMEOUT_SECONDS = 30.0
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     app_name: str = "MindDock"
     app_version: str = "0.1.0"
     log_level: str = "INFO"
+    log_dir: str = LOG_DIR
     kb_dir: str = KB_DIR
     chroma_dir: str = CHROMA_DIR
     embedding_model: str = EMBEDDING_MODEL

@@ -4,7 +4,7 @@
 
 MindDock 是一个面向毕业设计演示的本地知识库问答后端，当前实现了一套最小可演示的 RAG 流程：
 
-- 导入本地 `.md` / `.txt` 文档
+- 导入本地 `.md` / `.txt` / `.pdf` 文档
 - 构建本地向量知识库
 - 提供 `/search`、`/chat`、`/summarize` 接口
 - 支持基于文件变更的增量更新
@@ -39,28 +39,31 @@ knowledge_base/ 文档
 watcher.py -> incremental.py -> vectorstore.py
 ```
 
-## 当前主要更改
+## 当前主要改进
 
 目前仓库已经补齐并整理了这些能力：
 
 - 增加 `/summarize` 接口，支持基于检索结果生成带引用的总结
-- `/search` 与 `/chat` 支持 `source`、`section` 两个基础过滤字段
-- 引用信息补充了 `title`、`section`、`location`、`ref` 等字段，便于答辩展示
+- `/search` 与 `/chat` 支持统一 citation 结构返回
 - 增量更新支持 create / modify / delete，并补了测试与文档
 - README 与演示文档已经整理为适合本地演示的流程
 - 补充了 `knowledge_base/example.md`，新克隆后可以直接演示
+- 增加了 `app.demo` 命令层，方便彩排与答辩现场操作
 
 ## 本地启动流程
+
+当前推荐把 `conda` 作为默认本地环境方案，统一毕业设计演示和日常开发路径。
 
 在项目根目录执行：
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
-python -m app.rag.ingest --rebuild
-python -m uvicorn app.main:app --reload
+conda env create -f environment.yml
+conda activate minddock
+python -m app.demo ingest
+python -m app.demo serve
 ```
+
+如果你已经有旧的 `.venv` 工作流，也仍然可以继续使用；但新环境准备、演示彩排和文档说明都建议优先以 conda 为准。
 
 启动后可访问：
 
@@ -72,9 +75,8 @@ python -m uvicorn app.main:app --reload
 如果要演示知识库文件变更后的自动更新，再开一个终端执行：
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
-$env:WATCH_ENABLED="true"
-python -m app.rag.watcher
+conda activate minddock
+python -m app.demo watch
 ```
 
 然后在 `knowledge_base/` 下新增、修改或删除 `.md` / `.txt` 文件即可。
@@ -84,3 +86,8 @@ python -m app.rag.watcher
 - 默认不需要额外配置 `.env`
 - 没有 `LLM_API_KEY` 时，`/chat` 和 `/summarize` 会走 `MockLLM`
 - 如果 `sentence-transformers` 不可用，会回退到 `DummyEmbedding`，流程仍可运行，但检索效果会变弱
+- 当前推荐使用 `environment.yml` 创建 conda 环境，并通过 `python -m app.demo ...` 进行演示
+- 日志固定输出到 `logs/`，默认包含：
+  - `logs/minddock.info.log`
+  - `logs/minddock.debug.log`
+  - `logs/minddock.trace.log`

@@ -16,7 +16,7 @@ Target flow:
 
 Before presenting:
 
-1. Ensure at least one `.md` or `.txt` file exists under `knowledge_base/`
+1. Ensure at least one `.md`, `.txt`, or `.pdf` file exists under `knowledge_base/`
 2. The repository already includes `knowledge_base/example.md` for a fresh-clone demo
 3. Rebuild the knowledge base once
 4. Start the FastAPI service
@@ -24,24 +24,26 @@ Before presenting:
 
 Recommended commands:
 
-```bash
-python -m app.rag.ingest --rebuild
-uvicorn app.main:app --reload
+```powershell
+conda env create -f environment.yml
+conda activate minddock
+python -m app.demo ingest
+python -m app.demo serve
 ```
 
 Optional watcher terminal:
 
-```bash
-set WATCH_ENABLED=true
-python -m app.rag.watcher
+```powershell
+conda activate minddock
+python -m app.demo watch
 ```
 
 ## Step 1: Full Ingest
 
 Command:
 
-```bash
-python -m app.rag.ingest --rebuild
+```powershell
+python -m app.demo ingest
 ```
 
 What to say:
@@ -59,52 +61,35 @@ What success looks like:
 
 Example request:
 
-```bash
-curl -X POST http://127.0.0.1:8000/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "storage design",
-    "top_k": 3,
-    "filters": {
-      "source": "notes.md"
-    }
-  }'
+```powershell
+python -m app.demo search
 ```
 
 What to say:
 
 - this shows controlled retrieval from the local knowledge base
-- filters can restrict the search scope by source or section
+- search is currently safest to demo without extra filters
 - this is the foundation for grounded answers and summaries
 
 What to point at:
 
 - the returned `hits`
 - the `source`
-- the difference between filtered and unfiltered retrieval
+- the returned citation structure
 
 ## Step 3: Chat Demo
 
 Example request:
 
-```bash
-curl -X POST http://127.0.0.1:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "where is the data stored",
-    "top_k": 3,
-    "filters": {
-      "source": "notes.md",
-      "section": "Storage"
-    }
-  }'
+```powershell
+python -m app.demo chat
 ```
 
 What to say:
 
 - the answer is grounded in retrieved evidence rather than open-ended generation
 - citations are returned with traceable fields such as `ref`, `section`, and `location`
-- even without a real API key, the mock path still produces a stable demo
+- even without a real API key, the fallback path still produces a stable demo
 
 What to point at:
 
@@ -116,16 +101,8 @@ What to point at:
 
 Example request:
 
-```bash
-curl -X POST http://127.0.0.1:8000/summarize \
-  -H "Content-Type: application/json" \
-  -d '{
-    "topic": "storage design",
-    "top_k": 5,
-    "filters": {
-      "source": "notes.md"
-    }
-  }'
+```powershell
+python -m app.demo summarize
 ```
 
 What to say:
@@ -144,9 +121,9 @@ What to point at:
 
 Best run with watcher in a second terminal:
 
-```bash
-set WATCH_ENABLED=true
-python -m app.rag.watcher
+```powershell
+conda activate minddock
+python -m app.demo watch
 ```
 
 Then perform these actions under `knowledge_base/`:
@@ -172,6 +149,7 @@ What to point at:
 ### No real embedding model
 
 Symptom:
+
 - ingest prints a warning and falls back to `DummyEmbedding`
 
 Safe explanation:
@@ -183,16 +161,18 @@ Safe explanation:
 ### No API key
 
 Symptom:
-- `/chat` and `/summarize` use the mock provider
+
+- `/chat` and `/summarize` use the mock or fallback provider
 
 Safe explanation:
 
 - the system still demonstrates grounded generation with citations
-- the mock path is intentionally kept for stable offline demos
+- the fallback path is intentionally kept for stable offline demos
 
 ### Watcher is unstable on the current machine
 
 Symptom:
+
 - file events are delayed or inconsistent
 
 Safe explanation:
@@ -204,8 +184,8 @@ Safe explanation:
 
 You can summarize the project like this:
 
-1. We first build a local knowledge base from Markdown or text files.
-2. We then perform controlled retrieval with optional metadata filters.
+1. We first build a local knowledge base from Markdown, text, or PDF files.
+2. We then perform controlled retrieval on top of that local store.
 3. On top of retrieval, we support grounded Q&A with citations.
 4. We also support grounded topic summarization with the same citation chain.
 5. Finally, we support incremental maintenance so the knowledge base can stay updated as files change.

@@ -35,7 +35,7 @@ class NoOpReranker(Reranker):
 
     def rerank(self, query: str, hits: list[dict[str, object]]) -> list[dict[str, object]]:
         if self._enabled:
-            logger.info("NoOp reranker executed: provider=%s hit_count=%s", self._provider, len(hits))
+            logger.debug("NoOp reranker executed: provider=%s hit_count=%s", self._provider, len(hits))
         return hits
 
 
@@ -48,7 +48,7 @@ class NoOpCompressor(Compressor):
 
     def compress(self, query: str, hits: list[dict[str, object]]) -> list[dict[str, object]]:
         if self._enabled:
-            logger.info("NoOp compressor executed: provider=%s hit_count=%s", self._provider, len(hits))
+            logger.debug("NoOp compressor executed: provider=%s hit_count=%s", self._provider, len(hits))
         return hits
 
 

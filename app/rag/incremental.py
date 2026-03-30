@@ -103,7 +103,7 @@ class IncrementalIngestService:
         if self._is_debounced(path):
             return
         if not self._is_under_kb_dir(path):
-            logger.info("Deleted file event ignored because file is outside watch path: %s", path)
+            logger.debug("Deleted file event ignored because file is outside watch path: %s", path)
             return
 
         source_path = self._relative_source_path(path)
@@ -123,10 +123,10 @@ class IncrementalIngestService:
         if self._is_debounced(path):
             return
         if not path.exists():
-            logger.info("Watcher event ignored because file no longer exists: %s", path)
+            logger.debug("Watcher event ignored because file no longer exists: %s", path)
             return
         if not self._is_under_kb_dir(path):
-            logger.info("Watcher event ignored because file is outside watch path: %s", path)
+            logger.debug("Watcher event ignored because file is outside watch path: %s", path)
             return
 
         source_path = self._relative_source_path(path)
@@ -134,7 +134,7 @@ class IncrementalIngestService:
         content_hash = self._compute_hash(path)
         stored = self._hash_store.get(source_path)
         if stored and stored.get("content_hash") == content_hash:
-            logger.info(
+            logger.debug(
                 "Hash unchanged, skipping rebuild: event=%s source=%s doc_id=%s",
                 event_type,
                 source_path,
@@ -186,7 +186,7 @@ class IncrementalIngestService:
         key = str(path.resolve())
         previous = self._last_seen.get(key)
         if previous is not None and now - previous < self._debounce_seconds:
-            logger.info(
+            logger.debug(
                 "Watcher event ignored by debounce: path=%s debounce_seconds=%s",
                 key,
                 self._debounce_seconds,

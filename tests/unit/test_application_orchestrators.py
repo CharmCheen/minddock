@@ -1,0 +1,645 @@
+"""Unit tests for application-layer orchestrators and facade assembly."""
+
+from dataclasses import dataclass
+
+from app.application.artifacts import ArtifactKind, MermaidArtifact, SearchResultsArtifact, SkillResultArtifact, StructuredJsonArtifact, TextArtifact
+from app.application.events import ExecutionEventKind, ExecutionRunStatus
+from app.application.models import OutputMode, SkillPolicy, SkillPolicyMode, TaskType, UnifiedExecutionRequest
+from app.application.orchestrators import ChatOrchestrator, FrontendFacade, KnowledgeBaseOrchestrator, SkillOrchestrator
+from app.application.run_control import RunRegistry, RunControlConfig
+from app.rag.retrieval_models import CitationRecord, ComparedPoint, EvidenceObject, GroundedAnswer, GroundedCompareResult, RetrievedChunk, SearchHitRecord, SearchResult
+from app.runtime.factory import RuntimeFactory
+from app.runtime.models import (
+    ExecutionPolicy,
+    RuntimeCapabilities,
+    RuntimeProfile,
+    RuntimeSelectionMode,
+)
+from app.runtime.profiles import RuntimeProfileRegistry
+from app.runtime.registry import RuntimeRegistry
+from app.runtime.resolver import RuntimeResolver
+from app.services.service_models import ChatServiceResult, CompareServiceResult, IngestServiceResult, SearchServiceResult, SummarizeServiceResult, UseCaseMetadata
+
+
+@dataclass
+class FakeQueryServices:
+    search_result: object
+    chat_result: object
+    summarize_result: object
+    compare_result: object | None = None
+
+    def search(self, **kwargs):
+        self.search_kwargs = kwargs
+        return self.search_result
+
+    def chat(self, **kwargs):
+        self.chat_kwargs = kwargs
+        return self.chat_result
+
+    def summarize(self, **kwargs):
+        self.summarize_kwargs = kwargs
+        return self.summarize_result
+
+    def compare(self, **kwargs):
+        self.compare_kwargs = kwargs
+        return self.compare_result
+
+
+@dataclass
+class FakeKnowledgeBaseServices:
+    ingest_result: object
+    list_result: object
+
+    def ingest(self, **kwargs):
+        self.ingest_kwargs = kwargs
+        return self.ingest_result
+
+    def list_sources(self, **kwargs):
+        self.list_kwargs = kwargs
+        return self.list_result
+
+
+def test_chat_orchestrator_delegates_to_services() -> None:
+    search_result = SearchServiceResult(search_result=type("SearchResult", (), {"query": "q", "top_k": 1, "hits": [], "to_api_dict": lambda self: {}})())
+    chat_result = ChatServiceResult(answer="a", citations=[])
+    summarize_result = SummarizeServiceResult(summary="s", citations=[])
+    compare_result = CompareServiceResult(compare_result=GroundedCompareResult(query="q"), citations=[])
+    orchestrator = ChatOrchestrator(
+        search_service=FakeQueryServices(search_result, chat_result, summarize_result, compare_result),
+        chat_service=FakeQueryServices(search_result, chat_result, summarize_result, compare_result),
+        summarize_service=FakeQueryServices(search_result, chat_result, summarize_result, compare_result),
+        compare_service=FakeQueryServices(search_result, chat_result, summarize_result, compare_result),
+    )
+
+    assert orchestrator.search(query="q", top_k=1) is search_result
+    assert orchestrator.chat(query="q", top_k=1) is chat_result
+    assert orchestrator.summarize(topic="q", top_k=1) is summarize_result
+    assert orchestrator.compare(question="q", top_k=1) is compare_result
+
+
+def test_knowledge_base_orchestrator_delegates_to_services() -> None:
+    ingest_result = IngestServiceResult(batch=type("Batch", (), {"documents": 0, "chunks": 0, "ingested_sources": [], "failed_sources": [], "to_api_dict": lambda self: {}})())
+    list_result = object()
+    orchestrator = KnowledgeBaseOrchestrator(
+        ingest_service=FakeKnowledgeBaseServices(ingest_result, list_result),
+        catalog_service=FakeKnowledgeBaseServices(ingest_result, list_result),
+    )
+
+    assert orchestrator.ingest(rebuild=True, urls=["https://example.com"]) is ingest_result
+    assert orchestrator.list_sources(source_type="url") is list_result
+
+
+def test_skill_orchestrator_executes_registry_skill() -> None:
+    result = SkillOrchestrator().execute_skill(name="echo", arguments={"text": "hello"}, debug=True)
+
+    assert result.ok is True
+    assert result.output["text"] == "hello"
+    assert result.output["debug"] is True
+
+
+def test_frontend_facade_exposes_orchestrators() -> None:
+    facade = FrontendFacade()
+    assert isinstance(facade.chat, ChatOrchestrator)
+    assert isinstance(facade.knowledge_base, KnowledgeBaseOrchestrator)
+    assert isinstance(facade.skills, SkillOrchestrator)
+
+
+class FakeRuntime:
+    runtime_name = "langchain"
+    provider_name = "fake-provider"
+    capabilities = RuntimeCapabilities(supports_chat=True, supports_summarize=True)
+
+
+def _runtime_stack():
+    profile_registry = RuntimeProfileRegistry()
+    profile_registry.register(
+        RuntimeProfile(
+            profile_id="default_cloud",
+            display_name="Default Cloud",
+            adapter_kind="langchain",
+            provider_kind="openai_compatible",
+            model_name="gpt-4o-mini",
+            tags=("cloud", "quality"),
+        )
+    )
+    runtime_registry = RuntimeRegistry(default_adapter_kind="langchain")
+    runtime_registry.register(
+        "langchain",
+        lambda profile: FakeRuntime(),
+        default_capabilities=RuntimeCapabilities(supports_chat=True, supports_summarize=True),
+        make_default=True,
+    )
+    resolver = RuntimeResolver(runtime_registry=runtime_registry, profile_registry=profile_registry)
+    factory = RuntimeFactory(runtime_registry=runtime_registry, profile_registry=profile_registry)
+    return profile_registry, resolver, factory
+
+
+def _run_registry() -> RunRegistry:
+    return RunRegistry(config=RunControlConfig(max_runs=20, recent_event_buffer_size=20, completed_run_ttl_seconds=60, heartbeat_interval_seconds=2))
+
+
+def test_unified_execution_chat_returns_runtime_profile_metadata(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fake_run_chat_with_runtime(*, request, runtime):
+        return ChatServiceResult(
+            answer="chat response",
+            citations=[],
+            grounded_answer=GroundedAnswer(
+                answer="chat response",
+                evidence=(EvidenceObject(doc_id="d1", chunk_id="c1", source="kb/doc.md", snippet="proof", score=0.2),),
+            ),
+            metadata=UseCaseMetadata(retrieved_count=1, mode="grounded", support_status="supported"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    assert response.primary_text() == "chat response"
+    assert isinstance(response.artifacts[0], TextArtifact)
+    assert response.grounded_answer is not None
+    assert response.grounded_answer.support_status.value == "supported"
+    assert response.artifacts[0].metadata["grounded_answer"]["support_status"] == "supported"
+    assert response.metadata.selected_profile_id == "default_cloud"
+    assert response.metadata.selection_reason is not None
+    assert response.metadata.artifact_kinds_returned == ("text",)
+    assert response.execution_summary.primary_artifact_kind == "text"
+
+
+def test_unified_execution_chat_collects_stable_event_sequence(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fake_run_chat_with_runtime(*, request, runtime):
+        return ChatServiceResult(
+            answer="chat response",
+            citations=[],
+            grounded_answer=GroundedAnswer(answer="chat response"),
+            metadata=UseCaseMetadata(retrieved_count=1, mode="grounded", support_status="supported"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
+
+    run = facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_events=True,
+            include_metadata=True,
+        )
+    )
+
+    kinds = [event.kind.value for event in run.events]
+    assert run.status == ExecutionRunStatus.COMPLETED
+    assert kinds[0] == "run_started"
+    assert kinds[1] == "plan_built"
+    assert "metadata_updated" in kinds
+    assert kinds[-1] == "run_completed"
+    assert any(event.kind == ExecutionEventKind.ARTIFACT_EMITTED for event in run.events)
+    assert tuple(event.sequence for event in run.events) == tuple(range(1, len(run.events) + 1))
+
+
+def test_unified_execution_chat_preserves_grounded_answer_in_compatibility_entrypoint(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fake_run_chat_with_runtime(*, request, runtime):
+        return ChatServiceResult(
+            answer="chat response",
+            citations=[CitationRecord(doc_id="d1", chunk_id="c1", source="kb/doc.md", snippet="proof")],
+            grounded_answer=GroundedAnswer(
+                answer="chat response",
+                evidence=(EvidenceObject(doc_id="d1", chunk_id="c1", source="kb/doc.md", snippet="proof", score=0.2),),
+            ),
+            metadata=UseCaseMetadata(retrieved_count=1, mode="grounded", support_status="supported"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
+
+    result = facade.execute_chat_request(query="hello", top_k=3)
+
+    assert result.grounded_answer is not None
+    assert result.grounded_answer.support_status.value == "supported"
+    assert result.grounded_answer.evidence[0].chunk_id == "c1"
+
+
+def test_unified_execution_summarize_supports_mermaid_with_execution_policy(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fake_run_summarize_with_runtime(*, request, runtime):
+        return SummarizeServiceResult(
+            summary="summary response",
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=1, mode="basic", output_format="mermaid"),
+            structured_output="mindmap\n  root((summary))",
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_summarize_with_runtime", fake_run_summarize_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.SUMMARIZE,
+            user_input="storage",
+            output_mode=OutputMode.MERMAID,
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    assert response.primary_text() == "summary response"
+    assert isinstance(response.primary_block(OutputMode.MERMAID), MermaidArtifact)
+    assert response.execution_summary.selected_profile_id == "default_cloud"
+
+
+def test_unified_execution_summarize_emits_mermaid_artifact_event(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fake_run_summarize_with_runtime(*, request, runtime):
+        return SummarizeServiceResult(
+            summary="summary response",
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=1, mode="basic", output_format="mermaid"),
+            structured_output="mindmap\n  root((summary))",
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_summarize_with_runtime", fake_run_summarize_with_runtime)
+
+    run = facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.SUMMARIZE,
+            user_input="storage",
+            output_mode=OutputMode.MERMAID,
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_events=True,
+        )
+    )
+
+    artifact_events = [event for event in run.events if event.kind == ExecutionEventKind.ARTIFACT_EMITTED]
+    assert any(isinstance(event.payload.artifact, MermaidArtifact) for event in artifact_events)
+
+
+def test_unified_execution_search_returns_search_results_artifact(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    search_result = SearchServiceResult(
+        search_result=SearchResult(
+            query="search me",
+            top_k=2,
+            hits=[
+                SearchHitRecord(
+                    chunk=RetrievedChunk(
+                        text="result snippet",
+                        doc_id="d1",
+                        chunk_id="c1",
+                        source="kb/doc.md",
+                        source_type="file",
+                        title="doc",
+                        distance=0.2,
+                    ),
+                    citation=CitationRecord(doc_id="d1", chunk_id="c1", source="kb/doc.md", snippet="result snippet"),
+                )
+            ],
+        ),
+        metadata=UseCaseMetadata(retrieved_count=1),
+    )
+    monkeypatch.setattr(chat_orchestrator, "search", lambda **kwargs: search_result)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.SEARCH,
+            user_input="search me",
+            include_metadata=True,
+        )
+    )
+
+    assert isinstance(response.artifacts[0], SearchResultsArtifact)
+    assert response.artifacts[0].items[0].chunk_id == "c1"
+    assert response.metadata.artifact_kinds_returned == ("search_results",)
+    assert response.metadata.search_result_count == 1
+
+
+def test_unified_execution_search_has_stable_step_events(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+    )
+
+    search_result = SearchServiceResult(
+        search_result=SearchResult(
+            query="search me",
+            top_k=1,
+            hits=[],
+        ),
+        metadata=UseCaseMetadata(retrieved_count=0, partial_failure=True, warnings=("empty result",)),
+    )
+    monkeypatch.setattr(chat_orchestrator, "search", lambda **kwargs: search_result)
+
+    run = facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.SEARCH,
+            user_input="search me",
+            include_events=True,
+            include_metadata=True,
+        )
+    )
+
+    step_kinds = [event.kind.value for event in run.events if event.kind in {ExecutionEventKind.STEP_STARTED, ExecutionEventKind.STEP_COMPLETED}]
+    assert step_kinds[:2] == ["step_started", "step_started"]
+    assert "warning_emitted" in [event.kind.value for event in run.events]
+    assert run.final_response is not None
+    assert run.final_response.metadata.partial_failure is True
+
+
+def test_unified_execution_compare_matches_direct_compare_semantics(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    compare_result = CompareServiceResult(
+        compare_result=GroundedCompareResult(
+            query="compare storage",
+            common_points=(
+                ComparedPoint(
+                    statement="Both docs discuss storage.",
+                    left_evidence=(EvidenceObject(doc_id="d1", chunk_id="c1", source="kb/a.md", snippet="A storage", score=0.2),),
+                    right_evidence=(EvidenceObject(doc_id="d2", chunk_id="c2", source="kb/b.md", snippet="B storage", score=0.3),),
+                ),
+            ),
+            differences=(
+                ComparedPoint(
+                    statement="The docs use different storage backends.",
+                    left_evidence=(EvidenceObject(doc_id="d1", chunk_id="c1", source="kb/a.md", snippet="A storage", score=0.2),),
+                    right_evidence=(EvidenceObject(doc_id="d2", chunk_id="c2", source="kb/b.md", snippet="B storage", score=0.3),),
+                ),
+            ),
+        ),
+        citations=[
+            CitationRecord(doc_id="d1", chunk_id="c1", source="kb/a.md", snippet="A storage"),
+            CitationRecord(doc_id="d2", chunk_id="c2", source="kb/b.md", snippet="B storage"),
+        ],
+        metadata=UseCaseMetadata(retrieved_count=2, mode="grounded_compare", support_status="supported"),
+    )
+
+    monkeypatch.setattr(chat_orchestrator, "compare", lambda **kwargs: compare_result)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.COMPARE,
+            user_input="compare storage",
+            output_mode=OutputMode.STRUCTURED,
+            include_metadata=True,
+        )
+    )
+    direct = facade.execute_compare_request(question="compare storage", top_k=5)
+
+    assert response.compare_result is not None
+    assert response.compare_result.support_status.value == "supported"
+    assert response.compare_result.differences[0].left_evidence[0].freshness.value == "fresh"
+    assert response.artifacts[0].metadata["compare_result"]["support_status"] == "supported"
+    assert direct.compare_result.query == response.compare_result.query
+    assert direct.compare_result.differences[0].statement == response.compare_result.differences[0].statement
+
+
+def test_unified_execution_structured_mode_returns_structured_json_artifact(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+    )
+
+    def fake_run_summarize_with_runtime(*, request, runtime):
+        return SummarizeServiceResult(
+            summary="summary response",
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=1, mode="basic", output_format="text"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_summarize_with_runtime", fake_run_summarize_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.SUMMARIZE,
+            user_input="storage",
+            output_mode=OutputMode.STRUCTURED,
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    assert isinstance(response.artifacts[0], TextArtifact)
+    assert isinstance(response.artifacts[1], StructuredJsonArtifact)
+    assert response.artifacts[1].data["summary"] == "summary response"
+
+
+def test_skill_disabled_does_not_invoke_skill(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    skill_orchestrator = SkillOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        skills=skill_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fake_run_chat_with_runtime(*, request, runtime):
+        return ChatServiceResult(answer="chat response", citations=[], metadata=UseCaseMetadata(retrieved_count=1))
+
+    def fail_execute_skill(**kwargs):
+        raise AssertionError("skill should not be invoked")
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
+    monkeypatch.setattr(skill_orchestrator, "execute_skill", fail_execute_skill)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            skill_policy=SkillPolicy(mode=SkillPolicyMode.DISABLED),
+            include_metadata=True,
+        )
+    )
+
+    assert response.execution_summary.skill_invocations == ()
+    assert not any(isinstance(artifact, SkillResultArtifact) for artifact in response.artifacts)
+
+
+def test_allowlisted_echo_skill_executes_via_plan_step(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        skills=SkillOrchestrator(),
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fake_run_chat_with_runtime(*, request, runtime):
+        return ChatServiceResult(answer="chat response", citations=[], metadata=UseCaseMetadata(retrieved_count=1))
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="echo me",
+            skill_policy=SkillPolicy(mode=SkillPolicyMode.ALLOWLISTED, allowlist=("echo",)),
+            include_metadata=True,
+        )
+    )
+
+    assert response.execution_summary.skill_invocations[0].name == "echo"
+    assert response.metadata.skill_invocations[0].output_preview == "echo me"
+    assert any(isinstance(artifact, SkillResultArtifact) for artifact in response.artifacts)
+    assert response.metadata.skill_artifact_count == 1
+
+
+def test_unified_execution_failure_collects_run_failed_event(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fail_run_chat_with_runtime(*, request, runtime):
+        raise RuntimeError("chat exploded")
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fail_run_chat_with_runtime)
+
+    run = facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            include_events=True,
+        )
+    )
+
+    assert run.status == ExecutionRunStatus.FAILED
+    assert run.error is not None
+    assert run.events[-1].kind == ExecutionEventKind.RUN_FAILED
+    assert run.events[-1].payload.detail == "chat exploded"
+
+
+def test_unified_execution_honors_cancellation_request_at_safe_boundary(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    registry = _run_registry()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=registry,
+    )
+
+    original_register = registry.register
+
+    def register_and_cancel(run, **kwargs):
+        managed = original_register(run, **kwargs)
+        registry.request_cancellation(run.run_id)
+        return managed
+
+    monkeypatch.setattr(registry, "register", register_and_cancel)
+
+    run = facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            include_events=True,
+        )
+    )
+
+    assert run.status == ExecutionRunStatus.CANCELLED
+    assert run.events[-1].kind == ExecutionEventKind.RUN_FAILED
+    assert "cancelled" in run.events[-1].payload.detail.lower()

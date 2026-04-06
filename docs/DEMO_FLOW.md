@@ -10,7 +10,8 @@ Target flow:
 2. search
 3. question answering
 4. topic summarization
-5. incremental maintenance
+5. structured Mermaid output
+6. incremental maintenance
 
 ## Demo Preparation
 
@@ -117,7 +118,36 @@ What to point at:
 - `citations`
 - `retrieved_count`
 
-## Step 5: Incremental Update Demo
+Optional upgraded demo:
+
+```powershell
+python -m app.demo summarize --mode map_reduce
+```
+
+What to say:
+
+- this version first builds partial summaries across grouped evidence and then reduces them into one grounded synthesis
+- it is still traceable back to the original citations
+
+Optional Mermaid demo:
+
+```powershell
+python -m app.demo summarize --mode map_reduce --output-format mermaid
+```
+
+What to point at:
+
+- `structured_output`
+- the returned Mermaid text is grounded in retrieved evidence
+
+## Step 5: Structured Output Demo
+
+Use the Mermaid variant above and explain:
+
+- the system can turn grounded evidence into a structured representation for demo/presentation use
+- this is a lightweight first version of knowledge-structure output, not yet a full visual reasoning engine
+
+## Step 6: Incremental Update Demo
 
 Best run with watcher in a second terminal:
 

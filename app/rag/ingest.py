@@ -1,66 +1,121 @@
-"""CLI for ingesting local documents into Chroma."""
+"""Source-to-document builders and CLI helpers for ingestion."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import logging
 import shutil
-from collections.abc import Iterator
 from pathlib import Path
+import hashlib
 
 from app.core.config import get_settings
-from app.rag.embeddings import get_embedding_backend
-from app.rag.splitter import split_text, _chunk_by_tokens
-from app.rag.vectorstore import get_vectorstore
+from app.rag.source_loader import (
+    SUPPORTED_EXTENSIONS,
+    SourceLoaderRegistry,
+    build_file_descriptor,
+    build_url_descriptor,
+    iter_file_descriptors,
+)
+from app.rag.source_models import Document, DocumentPayload, SourceDescriptor, SourceLoadResult
+from app.rag.source_models import utc_now_iso
+from app.rag.splitter import _chunk_by_tokens, split_text
+from app.rag.vectorstore import clear_vectorstore_cache, get_vectorstore
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {".md", ".txt", ".pdf"}
-_TEXT_EXTENSIONS = {".md", ".txt"}
-_PDF_EXTENSIONS = {".pdf"}
-
 
 def build_doc_id(path: Path) -> str:
-    return hashlib.sha1(path.as_posix().encode("utf-8")).hexdigest()
+    """Compatibility helper for callers/tests that expect file doc ids."""
+
+    return SourceDescriptor(source=path.as_posix(), source_type="file").doc_id
 
 
-def iter_docs(kb_dir: Path) -> Iterator[Path]:
-    for path in kb_dir.rglob("*"):
-        if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
-            yield path
+def build_url_doc_id(url: str) -> str:
+    """Compatibility helper for callers/tests that expect URL doc ids."""
+
+    return build_url_descriptor(url).doc_id
 
 
-# ---------------------------------------------------------------------------
-# Text document (md / txt) payload builder
-# ---------------------------------------------------------------------------
+def iter_docs(kb_dir: Path):
+    """Compatibility iterator returning local file paths only."""
 
-def _build_text_document_payload(path: Path, kb_dir: Path) -> dict[str, object]:
-    """Build Chroma payload for a plain-text document (md/txt)."""
+    for descriptor in iter_file_descriptors(kb_dir):
+        if descriptor.local_path is not None:
+            yield descriptor.local_path
 
-    relative = path.relative_to(kb_dir)
-    source_path = relative.as_posix()
-    doc_id = build_doc_id(relative)
-    title = path.stem
 
-    ids: list[str] = []
-    documents: list[str] = []
-    metadatas: list[dict[str, str]] = []
+def _build_chunk_documents(
+    *,
+    load_result: SourceLoadResult,
+    page_mode: bool = False,
+) -> list[Document]:
+    documents: list[Document] = []
+    normalized_text = load_result.text.strip()
+    if not normalized_text:
+        return documents
 
-    text = path.read_text(encoding="utf-8", errors="ignore")
-    for index, chunk in enumerate(split_text(text)):
+    descriptor = load_result.descriptor
+    extra = dict(load_result.metadata)
+    content_hash = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
+    last_ingested_at = utc_now_iso()
+    title = load_result.title.strip() or descriptor.display_name
+
+    if page_mode:
+        chunk_index = 0
+        for page_block in normalized_text.split("\n\n[page "):
+            block = page_block.strip()
+            if not block:
+                continue
+            if block.startswith("[page "):
+                header, _, page_text = block.partition("]\n")
+            else:
+                header, _, page_text = block.partition("]\n")
+            if not page_text.strip():
+                continue
+            page_number = header.replace("[page ", "").strip()
+            for chunk_text in _chunk_by_tokens(page_text.strip(), chunk_size=600, overlap=80):
+                chunk_text = chunk_text.strip()
+                if not chunk_text:
+                    continue
+                chunk_id = f"{descriptor.doc_id}:{chunk_index}"
+                location = f"page {page_number}"
+                ref = f"{title} > page {page_number}"
+                metadata = {
+                    "doc_id": descriptor.doc_id,
+                    "source": descriptor.source,
+                    "source_path": descriptor.source_path,
+                    "source_type": descriptor.source_type,
+                    "title": title,
+                    "chunk_id": chunk_id,
+                    "section": "",
+                    "location": location,
+                    "ref": ref,
+                    "page": str(page_number),
+                    "anchor": "",
+                    "source_version": content_hash,
+                    "content_hash": content_hash,
+                    "last_ingested_at": last_ingested_at,
+                    "ingest_status": "ready",
+                    **extra,
+                }
+                documents.append(Document(page_content=chunk_text, metadata=metadata))
+                chunk_index += 1
+        return documents
+
+    for index, chunk in enumerate(split_text(normalized_text)):
         chunk_text = (chunk.get("text") or "").strip()
         if not chunk_text:
             continue
 
-        chunk_id = f"{doc_id}:{index}"
         section = str(chunk.get("section") or "").strip()
-        location = section or source_path
+        location = section or descriptor.source
         ref = title if not section else f"{title} > {section}"
+        chunk_id = f"{descriptor.doc_id}:{index}"
         metadata = {
-            "doc_id": doc_id,
-            "source": source_path,
-            "source_path": source_path,
+            "doc_id": descriptor.doc_id,
+            "source": descriptor.source,
+            "source_path": descriptor.source_path,
+            "source_type": descriptor.source_type,
             "title": title,
             "chunk_id": chunk_id,
             "section": section,
@@ -68,126 +123,72 @@ def _build_text_document_payload(path: Path, kb_dir: Path) -> dict[str, object]:
             "ref": ref,
             "page": "",
             "anchor": "",
+            "source_version": content_hash,
+            "content_hash": content_hash,
+            "last_ingested_at": last_ingested_at,
+            "ingest_status": "ready",
+            **extra,
         }
+        documents.append(Document(page_content=chunk_text, metadata=metadata))
 
-        ids.append(chunk_id)
-        documents.append(chunk_text)
-        metadatas.append(metadata)
-
-    return {
-        "doc_id": doc_id,
-        "source_path": source_path,
-        "ids": ids,
-        "documents": documents,
-        "metadatas": metadatas,
-    }
+    return documents
 
 
-# ---------------------------------------------------------------------------
-# PDF document payload builder
-# ---------------------------------------------------------------------------
+def build_documents_for_source(
+    descriptor: SourceDescriptor,
+    registry: SourceLoaderRegistry | None = None,
+) -> list[Document]:
+    """Build LangChain documents for one source descriptor."""
 
-def _build_pdf_document_payload(path: Path, kb_dir: Path) -> dict[str, object]:
-    """Build Chroma payload for a PDF document with real page numbers.
+    source_registry = registry or SourceLoaderRegistry()
+    load_result = source_registry.load(descriptor)
+    is_pdf = descriptor.source_type == "file" and descriptor.local_path is not None and descriptor.local_path.suffix.lower() == ".pdf"
+    return _build_chunk_documents(load_result=load_result, page_mode=is_pdf)
 
-    Flow:
-        1. Extract text per page via pdf_parser.extract_pages()
-        2. For each page, chunk the text using _chunk_by_tokens
-        3. Each chunk carries ``page`` = real 1-based page number (as str
-           for Chroma metadata compatibility)
-    """
-    from app.rag.pdf_parser import extract_pages
 
-    relative = path.relative_to(kb_dir)
-    source_path = relative.as_posix()
-    doc_id = build_doc_id(relative)
-    title = path.stem
+def build_payload_for_source(
+    descriptor: SourceDescriptor,
+    registry: SourceLoaderRegistry | None = None,
+) -> DocumentPayload:
+    """Build a normalized payload for one source descriptor."""
 
-    ids: list[str] = []
-    documents: list[str] = []
-    metadatas: list[dict[str, str]] = []
-
-    pages = extract_pages(path)
-
-    if not pages:
-        logger.warning("PDF yielded no extractable text: path=%s", path)
-        return {
-            "doc_id": doc_id,
-            "source_path": source_path,
-            "ids": [],
-            "documents": [],
-            "metadatas": [],
-        }
-
-    chunk_index = 0
-    for page_data in pages:
-        page_text = page_data.text.strip()
-        if not page_text:
-            continue
-
-        # Chunk the page text using the existing token-based chunker
-        for chunk_text in _chunk_by_tokens(page_text, chunk_size=600, overlap=80):
-            chunk_text = chunk_text.strip()
-            if not chunk_text:
-                continue
-
-            chunk_id = f"{doc_id}:{chunk_index}"
-            location = f"page {page_data.page}"
-            ref = f"{title} > page {page_data.page}"
-            metadata = {
-                "doc_id": doc_id,
-                "source": source_path,
-                "source_path": source_path,
-                "title": title,
-                "chunk_id": chunk_id,
-                "section": "",
-                "location": location,
-                "ref": ref,
-                "page": str(page_data.page),   # real page number as string
-                "anchor": "",
-            }
-
-            ids.append(chunk_id)
-            documents.append(chunk_text)
-            metadatas.append(metadata)
-            chunk_index += 1
-
-    logger.info(
-        "PDF payload built: path=%s pages=%d chunks=%d",
-        path, len(pages), len(documents),
+    documents = build_documents_for_source(descriptor=descriptor, registry=registry)
+    if not documents:
+        return DocumentPayload.empty(descriptor)
+    actual_descriptor = SourceDescriptor(
+        source=str(documents[0].metadata.get("source", descriptor.source)),
+        source_type=str(documents[0].metadata.get("source_type", descriptor.source_type)),
+        local_path=descriptor.local_path,
+        requested_source=descriptor.requested_source,
     )
-
-    return {
-        "doc_id": doc_id,
-        "source_path": source_path,
-        "ids": ids,
-        "documents": documents,
-        "metadatas": metadatas,
-    }
+    return DocumentPayload.from_documents(actual_descriptor, documents)
 
 
-# ---------------------------------------------------------------------------
-# Unified dispatcher
-# ---------------------------------------------------------------------------
+def build_langchain_documents(path: Path, kb_dir: Path) -> list[Document]:
+    """Compatibility helper for file-based callers/tests."""
+
+    descriptor = build_file_descriptor(path, kb_dir)
+    return build_documents_for_source(descriptor)
+
 
 def build_document_payload(path: Path, kb_dir: Path) -> dict[str, object]:
-    """Build Chroma payload for any supported document type.
+    """Compatibility helper returning the legacy dict shape for file sources."""
 
-    Dispatches to the appropriate builder based on file extension.
-    """
-    suffix = path.suffix.lower()
-
-    if suffix in _PDF_EXTENSIONS:
-        return _build_pdf_document_payload(path, kb_dir)
-    elif suffix in _TEXT_EXTENSIONS:
-        return _build_text_document_payload(path, kb_dir)
-    else:
-        raise ValueError(f"Unsupported file extension: {suffix}")
+    descriptor = build_file_descriptor(path, kb_dir)
+    return build_payload_for_source(descriptor).to_legacy_dict()
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
+def build_url_documents(url: str) -> list[Document]:
+    """Compatibility helper for URL-based callers/tests."""
+
+    return build_documents_for_source(build_url_descriptor(url))
+
+
+def build_url_document_payload(url: str) -> dict[str, object]:
+    """Compatibility helper returning the legacy dict shape for URL sources."""
+
+    return build_payload_for_source(build_url_descriptor(url)).to_legacy_dict()
+
 
 def ingest(rebuild: bool = False) -> None:
     settings = get_settings()
@@ -196,34 +197,20 @@ def ingest(rebuild: bool = False) -> None:
 
     if rebuild and chroma_dir.exists():
         shutil.rmtree(chroma_dir)
+        clear_vectorstore_cache()
 
     collection = get_vectorstore()
-    embedder = get_embedding_backend(settings.embedding_model)
+    descriptors = iter_file_descriptors(kb_dir) if kb_dir.exists() else []
 
-    doc_paths = sorted(iter_docs(kb_dir)) if kb_dir.exists() else []
-    loaded_documents = len(doc_paths)
+    langchain_documents: list[Document] = []
+    for descriptor in descriptors:
+        langchain_documents.extend(build_documents_for_source(descriptor))
 
-    ids: list[str] = []
-    documents: list[str] = []
-    metadatas: list[dict[str, str]] = []
-
-    for path in doc_paths:
-        payload = build_document_payload(path=path, kb_dir=kb_dir)
-        ids.extend(payload["ids"])
-        documents.extend(payload["documents"])
-        metadatas.extend(payload["metadatas"])
-
-    total_chunks = len(documents)
+    total_chunks = len(langchain_documents)
     if total_chunks:
-        embeddings = embedder.embed_texts(documents)
-        collection.upsert(
-            ids=ids,
-            documents=documents,
-            metadatas=metadatas,
-            embeddings=embeddings,
-        )
+        collection.upsert_documents(langchain_documents)
 
-    print(f"Loaded {loaded_documents} documents")
+    print(f"Loaded {len(descriptors)} documents")
     print(f"Created {total_chunks} chunks")
     print("Stored to Chroma")
 

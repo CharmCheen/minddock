@@ -1,10 +1,8 @@
-"""OpenAI-compatible chat completion provider."""
+"""Compatibility provider wrappers for OpenAI-compatible chat completion backends."""
 
 from __future__ import annotations
 
 import logging
-
-import httpx
 
 from ports.llm import EvidenceItem, LLMProvider
 
@@ -12,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAICompatibleLLM(LLMProvider):
-    """Minimal provider for OpenAI-compatible chat completions APIs."""
+    """Compatibility wrapper used by fallback-capable provider callers."""
 
     def __init__(
         self,
@@ -21,82 +19,64 @@ class OpenAICompatibleLLM(LLMProvider):
         model: str,
         timeout_seconds: float,
     ) -> None:
-        self._api_key = api_key
-        self._base_url = base_url.rstrip("/")
-        self._model = model
-        self._timeout_seconds = timeout_seconds
+        from langchain_openai import ChatOpenAI
+
+        self._llm = ChatOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            timeout=timeout_seconds,
+            temperature=0,
+        )
 
     def name(self) -> str:
-        return "openai-compatible"
+        return "langchain-chatopenai"
 
     def generate(self, query: str, evidence: list[EvidenceItem]) -> str:
-        messages = self._build_messages(query=query, evidence=evidence)
-        payload = {
-            "model": self._model,
-            "messages": messages,
-            "temperature": 0,
-        }
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
+        from langchain_core.output_parsers import StrOutputParser
+        from langchain_core.prompts import ChatPromptTemplate
 
-        with httpx.Client(timeout=self._timeout_seconds) as client:
-            response = client.post(
-                f"{self._base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-
-        data = response.json()
-        choices = data.get("choices") or []
-        if not choices:
-            raise RuntimeError("LLM response did not include any choices")
-
-        message = choices[0].get("message") or {}
-        content = message.get("content")
-        if isinstance(content, str) and content.strip():
-            return content.strip()
-
-        if isinstance(content, list):
-            text_parts = [
-                str(item.get("text", "")).strip()
-                for item in content
-                if isinstance(item, dict) and item.get("type") == "text"
-            ]
-            joined = "\n".join(part for part in text_parts if part)
-            if joined:
-                return joined
-
-        raise RuntimeError("LLM response did not include textual content")
-
-    def _build_messages(self, query: str, evidence: list[EvidenceItem]) -> list[dict[str, str]]:
-        evidence_lines = []
-        for item in evidence:
-            source = str(item.get("source", ""))
-            chunk_id = str(item.get("chunk_id", ""))
-            text = str(item.get("text", "")).strip().replace("\n", " ")
-            evidence_lines.append(f"[{source} | {chunk_id}] {text}")
-
-        evidence_block = "\n".join(evidence_lines)
-        return [
-            {
-                "role": "system",
-                "content": (
-                    "Answer only from the provided evidence. "
-                    "If the evidence is insufficient, say so explicitly."
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    (
+                        "You are a grounded assistant for MindDock. "
+                        "Answer only from the provided evidence. "
+                        "If the evidence is insufficient, say so explicitly. "
+                        "Do not invent citations or unsupported facts."
+                    ),
                 ),
-            },
+                (
+                    "human",
+                    "Question or task:\n{query}\n\nEvidence:\n{evidence_block}",
+                ),
+            ]
+        )
+        chain = prompt | self._llm | StrOutputParser()
+        response = chain.invoke(
             {
-                "role": "user",
-                "content": f"Question: {query}\n\nEvidence:\n{evidence_block}",
-            },
-        ]
+                "query": query,
+                "evidence_block": self._build_evidence_block(evidence),
+            }
+        )
+        return response.strip()
+
+    def _build_evidence_block(self, evidence: list[EvidenceItem]) -> str:
+        if not evidence:
+            return "(no evidence provided)"
+
+        evidence_lines: list[str] = []
+        for item in evidence:
+            ref = str(item.get("ref") or item.get("source") or item.get("chunk_id") or "").strip()
+            chunk_id = str(item.get("chunk_id", "")).strip()
+            text = str(item.get("text", "")).strip().replace("\n", " ")
+            evidence_lines.append(f"[{ref} | {chunk_id}] {text}")
+        return "\n".join(evidence_lines)
 
 
 class FallbackLLM(LLMProvider):
-    """Use a primary provider and fall back to MockLLM on failure."""
+    """Compatibility wrapper that falls back without changing service-layer call sites."""
 
     def __init__(self, primary: LLMProvider, fallback: LLMProvider) -> None:
         self._primary = primary

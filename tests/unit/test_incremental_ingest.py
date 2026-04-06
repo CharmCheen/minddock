@@ -2,6 +2,7 @@ from pathlib import Path
 
 from app.rag.incremental import HashStore, IncrementalIngestService
 from app.rag.ingest import build_doc_id
+from app.rag.source_models import ReplaceDocumentResult
 
 
 class FakeEmbedder:
@@ -29,6 +30,23 @@ class FakeCollection:
                 "embedding": embedding,
             }
 
+    def replace_document(
+        self,
+        *,
+        doc_id: str,
+        ids: list[str],
+        documents: list[str],
+        metadatas: list[dict[str, str]],
+        embeddings: list[list[float]],
+    ) -> ReplaceDocumentResult:
+        existing_ids = [key for key, value in self.records.items() if value["metadata"]["doc_id"] == doc_id]
+        stale_ids = [key for key in existing_ids if key not in ids]
+        for key in stale_ids:
+            del self.records[key]
+        if ids:
+            self.upsert(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
+        return ReplaceDocumentResult(upserted=len(ids), deleted=len(stale_ids))
+
     def delete_doc(self, doc_id: str) -> int:
         keys = [key for key, value in self.records.items() if value["metadata"]["doc_id"] == doc_id]
         for key in keys:
@@ -49,7 +67,6 @@ def build_service(tmp_path: Path, collection: FakeCollection) -> IncrementalInge
         hash_store=hash_store,
         embedder=FakeEmbedder(),
         collection=collection,
-        delete_document_fn=collection.delete_doc,
         count_document_chunks_fn=collection.count_doc,
     )
 
@@ -111,3 +128,25 @@ def test_incremental_create_adds_new_document(tmp_path: Path) -> None:
     doc_id = build_doc_id(Path("new_file.md"))
     assert collection.count_doc(doc_id) == 1
     assert collection.upsert_calls == 1
+
+
+def test_incremental_failed_rebuild_keeps_existing_chunks(tmp_path: Path, monkeypatch) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    kb_dir = tmp_path / "knowledge_base"
+    doc_path = kb_dir / "notes.md"
+    doc_path.write_text("# Storage\nFirst version.\n", encoding="utf-8")
+
+    service.handle_created(doc_path)
+    doc_id = build_doc_id(Path("notes.md"))
+    before = dict(collection.records)
+
+    monkeypatch.setattr(
+        "app.rag.incremental.build_payload_for_source",
+        lambda **kwargs: (_ for _ in ()).throw(ValueError("parse failed")),
+    )
+    doc_path.write_text("# Storage\nBroken update.\n", encoding="utf-8")
+    service.handle_modified(doc_path)
+
+    assert collection.records == before
+    assert collection.count_doc(doc_id) == 1

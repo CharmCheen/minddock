@@ -25,6 +25,12 @@ class FakeEvent:
         self.is_directory = is_directory
 
 
+class FakeMoveEvent(FakeEvent):
+    def __init__(self, src_path: str, dest_path: str, is_directory: bool = False) -> None:
+        super().__init__(src_path, is_directory=is_directory)
+        self.dest_path = dest_path
+
+
 def test_watch_handler_forwards_file_events() -> None:
     service = FakeService()
     handler = _WatchHandler(service).instance
@@ -36,3 +42,13 @@ def test_watch_handler_forwards_file_events() -> None:
     assert service.created == [Path("D:/tmp/notes.md")]
     assert service.modified == [Path("D:/tmp/notes.md")]
     assert service.deleted == [Path("D:/tmp/notes.md")]
+
+
+def test_watch_handler_translates_move_into_delete_and_create() -> None:
+    service = FakeService()
+    handler = _WatchHandler(service).instance
+
+    handler.on_moved(FakeMoveEvent("D:/tmp/old.md", "D:/tmp/new.md"))
+
+    assert service.deleted == [Path("D:/tmp/old.md")]
+    assert service.created == [Path("D:/tmp/new.md")]

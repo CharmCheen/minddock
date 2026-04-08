@@ -16,7 +16,7 @@ from app.application.events import EventCollector, ExecutionEventKind, RunFailed
 from app.application.models import ExecutionSummary, TaskType, UnifiedExecutionResponse
 from app.llm.mock import INSUFFICIENT_EVIDENCE, MockLLM
 from app.main import app
-from app.rag.retrieval_models import ComparedPoint, EvidenceObject, GroundedAnswer, GroundedCompareResult, RetrievedChunk, RetrievalFilters, SearchHitRecord, SearchResult
+from app.rag.retrieval_models import ComparedPoint, EvidenceFreshness, EvidenceObject, GroundedAnswer, GroundedCompareResult, RefusalReason, RetrievedChunk, RetrievalFilters, SearchHitRecord, SearchResult, SupportStatus
 from app.rag.source_models import FailedSourceInfo, IngestBatchResult, IngestSourceResult, SourceDescriptor
 from app.services.grounded_generation import build_citation
 from app.services.service_models import (
@@ -1434,3 +1434,320 @@ def test_sources_endpoints_with_stubbed_catalog_service(monkeypatch) -> None:
     assert chunks_by_source_response.json()["item"]["source"] == "notes.md"
     assert delete_response.json()["deleted_chunks"] == 2
     assert reingest_response.json()["chunks_upserted"] == 2
+
+
+def test_compare_endpoint_returns_insufficient_evidence(monkeypatch) -> None:
+    """Direct /compare returns insufficient_evidence when compare service detects < 2 groups."""
+    from app.api import routes
+
+    client = TestClient(app)
+
+    def fake_compare(*, question: str, top_k: int, filters: RetrievalFilters | None = None, include_metadata=True):
+        return CompareServiceResult(
+            compare_result=GroundedCompareResult(
+                query=question,
+                support_status=SupportStatus.INSUFFICIENT_EVIDENCE,
+            ),
+            citations=[],
+            metadata=UseCaseMetadata(
+                retrieved_count=1,
+                mode="grounded_compare",
+                insufficient_evidence=True,
+                support_status="insufficient_evidence",
+            ),
+        )
+
+    monkeypatch.setattr(routes.frontend_facade, "execute_compare_request", fake_compare)
+
+    response = client.post(
+        "/compare",
+        json={"question": "Compare unrelated docs", "top_k": 4},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["support_status"] == "insufficient_evidence"
+    assert body["common_points"] == []
+    assert body["differences"] == []
+    assert body["conflicts"] == []
+
+
+def test_unified_execute_compare_returns_insufficient_evidence(monkeypatch) -> None:
+    """Unified /frontend/execute with task_type=compare returns insufficient_evidence."""
+    from app.api import routes
+
+    client = TestClient(app)
+
+    def fake_execute(request):
+        assert request.task_type == TaskType.COMPARE
+        return UnifiedExecutionResponse(
+            task_type=TaskType.COMPARE,
+            artifacts=(
+                TextArtifact(
+                    artifact_id="text-1",
+                    kind=ArtifactKind.TEXT,
+                    text="Insufficient evidence to compare the requested documents.",
+                    metadata={
+                        "compare_result": {
+                            "query": "Compare unrelated docs",
+                            "common_points": [],
+                            "differences": [],
+                            "conflicts": [],
+                            "support_status": "insufficient_evidence",
+                            "refusal_reason": None,
+                        }
+                    },
+                ),
+            ),
+            compare_result=GroundedCompareResult(
+                query="Compare unrelated docs",
+                support_status=SupportStatus.INSUFFICIENT_EVIDENCE,
+            ),
+            metadata=UseCaseMetadata(
+                retrieved_count=1,
+                insufficient_evidence=True,
+                support_status="insufficient_evidence",
+                artifact_kinds_returned=("text",),
+                primary_artifact_kind="text",
+                artifact_count=1,
+            ),
+            execution_summary=ExecutionSummary(primary_artifact_kind="text", artifact_count=1),
+        )
+
+    monkeypatch.setattr(routes.frontend_facade, "execute", fake_execute)
+
+    response = client.post(
+        "/frontend/execute",
+        json={"task_type": "compare", "user_input": "Compare unrelated docs", "output_mode": "structured"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["task_type"] == "compare"
+    assert body["compare_result"]["support_status"] == "insufficient_evidence"
+    assert body["artifacts"][0]["metadata"]["compare_result"]["support_status"] == "insufficient_evidence"
+
+
+def test_compare_endpoint_and_unified_execute_return_consistent_contracts(monkeypatch) -> None:
+    """Both /compare and /frontend/execute return the same compare_result structure for happy path."""
+    from app.api import routes
+
+    client = TestClient(app)
+
+    shared_compare_result = GroundedCompareResult(
+        query="Compare storage",
+        common_points=(
+            ComparedPoint(
+                statement="Both documents discuss storage.",
+                left_evidence=(EvidenceObject(doc_id="d1", chunk_id="c1", source="kb/a.md", snippet="Chroma", score=0.1, freshness=EvidenceFreshness.FRESH),),
+                right_evidence=(EvidenceObject(doc_id="d2", chunk_id="c2", source="kb/b.md", snippet="Postgres", score=0.2, freshness=EvidenceFreshness.FRESH),),
+            ),
+        ),
+        differences=(
+            ComparedPoint(
+                statement="Different storage engines.",
+                left_evidence=(EvidenceObject(doc_id="d1", chunk_id="c1", source="kb/a.md", snippet="Chroma", score=0.1, freshness=EvidenceFreshness.FRESH),),
+                right_evidence=(EvidenceObject(doc_id="d2", chunk_id="c2", source="kb/b.md", snippet="Postgres", score=0.2, freshness=EvidenceFreshness.FRESH),),
+            ),
+        ),
+        support_status=SupportStatus.SUPPORTED,
+    )
+
+    def fake_compare_direct(*, question: str, top_k: int, filters=None, include_metadata=True):
+        return CompareServiceResult(
+            compare_result=shared_compare_result,
+            citations=[
+                build_citation(_chunk()),
+                build_citation(_chunk().with_updates(doc_id="d2", chunk_id="c2", source="kb/b.md")),
+            ],
+            metadata=UseCaseMetadata(
+                retrieved_count=2,
+                mode="grounded_compare",
+                support_status="supported",
+            ),
+        )
+
+    def fake_execute_unified(request):
+        assert request.task_type == TaskType.COMPARE
+        return UnifiedExecutionResponse(
+            task_type=TaskType.COMPARE,
+            artifacts=(
+                TextArtifact(
+                    artifact_id="text-1",
+                    kind=ArtifactKind.TEXT,
+                    text="Comparison question: Compare storage",
+                    metadata={"compare_result": shared_compare_result.to_api_dict()},
+                ),
+                StructuredJsonArtifact(
+                    artifact_id="structured-1",
+                    kind=ArtifactKind.STRUCTURED_JSON,
+                    data=shared_compare_result.to_api_dict(),
+                    schema_name="compare.v1",
+                ),
+            ),
+            compare_result=shared_compare_result,
+            citations=[
+                build_citation(_chunk()),
+                build_citation(_chunk().with_updates(doc_id="d2", chunk_id="c2", source="kb/b.md")),
+            ],
+            metadata=UseCaseMetadata(
+                retrieved_count=2,
+                support_status="supported",
+                artifact_kinds_returned=("text", "structured_json"),
+                primary_artifact_kind="text",
+                artifact_count=2,
+            ),
+            execution_summary=ExecutionSummary(
+                primary_artifact_kind="text",
+                artifact_count=2,
+            ),
+        )
+
+    monkeypatch.setattr(routes.frontend_facade, "execute_compare_request", fake_compare_direct)
+    monkeypatch.setattr(routes.frontend_facade, "execute", fake_execute_unified)
+
+    direct_response = client.post(
+        "/compare",
+        json={"question": "Compare storage", "top_k": 4},
+    )
+    unified_response = client.post(
+        "/frontend/execute",
+        json={"task_type": "compare", "user_input": "Compare storage", "output_mode": "structured"},
+    )
+
+    assert direct_response.status_code == 200
+    assert unified_response.status_code == 200
+
+    direct_body = direct_response.json()
+    unified_body = unified_response.json()
+
+    # Core contract fields must match
+    assert direct_body["support_status"] == unified_body["compare_result"]["support_status"]
+    assert len(direct_body["common_points"]) == len(unified_body["compare_result"]["common_points"])
+    assert len(direct_body["differences"]) == len(unified_body["compare_result"]["differences"])
+
+    # citations must be present in both
+    assert len(direct_body["citations"]) >= 1
+    assert len(unified_body["citations"]) >= 1
+
+    # unified execute must have compare.v1 artifact
+    artifact_kinds = [a["kind"] for a in unified_body["artifacts"]]
+    assert "structured_json" in artifact_kinds
+    compare_v1_artifact = next(a for a in unified_body["artifacts"] if a["kind"] == "structured_json")
+    assert compare_v1_artifact["content"]["schema_name"] == "compare.v1"
+
+    # top-level compare_result must match compare.v1 artifact data
+    assert compare_v1_artifact["content"]["data"]["support_status"] == unified_body["compare_result"]["support_status"]
+
+
+def test_compare_freshness_stale_possible_projected_in_response(monkeypatch) -> None:
+    """Evidence freshness staleness is correctly projected in compare responses via controlled catalog state.
+
+    This test injects a fake CompareService with a controlled collection into the facade's
+    orchestrator, then calls the real /compare endpoint. The fake CompareService runs the real
+    compare flow (including refresh_compare_result_freshness) with the controlled catalog that
+    produces STALE_POSSIBLE freshness.
+    """
+    from app.api import routes
+    from app.services.compare_service import CompareService
+    from app.services.search_service import SearchService
+    from app.rag.retrieval_models import RetrievedChunk
+    from app.rag.source_models import SourceCatalogEntry, SourceDetail, SourceState
+
+    client = TestClient(app)
+
+    # ------------------------------------------------------------------
+    # Controlled catalog: evidence.source_version ("v1") differs from
+    # catalog current_version ("v2") → STALE_POSSIBLE
+    # ------------------------------------------------------------------
+    def _make_entry(doc_id: str, source: str) -> SourceCatalogEntry:
+        return SourceCatalogEntry(
+            doc_id=doc_id,
+            source=source,
+            source_type="file",
+            title=source.split("/")[-1],
+            chunk_count=1,
+            state=SourceState(
+                doc_id=doc_id,
+                source=source,
+                current_version="v2",
+                content_hash="hash_v2",
+            ),
+        )
+
+    fake_collection = _FakeCollectionForFreshness(
+        entries=[
+            SourceDetail(entry=_make_entry("d1", "kb/a.md"), representative_metadata={}),
+            SourceDetail(entry=_make_entry("d2", "kb/b.md"), representative_metadata={}),
+        ],
+        chunk_ids_by_doc={"d1": {"d1:c1"}, "d2": {"d2:c2"}},
+    )
+
+    # ------------------------------------------------------------------
+    # Fake search service: returns hits whose source_version (from
+    # extra_metadata) differs from catalog current_version → STALE_POSSIBLE
+    # ------------------------------------------------------------------
+    controlled_hits = [
+        RetrievedChunk(
+            text="Chroma storage", doc_id="d1", chunk_id="d1:c1", source="kb/a.md",
+            source_type="file", distance=0.1, rerank_score=0.9, title="A",
+            extra_metadata={"source_version": "v1", "content_hash": "hash_v1"},
+        ),
+        RetrievedChunk(
+            text="Postgres storage", doc_id="d2", chunk_id="d2:c2", source="kb/b.md",
+            source_type="file", distance=0.2, rerank_score=0.8, title="B",
+            extra_metadata={"source_version": "v1", "content_hash": "hash_v1"},
+        ),
+    ]
+
+    class _FakeSearchServiceForCompare(SearchService):
+        def retrieve(self, *, query: str, top_k: int, filters=None):
+            return controlled_hits
+
+    # ------------------------------------------------------------------
+    # Create CompareService with controlled collection + fake search
+    # ------------------------------------------------------------------
+    fake_compare_svc = CompareService(
+        search_service=_FakeSearchServiceForCompare(),
+        collection=fake_collection,
+    )
+
+    # ------------------------------------------------------------------
+    # Inject into the orchestrator so real compare() runs with our catalog
+    # ------------------------------------------------------------------
+    original_svc = routes.frontend_facade.chat.compare_service
+    routes.frontend_facade.chat.compare_service = fake_compare_svc
+
+    try:
+        response = client.post(
+            "/compare",
+            json={"question": "Compare storage", "top_k": 4},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["support_status"] == "supported"
+        # evidence v1 vs catalog v2 → STALE_POSSIBLE
+        assert body["common_points"][0]["left_evidence"][0]["freshness"] == "stale_possible"
+        assert body["common_points"][0]["right_evidence"][0]["freshness"] == "stale_possible"
+    finally:
+        routes.frontend_facade.chat.compare_service = original_svc
+
+
+class _FakeCollectionForFreshness:
+    """Minimal fake collection for controlling evidence freshness in tests.
+
+    Implements the interface used by refresh_compare_result_freshness:
+    - list_source_details()  (via __source_details lookup by doc_id or source)
+    - list_document_chunk_ids()
+    """
+
+    def __init__(self, entries: list[SourceDetail], chunk_ids_by_doc: dict[str, set[str]]):
+        self._entries = entries
+        self._chunk_ids = chunk_ids_by_doc
+
+    def list_source_details(self, query):
+        return self._entries
+
+    def list_document_chunk_ids(self, doc_id: str):
+        return self._chunk_ids.get(doc_id, set())

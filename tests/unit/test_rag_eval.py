@@ -1,45 +1,39 @@
-"""Unit tests for lightweight evaluation helpers."""
+"""Unit tests for the legacy evaluation wrapper."""
 
-from app.eval.rag_eval import EvalCase, evaluate_cases
-from app.rag.retrieval_models import CitationRecord, RetrievedChunk, SearchHitRecord, SearchResult
-from app.services.service_models import SearchServiceResult, SummarizeServiceResult, UseCaseMetadata
+from app.eval.rag_eval import evaluate_cases
+from app.evaluation.models import EvaluationReport, EvaluationRunArtifacts, EvaluationSummary
 
 
-class FakeSearchService:
-    def search(self, query: str, top_k: int) -> SearchServiceResult:
-        chunk = RetrievedChunk(text="text", doc_id="d1", chunk_id="c1", source="example.md")
-        return SearchServiceResult(
-            search_result=SearchResult(
-                query=query,
-                top_k=top_k,
-                hits=[
-                    SearchHitRecord(
-                        chunk=chunk,
-                        citation=CitationRecord(doc_id="d1", chunk_id="c1", source="example.md", snippet="text"),
-                    )
-                ],
+def test_legacy_evaluate_cases_delegates_to_new_module(monkeypatch) -> None:
+    fake_run = EvaluationRunArtifacts(
+        report=EvaluationReport(
+            dataset_path="eval/benchmark/sample_eval_set.jsonl",
+            generated_at="2026-04-07T00:00:00+00:00",
+            cases=(),
+            results=(),
+            summary=EvaluationSummary(
+                dataset_size=1,
+                task_counts={"search": 1},
+                retrieval={"hit_at_1": 1.0, "hit_at_3": 1.0, "hit_at_5": 1.0},
+                citation={
+                    "overall_consistency_rate": 1.0,
+                    "structure_consistency_rate": 1.0,
+                    "expected_source_consistency_rate": 1.0,
+                    "expected_source_case_count": 1,
+                },
+                latency={
+                    "overall": {"avg_ms": 10.0, "p50_ms": 10.0, "p95_ms": 10.0, "max_ms": 10.0, "sample_count": 1},
+                    "by_task_type": {},
+                },
+                failed_case_count=0,
             ),
-            metadata=UseCaseMetadata(retrieved_count=1),
-        )
+        ),
+        json_path="data/eval/report.json",
+        markdown_path="data/eval/report.md",
+    )
+    monkeypatch.setattr("app.eval.rag_eval.run_evaluation_from_dataset", lambda dataset_path: fake_run)
 
+    report = evaluate_cases()
 
-class FakeSummarizeService:
-    def summarize(self, topic: str, top_k: int) -> SummarizeServiceResult:
-        return SummarizeServiceResult(
-            summary="summary",
-            citations=[CitationRecord(doc_id="d1", chunk_id="c1", source="example.md", snippet="text")],
-            metadata=UseCaseMetadata(retrieved_count=1, mode="basic", output_format="text"),
-            structured_output=None,
-        )
-
-
-def test_evaluate_cases_returns_summary(monkeypatch) -> None:
-    monkeypatch.setattr("app.eval.rag_eval.SearchService", lambda: FakeSearchService())
-    monkeypatch.setattr("app.eval.rag_eval.SummarizeService", lambda: FakeSummarizeService())
-
-    report = evaluate_cases([EvalCase(query="storage", expected_source="example.md")])
-
-    assert report["summary"]["top_hit_rate"] == 1.0
-    assert report["summary"]["citation_complete_rate"] == 1.0
-    assert report["cases"][0]["top_hit_match"] is True
-    assert report["cases"][0]["retrieved_count"] == 1
+    assert report["summary"]["dataset_size"] == 1
+    assert report["summary"]["retrieval"]["hit_at_1"] == 1.0

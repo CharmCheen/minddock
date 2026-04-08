@@ -21,6 +21,7 @@ from app.services.grounded_generation import (
     select_grounded_hits,
 )
 from app.services.search_service import SearchService
+from app.services.source_freshness import refresh_compare_result_freshness
 from app.services.service_models import CompareServiceResult, RetrievalStats, ServiceIssue, UseCaseMetadata, UseCaseTiming
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class CompareService:
     search_service: SearchService = field(default_factory=SearchService)
     reranker: Reranker = field(default_factory=get_reranker)
     compressor: Compressor = field(default_factory=get_compressor)
+    collection: object = field(default=None)
 
     def compare(self, *, question: str, top_k: int, filters: RetrievalFilters | None = None) -> CompareServiceResult:
         try:
@@ -124,6 +126,7 @@ class CompareService:
                 differences=differences,
                 conflicts=conflicts,
             )
+            compare_result = refresh_compare_result_freshness(compare_result, collection=self.collection)
             citations = self._collect_citations(compare_result)
             logger.info(
                 "Compare completed: question_preview=%s groups=%d returned=%d",
@@ -341,6 +344,7 @@ class CompareService:
                             source=evidence.source,
                             page=evidence.page,
                             anchor=evidence.anchor,
+                            original_text=evidence.snippet,
                         )
                     )
                 )

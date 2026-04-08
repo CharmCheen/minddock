@@ -71,11 +71,14 @@ Then manually exercise:
 - `/search`
 - `/chat`
 - `/summarize`
+- `/compare` (requires at least 2 indexed documents for meaningful output)
 - watcher-based incremental maintenance
 
 Recommended demo dataset:
 
 - `knowledge_base/example.md`
+- `knowledge_base/architecture.md`
+- `knowledge_base/api_usage.md`
 
 ## Deferred
 

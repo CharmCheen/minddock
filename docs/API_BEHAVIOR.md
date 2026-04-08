@@ -130,6 +130,64 @@ Behavior:
 - no-evidence remains a normal grounded response
 - route layer serializes through `SummarizeResponse.from_result()`
 
+### `POST /compare`
+
+Request:
+
+- `question`
+- `top_k`
+- `filters`
+
+Behavior:
+
+- performs grounded multi-document comparison over retrieved evidence groups
+- requires at least 2 distinct document groups to produce a meaningful comparison
+- returns `insufficient_evidence` support status when fewer than 2 groups are available
+- internally calls `frontend_facade.execute_compare_request()` which routes through unified execution
+- route layer serializes through `present_compare_response()`
+
+Response:
+
+- `query`
+- `common_points` — structured comparison points where documents agree
+- `differences` — structured comparison points where documents diverge
+- `conflicts` — structured comparison points where documents contradict
+- `support_status` — overall grounding quality (`supported`, `insufficient_evidence`, `partially_supported`, `conflicting_evidence`)
+- `refusal_reason` — present only when support_status indicates a refusal
+- `citations` — evidence citations for each comparison point
+- `retrieved_count`
+
+Note: compare results also appear in the unified execution response at `compare_result` and in the `compare.v1` structured artifact. Both `/compare` and `/frontend/execute` return the same core compare contract.
+
+### `POST /frontend/execute` with `task_type=compare`
+
+Request (via `UnifiedExecutionRequestBody`):
+
+- `task_type: "compare"`
+- `user_input` — the comparison question
+- `top_k`
+- `filters`
+- `output_mode: "structured"`
+
+Behavior:
+
+- routes through `FrontendFacade.execute()` which calls `build_execution_plan(TaskType.COMPARE)`
+- the plan includes: retrieve → rerank → compress → format_compare_output
+- returns `UnifiedExecutionResponse` with:
+  - `compare_result` — top-level `GroundedCompareResult`
+  - `artifacts` — includes a `compare.v1` `StructuredJsonArtifact`
+  - `citations` — evidence citations
+
+Response fields for compare:
+
+- `task_type: "compare"`
+- `compare_result` — same structure as the direct `/compare` response
+- `artifacts[].kind == "structured_json"` with `schema_name == "compare.v1"`
+- `artifacts[].metadata.compare_result` — mirrors `compare_result` for replay/event projection
+- `citations` — evidence citations
+
+Both `/compare` and `/frontend/execute?task_type=compare` return the same `compare_result` structure. The unified execute additionally wraps it in a `compare.v1` artifact and adds execution metadata.
+
 ## Shared Filters
 
 Current supported filter fields:
@@ -221,6 +279,7 @@ Current presenter inputs are:
 - `SearchServiceResult`
 - `ChatServiceResult`
 - `SummarizeServiceResult`
+- `CompareServiceResult`
 - `IngestServiceResult`
 
 This matters because API routes no longer need to know whether a use case internally used:

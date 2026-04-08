@@ -78,7 +78,6 @@ from app.rag.source_models import (
     SourceDetail,
     SourceState,
 )
-from app.services.source_freshness import refresh_compare_result_freshness, refresh_grounded_answer_freshness
 from app.services.service_models import (
     CatalogServiceResult,
     ChatServiceResult,
@@ -200,7 +199,7 @@ class EvidenceItem(BaseModel):
     score: float | None = None
     source_version: str | None = None
     content_hash: str | None = None
-    freshness: str = "fresh"
+    freshness: Literal["fresh", "stale_possible", "invalidated"] = "fresh"
 
     @classmethod
     def from_record(cls, record: EvidenceObject | Mapping[str, object] | CitationRecord) -> "EvidenceItem":
@@ -232,7 +231,6 @@ class GroundedAnswerItem(BaseModel):
         record: GroundedAnswer | Mapping[str, object],
     ) -> "GroundedAnswerItem":
         if isinstance(record, GroundedAnswer):
-            record = refresh_grounded_answer_freshness(record)
             return cls(
                 answer=record.answer,
                 evidence=[EvidenceItem.from_record(item) for item in record.evidence],
@@ -262,7 +260,6 @@ class GroundedAnswerItem(BaseModel):
             if data.get("refusal_reason") is None
             else RefusalReason(str(data.get("refusal_reason"))),
         )
-        grounded = refresh_grounded_answer_freshness(grounded)
         return cls(
             answer=grounded.answer,
             evidence=[EvidenceItem.from_record(item) for item in grounded.evidence],
@@ -310,7 +307,6 @@ class CompareResultItem(BaseModel):
     @classmethod
     def from_record(cls, record: GroundedCompareResult | Mapping[str, object]) -> "CompareResultItem":
         if isinstance(record, GroundedCompareResult):
-            record = refresh_compare_result_freshness(record)
             return cls(
                 query=record.query,
                 common_points=[ComparedPointItem.from_record(item) for item in record.common_points],
@@ -328,7 +324,6 @@ class CompareResultItem(BaseModel):
             support_status=SupportStatus(str(data.get("support_status") or "supported")),
             refusal_reason=None if data.get("refusal_reason") is None else RefusalReason(str(data.get("refusal_reason"))),
         )
-        compare = refresh_compare_result_freshness(compare)
         return cls(
             query=compare.query,
             common_points=[ComparedPointItem.from_record(item) for item in compare.common_points],

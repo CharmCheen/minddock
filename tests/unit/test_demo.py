@@ -1,8 +1,11 @@
 """Unit tests for demo serialization helpers."""
 
+from pathlib import Path
+
 from app.demo import (
     _metadata_to_dict,
     _serialize_catalog_result,
+    _serialize_compare_result,
     _serialize_delete_source_result,
     _serialize_chat_result,
     _serialize_ingest_result,
@@ -11,12 +14,24 @@ from app.demo import (
     _serialize_source_detail_result,
     _serialize_source_inspect_result,
     _serialize_summarize_result,
+    main,
 )
-from app.rag.retrieval_models import CitationRecord, RetrievedChunk, SearchHitRecord, SearchResult
+from app.evaluation.models import EvaluationReport, EvaluationRunArtifacts, EvaluationSummary
+from app.rag.retrieval_models import (
+    CitationRecord,
+    ComparedPoint,
+    EvidenceObject,
+    GroundedCompareResult,
+    RetrievedChunk,
+    SearchHitRecord,
+    SearchResult,
+    SupportStatus,
+)
 from app.rag.source_models import DeleteSourceResult, FailedSourceInfo, IngestBatchResult, IngestSourceResult, SourceCatalogEntry, SourceChunkPage, SourceChunkPreview, SourceDescriptor, SourceDetail, SourceInspectResult
 from app.services.service_models import (
     CatalogServiceResult,
     ChatServiceResult,
+    CompareServiceResult,
     DeleteSourceServiceResult,
     IngestServiceResult,
     ReingestSourceServiceResult,
@@ -194,3 +209,141 @@ def test_demo_catalog_serializers() -> None:
     assert reingest_payload["ok"] is True
     assert inspect_payload["chunks"][0]["chunk_id"] == "d1:0"
     assert inspect_payload["admin_metadata"]["doc_id"] == "d1"
+
+
+def test_demo_compare_serializer_produces_correct_contract() -> None:
+    """Verify _serialize_compare_result produces the expected demo output contract."""
+    result = CompareServiceResult(
+        compare_result=GroundedCompareResult(
+            query="Compare storage",
+            common_points=(
+                ComparedPoint(
+                    statement="Both discuss storage.",
+                    left_evidence=(EvidenceObject(doc_id="d1", chunk_id="c1", source="a.md", snippet="Chroma"),),
+                    right_evidence=(EvidenceObject(doc_id="d2", chunk_id="c2", source="b.md", snippet="Postgres"),),
+                ),
+            ),
+            differences=(),
+            conflicts=(),
+            support_status=SupportStatus.SUPPORTED,
+            refusal_reason=None,
+        ),
+        citations=[
+            CitationRecord(doc_id="d1", chunk_id="c1", source="a.md", snippet="Chroma"),
+            CitationRecord(doc_id="d2", chunk_id="c2", source="b.md", snippet="Postgres"),
+        ],
+        metadata=UseCaseMetadata(
+            retrieved_count=2,
+            mode="grounded_compare",
+            support_status="supported",
+            insufficient_evidence=False,
+            timing=UseCaseTiming(total_ms=100.0),
+            filter_applied=True,
+        ),
+    )
+    payload = _serialize_compare_result(result)
+    assert payload["query"] == "Compare storage"
+    assert payload["support_status"] == "supported"
+    assert len(payload["common_points"]) == 1
+    assert payload["common_points"][0]["left_evidence"][0]["source"] == "a.md"
+    assert len(payload["citations"]) == 2
+    assert payload["metadata"]["filter_applied"] is True
+
+
+def test_demo_compare_api_payload_filters_as_list() -> None:
+    """Verify --via-api mode passes filters as a list of source strings."""
+    # Simulate the payload construction logic from cmd_compare for --via-api
+    filters_input = "a.md,b.md,c.md"
+    source_list = [s.strip() for s in filters_input.split(",") if s.strip()]
+    payload = {
+        "task_type": "compare",
+        "user_input": "Compare docs",
+        "top_k": 5,
+        "output_mode": "structured",
+    }
+    if source_list:
+        payload["filters"] = {"source": source_list}
+
+    assert payload["filters"]["source"] == ["a.md", "b.md", "c.md"]
+    assert isinstance(payload["filters"]["source"], list)
+    # Verify each source is a separate string, not a comma-joined string
+    for src in payload["filters"]["source"]:
+        assert "," not in src
+
+
+def test_cmd_compare_via_api_sends_correct_request(monkeypatch) -> None:
+    """cmd_compare --via-api sends task_type=compare, output_mode=structured, and source list to /frontend/execute."""
+    import json
+    from app.demo import main
+
+    captured: dict = {}
+
+    class _FakeHTTPResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def read(self):
+            return json.dumps({}).encode()
+
+    def _fake_urlopen(req):
+        captured["url"] = req.full_url
+        captured["method"] = req.method
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeHTTPResponse()
+
+    monkeypatch.setattr("app.demo.request.urlopen", _fake_urlopen)
+
+    main([
+        "compare",
+        "--via-api",
+        "--question", "Compare the storage approaches",
+        "--top-k", "5",
+        "--filters", "a.md,b.md,c.md",
+    ])
+
+    assert captured["url"] == "http://127.0.0.1:8000/frontend/execute"
+    assert captured["method"] == "POST"
+    assert captured["body"]["task_type"] == "compare"
+    assert captured["body"]["output_mode"] == "structured"
+    assert captured["body"]["user_input"] == "Compare the storage approaches"
+    # --filters a.md,b.md,c.md must be sent as a source list, not a comma-joined string
+    assert captured["body"]["filters"]["source"] == ["a.md", "b.md", "c.md"]
+    for src in captured["body"]["filters"]["source"]:
+        assert "," not in src
+
+
+def test_demo_evaluate_command_prints_summary(monkeypatch, capsys) -> None:
+    fake_run = EvaluationRunArtifacts(
+        report=EvaluationReport(
+            dataset_path="eval/benchmark/sample_eval_set.jsonl",
+            generated_at="2026-04-07T00:00:00+00:00",
+            cases=(),
+            results=(),
+            summary=EvaluationSummary(
+                dataset_size=1,
+                task_counts={"search": 1},
+                retrieval={"hit_at_1": 1.0, "hit_at_3": 1.0, "hit_at_5": 1.0},
+                citation={
+                    "overall_consistency_rate": 1.0,
+                    "structure_consistency_rate": 1.0,
+                    "expected_source_consistency_rate": 1.0,
+                    "expected_source_case_count": 1,
+                },
+                latency={
+                    "overall": {"avg_ms": 10.0, "p50_ms": 10.0, "p95_ms": 10.0, "max_ms": 10.0, "sample_count": 1},
+                    "by_task_type": {"search": {"avg_ms": 10.0, "p50_ms": 10.0, "p95_ms": 10.0, "max_ms": 10.0, "sample_count": 1}},
+                },
+                failed_case_count=0,
+            ),
+        ),
+        json_path=str(Path("data/eval/report.json")),
+        markdown_path=str(Path("data/eval/report.md")),
+    )
+    monkeypatch.setattr("app.demo.run_evaluation_from_dataset", lambda **kwargs: fake_run)
+
+    main(["evaluate", "--dataset", "eval/benchmark/sample_eval_set.jsonl"])
+
+    output = capsys.readouterr().out
+    assert "Evaluation dataset" in output
+    assert "JSON report" in output

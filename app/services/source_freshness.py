@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 
 from app.rag.retrieval_models import ComparedPoint, EvidenceFreshness, EvidenceObject, GroundedAnswer, GroundedCompareResult
 from app.rag.source_models import CatalogQuery, SourceDetail, SourceState
 from app.rag.vectorstore import get_vectorstore, list_source_details
+
+logger = logging.getLogger(__name__)
 
 
 def get_current_source_state(
@@ -127,4 +130,5 @@ def _chunk_ids_for_doc(doc_id: str, *, collection=None) -> set[str]:
     active_collection = collection or get_vectorstore()
     if hasattr(active_collection, "list_document_chunk_ids"):
         return set(active_collection.list_document_chunk_ids(doc_id))
+    logger.warning("Freshness check backend does not expose list_document_chunk_ids; doc_id=%s", doc_id)
     return set()

@@ -1,5 +1,7 @@
 """Unit tests for evidence freshness resolution."""
 
+import logging
+
 from app.rag.retrieval_models import EvidenceFreshness, EvidenceObject, GroundedAnswer
 from app.rag.source_models import SourceCatalogEntry, SourceDetail, SourceState
 from app.services.source_freshness import refresh_evidence_freshness, refresh_grounded_answer_freshness
@@ -15,6 +17,14 @@ class FakeCollection:
 
     def list_document_chunk_ids(self, doc_id: str):
         return list(self._chunk_ids.get(doc_id, ()))
+
+
+class NoChunkListingCollection:
+    def __init__(self, *, details) -> None:
+        self._details = details
+
+    def list_source_details(self, query=None):
+        return list(self._details)
 
 
 def _detail(*, version: str = "v1", chunk_id: str = "c1") -> SourceDetail:
@@ -100,3 +110,22 @@ def test_old_evidence_becomes_invalidated_when_source_or_chunk_disappears() -> N
 
     assert missing_source.freshness == EvidenceFreshness.INVALIDATED
     assert missing_chunk.freshness == EvidenceFreshness.INVALIDATED
+
+
+def test_missing_chunk_listing_backend_logs_warning(caplog) -> None:
+    evidence = EvidenceObject(
+        doc_id="d1",
+        chunk_id="c1",
+        source="kb/doc.md",
+        snippet="proof",
+        source_version="v1",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        refreshed = refresh_evidence_freshness(
+            evidence,
+            collection=NoChunkListingCollection(details=[_detail(version="v1")]),
+        )
+
+    assert refreshed.freshness == EvidenceFreshness.INVALIDATED
+    assert "does not expose list_document_chunk_ids" in caplog.text

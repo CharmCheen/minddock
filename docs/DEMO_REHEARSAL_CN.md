@@ -10,7 +10,7 @@
 
 观众看完后应该能理解：
 
-“MindDock 已经完成了面向个人知识管理场景的可运行后端基础能力，包括本地 ingest、Chroma 持久化、检索、基于证据的问答、基于证据的总结，以及知识库变化时的增量维护。”
+“MindDock 已经完成了面向个人知识管理场景的可运行后端基础能力，包括本地 ingest、Chroma 持久化、检索、基于证据的问答、基于证据的总结、基于证据的多文档对比，以及知识库变化时的增量维护。”
 
 ## 2. 演示主线逻辑
 
@@ -21,7 +21,8 @@
 3. 系统会先检索证据，而不是直接生成答案
 4. 系统可以基于检索到的证据进行问答，并返回引用
 5. 系统可以基于证据进行总结，而不是只做单点回答
-6. 当知识库文件变化时，系统还能进行增量维护
+6. 系统可以进行多文档对比，基于证据返回对比点和差异点
+7. 当知识库文件变化时，系统还能进行增量维护
 
 可以把这一整条链路概括成一句话：
 
@@ -322,7 +323,46 @@ python -m app.demo summarize --topic "MindDock stores document chunks and metada
 - 不要用过于宽泛的 topic
 - 当前默认 topic 是最稳的现场选择
 
-### Step 7. 演示 watcher 的 create / modify / delete
+### Step 7. 演示 `/compare`
+
+目的：
+
+- 证明系统支持多文档对比，并返回对比点、差异点和冲突点
+- 说明 compare 通过统一执行协议执行，与 search/chat/summarize 共用同一套检索链
+
+操作：
+
+```powershell
+conda activate minddock
+python -m app.demo compare
+```
+> **注**：`compare`（不带 `--via-api`）直接调用本地服务，绕过 HTTP 层。如需通过 API 调用，使用 `--via-api` 标志：`python -m app.demo compare --via-api`。
+
+如需指定特定文档对比：
+
+```powershell
+python -m app.demo compare --filters doc_a.md,doc_b.md
+```
+
+讲解要点：
+
+- "compare 是统一执行协议中的一等公民，与 search、chat、summarize 共用检索链。"
+- "系统会返回 common_points（共同点）、differences（差异点）和 conflicts（冲突点）。"
+- "每个对比点都附带来源证据和引用，答案可追溯。"
+- "本地模式通过 facade 的 compare 兼容入口进入统一执行链，绕过 HTTP 层；使用 --via-api 时通过 /frontend/execute 调用。"
+
+预期现象：
+
+- 返回 `common_points`、`differences`、`conflicts`
+- 返回 `support_status`（supported / insufficient_evidence 等）
+- 返回 `citations`（每个对比点的证据引用）
+
+风险提醒：
+
+- 需要至少两个文档在知识库中才有实际对比意义
+- 如果只有一个文档，系统会返回 insufficient_evidence
+
+### Step 8. 演示 watcher 的 create / modify / delete
 
 目的：
 
@@ -425,12 +465,13 @@ python -m app.demo root
 python -m app.demo health
 ```
 
-### 检索、问答、总结
+### 检索、问答、总结、对比
 
 ```powershell
 python -m app.demo search
 python -m app.demo chat
 python -m app.demo summarize
+python -m app.demo compare
 ```
 
 ### watcher
@@ -445,6 +486,7 @@ python -m app.demo watch
 python -m app.demo s
 python -m app.demo c
 python -m app.demo sum
+python -m app.demo cmp
 ```
 
 ## 6. 推荐演示请求样例
@@ -514,12 +556,14 @@ python -m app.demo summarize --topic "MindDock stores document chunks and metada
   - “在检索基础上，再做基于证据的问答。”
 - 从 chat 到 summarize：
   - “除了回答问题，当前系统也可以对同一批证据做总结。”
-- 从 summarize 到 watcher：
+- 从 summarize 到 compare：
+  - “除了单个文档的总结，系统还支持多文档对比。”
+- 从 compare 到 watcher：
   - “最后展示知识库变化后的增量维护能力。”
 
 ### 结尾 20-30 秒
 
-“综合来看，MindDock 当前已经完成了一个可运行的 RAG 后端闭环：本地知识入库、Chroma 持久化、检索、带引用的问答与总结，以及 watcher 驱动的增量维护。下一步我会继续修复边界问题、提升检索质量，并补齐 URL 接入和工程化能力，使它进一步接近完整的毕业设计目标。”
+“综合来看，MindDock 当前已经完成了一个可运行的 RAG 后端闭环：本地知识入库、Chroma 持久化、检索、带引用的问答与总结、带引用的多文档对比，以及 watcher 驱动的增量维护。下一步我会继续修复边界问题、提升检索质量，并补齐 URL 接入和工程化能力，使它进一步接近完整的毕业设计目标。”
 
 ## 8. 老师可能追问的问题
 
@@ -527,13 +571,13 @@ python -m app.demo summarize --topic "MindDock stores document chunks and metada
 
 建议回答：
 
-“目前已经完成后端 MVP，核心 RAG 闭环已经可运行，包括本地 ingest、Chroma 持久化、search、chat、summarize，以及 watcher 增量维护。”
+“目前已经完成后端 MVP，核心 RAG 闭环已经可运行，包括本地 ingest、Chroma 持久化、search、chat、summarize、compare，以及 watcher 增量维护。”
 
 ### 当前最大的亮点是什么？
 
 建议回答：
 
-“最大的亮点是系统已经不是单点接口，而是形成了完整闭环，而且回答和总结都能返回 citation，PDF 也已经支持页码级引用。”
+“最大的亮点是系统已经不是单点接口，而是形成了完整闭环，而且 compare、chat、summarize 都能返回 citation，PDF 也已经支持页码级引用。”
 
 ### 还没完成什么？
 

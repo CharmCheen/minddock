@@ -1,24 +1,30 @@
-"""Run a lightweight local RAG evaluation for demos and thesis screenshots."""
+"""Run the local MindDock evaluation workflow for demos and thesis screenshots."""
 
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
-from app.eval.rag_eval import evaluate_cases, write_report
+from app.evaluation import render_console_summary, run_evaluation_from_dataset
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run MindDock's lightweight local RAG evaluation.")
-    parser.add_argument("--output", default="data/eval/rag_eval_report.json", help="Where to write the JSON report")
+    parser = argparse.ArgumentParser(description="Run MindDock's local benchmark evaluation.")
+    parser.add_argument("--dataset", default="eval/benchmark/sample_eval_set.jsonl", help="JSONL benchmark dataset path")
+    parser.add_argument("--output-dir", default="data/eval", help="Directory for JSON and Markdown reports")
     args = parser.parse_args()
 
-    report = evaluate_cases()
-    output_path = Path(args.output)
-    write_report(report, output_path)
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-    print(f"\nSaved report to {output_path}")
+    result = run_evaluation_from_dataset(
+        dataset_path=Path(args.dataset),
+        output_dir=Path(args.output_dir),
+    )
+    print(
+        render_console_summary(
+            result.report,
+            json_path=result.json_path,
+            markdown_path=result.markdown_path,
+        )
+    )
 
 
 if __name__ == "__main__":

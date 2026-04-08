@@ -5,7 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.llm.mock import MockLLM
-from app.rag.retrieval_models import RetrievedChunk, RetrievalFilters
+from app.rag.retrieval_models import ComparedPoint, EvidenceObject, GroundedCompareResult, RetrievedChunk, RetrievalFilters, SupportStatus
+from app.services.compare_service import CompareService
 from app.rag.source_models import CatalogQuery, ReplaceDocumentResult, SourceChunkPage, SourceChunkPreview, SourceDetail, SourceInspectResult
 from app.rag.url_loader import URLContent
 from app.runtime import RuntimeRequest, RuntimeResponse
@@ -376,3 +377,73 @@ def test_catalog_delete_and_reingest_lifecycle(tmp_path: Path) -> None:
     assert reingested.found is True
     assert reingested.source_result is not None and reingested.source_result.ok is True
     assert listing_after_reingest.entries[0].source == "notes.md"
+
+
+def test_end_to_end_local_ingest_and_compare_happy_path(tmp_path: Path) -> None:
+    """E2E: ingest two docs -> compare returns grounded common_points and differences."""
+    kb_dir = tmp_path / "knowledge_base"
+    kb_dir.mkdir()
+    (kb_dir / "doc_a.md").write_text(
+        "# Storage\nMindDock uses Chroma for vector storage.\n", encoding="utf-8"
+    )
+    (kb_dir / "doc_b.md").write_text(
+        "# Storage\nMindDock uses PostgreSQL for structured storage.\n", encoding="utf-8"
+    )
+
+    store = InMemoryVectorStore()
+    ingest_service = IngestService(settings=build_settings(tmp_path), embedder=FakeEmbedder(), collection=store)
+    result = ingest_service.ingest(urls=[])
+
+    assert result.documents == 2
+    assert result.chunks == 2
+    assert result.failed_sources == []
+
+    search_service = SearchService(vectorstore=store)
+    compare_service = CompareService(
+        search_service=search_service,
+        reranker=NoOpReranker(),
+        compressor=NoOpCompressor(),
+    )
+
+    filters = RetrievalFilters(sources=("doc_a.md", "doc_b.md"), source_types=("file",))
+    compare_result = compare_service.compare(
+        question="Compare the storage approaches in doc_a.md and doc_b.md",
+        top_k=4,
+        filters=filters,
+    )
+
+    assert compare_result.compare_result.support_status == SupportStatus.SUPPORTED
+    assert len(compare_result.compare_result.common_points) >= 1
+    assert compare_result.citations
+
+
+def test_end_to_end_local_ingest_and_compare_insufficient_evidence(tmp_path: Path) -> None:
+    """E2E: ingest one doc -> compare returns insufficient_evidence when < 2 groups."""
+    kb_dir = tmp_path / "knowledge_base"
+    kb_dir.mkdir()
+    (kb_dir / "only_doc.md").write_text(
+        "# Storage\nMindDock uses Chroma for vector storage.\n", encoding="utf-8"
+    )
+
+    store = InMemoryVectorStore()
+    ingest_service = IngestService(settings=build_settings(tmp_path), embedder=FakeEmbedder(), collection=store)
+    result = ingest_service.ingest(urls=[])
+
+    assert result.documents == 1
+
+    search_service = SearchService(vectorstore=store)
+    compare_service = CompareService(
+        search_service=search_service,
+        reranker=NoOpReranker(),
+        compressor=NoOpCompressor(),
+    )
+
+    filters = RetrievalFilters(sources=("only_doc.md",), source_types=("file",))
+    compare_result = compare_service.compare(
+        question="Compare storage approaches across documents",
+        top_k=4,
+        filters=filters,
+    )
+
+    assert compare_result.compare_result.support_status == SupportStatus.INSUFFICIENT_EVIDENCE
+    assert compare_result.metadata.insufficient_evidence is True

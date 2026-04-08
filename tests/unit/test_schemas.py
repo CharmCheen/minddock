@@ -7,7 +7,9 @@ from app.api.schemas import (
     ChatRequest,
     ChatResponse,
     CitationItem,
+    CompareResultItem,
     DeleteSourceResponse,
+    EvidenceItem,
     ErrorResponse,
     IngestRequest,
     IngestResponse,
@@ -29,7 +31,15 @@ from app.api.schemas import (
     UnifiedExecutionRequestBody,
 )
 from app.runtime.models import RuntimeProfileSummary
-from app.rag.retrieval_models import CitationRecord, RetrievedChunk, SearchHitRecord, SearchResult
+from app.rag.retrieval_models import (
+    CitationRecord,
+    ComparedPoint,
+    EvidenceObject,
+    GroundedCompareResult,
+    RetrievedChunk,
+    SearchHitRecord,
+    SearchResult,
+)
 from app.rag.source_models import (
     DeleteSourceResult,
     FailedSourceInfo,
@@ -439,6 +449,35 @@ def test_chat_response_from_result_exposes_refusal_semantics() -> None:
     assert resp.support_status == "insufficient_evidence"
     assert resp.refusal_reason == "no_relevant_evidence"
     assert resp.evidence == []
+
+
+def test_evidence_item_rejects_invalid_freshness_value() -> None:
+    with pytest.raises(ValidationError):
+        EvidenceItem(
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/doc.md",
+            snippet="text",
+            freshness="unknown",
+        )
+
+
+def test_compare_result_item_accepts_grounded_compare_dict_path() -> None:
+    result = CompareResultItem.from_record(
+        GroundedCompareResult(
+            query="compare storage",
+            differences=(
+                ComparedPoint(
+                    statement="The docs differ.",
+                    left_evidence=(EvidenceObject(doc_id="d1", chunk_id="c1", source="kb/a.md", snippet="Chroma"),),
+                    right_evidence=(EvidenceObject(doc_id="d2", chunk_id="c2", source="kb/b.md", snippet="Postgres"),),
+                ),
+            ),
+        ).to_api_dict()
+    )
+
+    assert result.query == "compare storage"
+    assert result.differences[0].left_evidence[0].freshness == "fresh"
 
 
 def test_unified_execution_request_supports_execution_policy() -> None:

@@ -15,16 +15,16 @@ Implemented core capabilities:
 - local file ingest for `.md`, `.txt`, `.pdf`
 - URL / HTML page ingest with configurable network behavior
 - persistent Chroma vector storage
-- `/search`, `/chat`, `/summarize`, `/ingest`, `/health`
+- `/search`, `/chat`, `/summarize`, `/compare`, `/ingest`, `/health`
 - source catalog / lifecycle endpoints for list, detail, chunk inspect, delete, and reingest
 - watcher-based incremental maintenance for create / modify / delete / move
 - LangChain-first generation runtime with explicit fallback to local mock mode when no API key is present
-- grounded citations shared across search, chat, and summarize
+- grounded citations shared across search, chat, summarize, and compare
 - lightweight rerank / compression, map-reduce summarize, Mermaid structured output
 - formal source/ingest models and loader registry
-- formal retrieval/citation/filter models shared by search/chat/summarize
+- formal retrieval/citation/filter models shared by search/chat/summarize/compare
 - formal API response models and centralized route presenters
-- formal service result models for search/chat/summarize/ingest
+- formal service result models for search/chat/summarize/compare/ingest
 - demo/eval internal consumers aligned to service results
 - frontend-facing orchestrators/facade for query and knowledge-base flows
 - runtime registry + runtime request/response adapters
@@ -152,7 +152,7 @@ For future skill work:
 
 ## Retrieval and Filter Semantics
 
-`/search`, `/chat`, and `/summarize` now share the same retrieval/filter model.
+`/search`, `/chat`, `/summarize`, and `/compare` now share the same retrieval/filter model.
 
 Supported filter capabilities:
 
@@ -215,6 +215,7 @@ python -m app.demo serve
 python -m app.demo search --query "local Chroma"
 python -m app.demo chat --query "How is data stored?"
 python -m app.demo summarize --topic "storage design"
+python -m app.demo compare --question "Compare the storage approaches across documents"
 ```
 
 ## URL Fetch Configuration

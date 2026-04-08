@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import warnings
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 from urllib import error, request
@@ -14,9 +15,11 @@ from urllib import error, request
 from app.application import get_frontend_facade
 from app.core.config import get_settings
 from app.core.logging import setup_logging
+from app.evaluation import render_console_summary, run_evaluation_from_dataset
 from app.services.service_models import (
     CatalogServiceResult,
     ChatServiceResult,
+    CompareServiceResult,
     DeleteSourceServiceResult,
     IngestServiceResult,
     ReingestSourceServiceResult,
@@ -129,6 +132,21 @@ def _serialize_summarize_result(result: SummarizeServiceResult) -> dict[str, Any
         "mode": result.metadata.mode or "basic",
         "output_format": result.metadata.output_format or "text",
         "structured_output": result.structured_output,
+        "metadata": _metadata_to_dict(result.metadata),
+    }
+
+
+def _serialize_compare_result(result: CompareServiceResult) -> dict[str, Any]:
+    return {
+        "query": result.compare_result.query,
+        "common_points": [point.to_api_dict() for point in result.compare_result.common_points],
+        "differences": [point.to_api_dict() for point in result.compare_result.differences],
+        "conflicts": [point.to_api_dict() for point in result.compare_result.conflicts],
+        "support_status": result.compare_result.support_status.value,
+        "refusal_reason": result.compare_result.refusal_reason.value if result.compare_result.refusal_reason else None,
+        "citations": [item.to_api_dict() for item in result.citations],
+        "retrieved_count": result.metadata.retrieved_count,
+        "mode": result.metadata.mode or "grounded_compare",
         "metadata": _metadata_to_dict(result.metadata),
     }
 
@@ -384,6 +402,42 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     _pretty_print(_serialize_summarize_result(result))
 
 
+def cmd_compare(args: argparse.Namespace) -> None:
+    warnings.filterwarnings("ignore", category=RuntimeWarning)
+    _setup_demo_logging()
+
+    if args.filters:
+        from app.rag.retrieval_models import RetrievalFilters
+        sources = tuple(s.strip() for s in args.filters.split(",") if s.strip())
+        filters = RetrievalFilters(sources=sources)
+    else:
+        filters = None
+
+    if args.via_api:
+        source_list = None
+        if args.filters:
+            source_list = [s.strip() for s in args.filters.split(",") if s.strip()]
+        payload = {
+            "task_type": "compare",
+            "user_input": args.question,
+            "top_k": args.top_k,
+            "output_mode": "structured",
+        }
+        if source_list:
+            payload["filters"] = {"source": source_list}
+        data = _request_json("POST", f"{_base_url(args.host, args.port)}/frontend/execute", payload=payload)
+        _pretty_print(data)
+        return
+
+    # Local mode: go through unified execution via execute_compare_request
+    result = get_frontend_facade().execute_compare_request(
+        question=args.question,
+        top_k=args.top_k,
+        filters=filters,
+    )
+    _pretty_print(_serialize_compare_result(result))
+
+
 def cmd_sources(args: argparse.Namespace) -> None:
     if args.via_api:
         url = f"{_base_url(args.host, args.port)}/sources"
@@ -493,6 +547,23 @@ def cmd_skill_run(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_evaluate(args: argparse.Namespace) -> None:
+    warnings.filterwarnings("ignore", category=RuntimeWarning)
+    _setup_demo_logging()
+    result = run_evaluation_from_dataset(
+        dataset_path=Path(args.dataset),
+        output_dir=Path(args.output_dir),
+        task_types=tuple(args.task_type),
+    )
+    print(
+        render_console_summary(
+            result.report,
+            json_path=result.json_path,
+            markdown_path=result.markdown_path,
+        )
+    )
+
+
 def _add_common_connection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--host", default=DEFAULT_HOST, help="Demo server host")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Demo server port")
@@ -582,6 +653,26 @@ def build_parser() -> argparse.ArgumentParser:
     skill_parser.add_argument("--debug", action="store_true", help="Enable debug mode for skill execution")
     skill_parser.set_defaults(func=cmd_skill_run)
 
+    evaluate_parser = subparsers.add_parser("evaluate", help="Run the local benchmark evaluation workflow")
+    evaluate_parser.add_argument(
+        "--dataset",
+        default="eval/benchmark/sample_eval_set.jsonl",
+        help="JSONL benchmark dataset path",
+    )
+    evaluate_parser.add_argument(
+        "--output-dir",
+        default="data/eval",
+        help="Directory where JSON and Markdown reports will be written",
+    )
+    evaluate_parser.add_argument(
+        "--task-type",
+        action="append",
+        default=[],
+        choices=["search", "chat", "compare"],
+        help="Optional task-type filter. Can be passed multiple times.",
+    )
+    evaluate_parser.set_defaults(func=cmd_evaluate)
+
     delete_parser = subparsers.add_parser("source-delete", help="Delete source by doc id or source")
     _add_demo_transport_args(delete_parser)
     delete_group = delete_parser.add_mutually_exclusive_group(required=True)
@@ -623,6 +714,21 @@ def build_parser() -> argparse.ArgumentParser:
             help="Optional structured output format",
         )
         summarize_parser.set_defaults(func=cmd_summarize)
+
+    for name in ("compare", "cmp"):
+        compare_parser = subparsers.add_parser(
+            name,
+            help="Run compare locally; with --via-api, call POST /frontend/execute (task_type=compare)",
+        )
+        _add_demo_transport_args(compare_parser)
+        compare_parser.add_argument("--question", default="Compare the storage approaches across documents", help="Compare question")
+        compare_parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K, help="Number of hits to request")
+        compare_parser.add_argument(
+            "--filters",
+            default=None,
+            help="Comma-separated source names to compare (e.g. doc_a.md,doc_b.md)",
+        )
+        compare_parser.set_defaults(func=cmd_compare)
 
     return parser
 

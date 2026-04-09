@@ -1,5 +1,7 @@
 """Unit tests for demo serialization helpers."""
 
+import pytest
+import sys
 from pathlib import Path
 
 from app.demo import (
@@ -341,9 +343,63 @@ def test_demo_evaluate_command_prints_summary(monkeypatch, capsys) -> None:
         markdown_path=str(Path("data/eval/report.md")),
     )
     monkeypatch.setattr("app.demo.run_evaluation_from_dataset", lambda **kwargs: fake_run)
+    monkeypatch.setattr("app.demo._check_chroma_available", lambda: None)
 
-    main(["evaluate", "--dataset", "eval/benchmark/sample_eval_set.jsonl"])
+    from app.demo import _run_demo_cli
+
+    ret = _run_demo_cli(["evaluate", "--dataset", "eval/benchmark/sample_eval_set.jsonl"])
+    assert ret == 0
 
     output = capsys.readouterr().out
     assert "Evaluation dataset" in output
     assert "JSON report" in output
+
+
+def test_cmd_evaluate_raises_clear_error_when_chroma_missing(monkeypatch, capsys) -> None:
+    """_run_demo_cli raises SystemExit(1) with a langchain-chroma message in stderr
+    when the vector store dependency is absent.
+
+    This tests the app.demo CLI wrapper.
+    """
+    from app.demo import _run_demo_cli
+
+    dataset = str(Path(__file__).parents[2] / "eval" / "benchmark" / "sample_eval_set.jsonl")
+
+    # Simulate langchain-chroma being absent
+    def fake_get_vectorstore():
+        raise RuntimeError(
+            "langchain-chroma and chromadb are required for vector storage."
+        )
+
+    monkeypatch.setattr("app.rag.vectorstore.get_vectorstore", fake_get_vectorstore)
+
+    err = pytest.raises(SystemExit, _run_demo_cli, ["evaluate", "--dataset", dataset])
+    assert err.value.code == 1
+
+    stderr = capsys.readouterr().err
+    assert "langchain-chroma" in stderr
+    assert "Error:" in stderr
+
+
+def test_app_demo_cli_wrapper_calls_own_main(monkeypatch) -> None:
+    """_run_demo_cli calls app.demo.main (not scripts/evaluate_rag.main).
+
+    This proves the app.demo entry point is bound to its own main function.
+    """
+    from app.demo import _run_demo_cli
+
+    call_tracker = []
+
+    def fake_main(inner_argv):
+        call_tracker.append(inner_argv)
+
+    monkeypatch.setattr("app.demo.main", fake_main)
+    monkeypatch.setattr("app.demo._check_chroma_available", lambda: None)
+    monkeypatch.setattr("app.demo.run_evaluation_from_dataset", lambda **kwargs: None)
+
+    # Success: returns 0
+    ret = _run_demo_cli(["evaluate", "--dataset", "eval/benchmark/sample_eval_set.jsonl"])
+    assert ret == 0
+
+    assert len(call_tracker) == 1
+    assert call_tracker[0] == ["evaluate", "--dataset", "eval/benchmark/sample_eval_set.jsonl"]

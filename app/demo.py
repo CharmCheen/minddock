@@ -547,9 +547,27 @@ def cmd_skill_run(args: argparse.Namespace) -> None:
     )
 
 
+def _check_chroma_available() -> None:
+    """Raise a clear error if langchain-chroma is not installed.
+
+    This is the benchmark entry-layer preflight for both:
+        python -m app.demo evaluate
+        python scripts/evaluate_rag.py
+    """
+    from app.rag.vectorstore import get_vectorstore
+
+    try:
+        get_vectorstore()
+    except RuntimeError as exc:
+        raise ValueError(
+            f"langchain-chroma is required for benchmark evaluation: {exc}"
+        ) from exc
+
+
 def cmd_evaluate(args: argparse.Namespace) -> None:
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     _setup_demo_logging()
+    _check_chroma_available()
     result = run_evaluation_from_dataset(
         dataset_path=Path(args.dataset),
         output_dir=Path(args.output_dir),
@@ -739,5 +757,28 @@ def main(argv: list[str] | None = None) -> None:
     args.func(args)
 
 
+def run_cli_with_benchmark_error_handling(fn, argv: list[str] | None = None) -> int:
+    """Call fn(argv) and translate a benchmark ValueError into a short stderr message + SystemExit(1).
+    On success fn returns normally and we return 0.
+
+    Both app.demo and scripts/evaluate_rag.py use this to share the same
+    error-translation pattern without sharing a main function.
+    """
+    try:
+        fn(argv)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    return 0
+
+
+def _run_demo_cli(argv: list[str] | None = None) -> int:
+    """CLI entry for app.demo. Returns 0 on success; raises SystemExit(1) on preflight error."""
+    return run_cli_with_benchmark_error_handling(main, argv)
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        _run_demo_cli()
+    except SystemExit as exc:
+        sys.exit(exc.code)

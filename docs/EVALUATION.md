@@ -2,14 +2,32 @@
 
 ## Overview
 
-MindDock now includes a lightweight local evaluation workflow for thesis validation.
+MindDock includes a lightweight local evaluation workflow for local validation and regression.
 The current framework focuses on three deterministic metrics:
 
 - retrieval hit rate (`hit@1`, `hit@3`, `hit@5`)
 - citation consistency
 - latency
 
-The implementation reuses the existing `search / chat / compare` main path and does not introduce a second evidence or citation protocol.
+The implementation reuses the existing `search / chat / compare` unified execution path and does not introduce a second evidence or citation protocol.
+
+## Benchmark Entry
+
+The recommended benchmark entry point is:
+
+```bash
+python -m app.demo evaluate --dataset eval/benchmark/sample_eval_set.jsonl
+```
+
+`scripts/evaluate_rag.py` is a thin alias for the same command and can be used interchangeably:
+
+```bash
+python scripts/evaluate_rag.py --dataset eval/benchmark/sample_eval_set.jsonl
+```
+
+Both commands accept `--output-dir` (default `data/eval`) and `--task-type` filters (`search`, `chat`, `compare`).
+
+The default dataset `eval/benchmark/sample_eval_set.jsonl` is the first-version sample benchmark. It is a small hand-curated set covering search, chat, and compare task types for local validation. Run it to produce a console summary plus JSON and Markdown reports.
 
 ## Benchmark Format
 
@@ -42,9 +60,13 @@ Supported fields:
 - `notes`: optional human-readable notes
 - `top_k`: optional retrieval depth, default `5`
 
+## Prerequisites
+
+The benchmark requires `langchain-chroma` (which pulls in `chromadb`). Both benchmark entry points (`python -m app.demo evaluate` and `python scripts/evaluate_rag.py`) check for this dependency early and fail with a clear message if it is absent — rather than letting the error surface deep inside a case run.
+
 ## How To Run
 
-Make sure the normal MindDock runtime dependencies are installed and the knowledge base has been ingested.
+Make sure MindDock dependencies are installed and the knowledge base has been ingested.
 
 ```bash
 python -m app.demo evaluate --dataset eval/benchmark/sample_eval_set.jsonl
@@ -88,4 +110,4 @@ The Markdown report additionally includes:
 
 ## Benchmark Stability
 
-The `eval/benchmark/sample_eval_set.jsonl` dataset is used as a **development benchmark** for local validation. It is not yet a stable production-grade acceptance test suite. Expected hit rates and citation consistency rates will vary as the knowledge base and retrieval pipeline evolve. Do not treat this dataset as a fixed contract for release gating without first stabilising the failing cases.
+`eval/benchmark/sample_eval_set.jsonl` is the first-version sample benchmark for local validation. It is a small hand-curated set — not a production-grade acceptance test suite. Expected hit rates and citation consistency rates will vary as the knowledge base and retrieval pipeline evolve. Do not treat this dataset as a fixed contract for release gating without first stabilising the failing cases.

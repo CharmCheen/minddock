@@ -43,5 +43,11 @@ data/chroma/
 .env.*
 *.local.ps1
 
+# Claude Code local config (preserve shared .claude/settings.json and .claude/skills/)
+.claude/settings.local.json
+.claude/local/
+.claude/cache/
+.claude/tmp/
+
 # Test artifacts
 .ruff_cache/

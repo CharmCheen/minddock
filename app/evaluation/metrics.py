@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 
 from app.application.artifacts import ArtifactMapper
-from app.application.models import UnifiedExecutionResponse
+from app.application.models import TaskType, UnifiedExecutionResponse
 from app.evaluation.models import (
     BenchmarkCase,
     CitationConsistencyEvaluation,
@@ -17,8 +17,52 @@ from app.evaluation.models import (
 )
 
 
+def _extract_compare_evidence_keys_from_artifact(response: UnifiedExecutionResponse) -> list[tuple[str, str]]:
+    """Extract (doc_id, chunk_id) keys from compare.v1 artifact data, or return empty."""
+    artifact = ArtifactMapper.first_compare_artifact(response.artifacts)
+    if artifact is None:
+        return []
+    data = artifact.data
+    keys: list[tuple[str, str]] = []
+    for point in (*data.get("common_points", []), *data.get("differences", []), *data.get("conflicts", [])):
+        for ev in (*point.get("left_evidence", []), *point.get("right_evidence", [])):
+            keys.append((str(ev.get("doc_id", "")), str(ev.get("chunk_id", ""))))
+    return keys
+
+
+def _extract_compare_evidence_keys_from_top_level(response: UnifiedExecutionResponse) -> list[tuple[str, str]]:
+    """Extract (doc_id, chunk_id) keys from top-level compare_result, or return empty."""
+    if response.compare_result is None:
+        return []
+    keys: list[tuple[str, str]] = []
+    for point in (*response.compare_result.common_points, *response.compare_result.differences, *response.compare_result.conflicts):
+        for ev in (*point.left_evidence, *point.right_evidence):
+            keys.append((ev.doc_id, ev.chunk_id))
+    return keys
+
+
+def _build_ordered_retrieval_references(keys: list[tuple[str, str]]) -> list[RetrievalReference]:
+    """Build ordered RetrievalReference list from deduplicated (doc_id, chunk_id) keys."""
+    seen: set[tuple[str, str]] = set()
+    ordered: list[RetrievalReference] = []
+    for doc_id, chunk_id in keys:
+        key = (doc_id, chunk_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(RetrievalReference(doc_id=doc_id, chunk_id=chunk_id, source="", rank=len(ordered) + 1))
+    return ordered
+
+
 def extract_retrieval_references(response: UnifiedExecutionResponse) -> list[RetrievalReference]:
-    """Extract ordered retrieval/evidence references from a unified response."""
+    """Extract ordered retrieval/evidence references from a unified response.
+
+    Priority:
+    - search:  SearchResultsArtifact
+    - chat/summarize: grounded_answer.evidence
+    - compare: compare.v1 structured artifact (primary), top-level compare_result (fallback)
+    - citations: only as final fallback for citation consistency input, not primary retrieval source
+    """
 
     search_results = ArtifactMapper.first_search_results(response.artifacts)
     if search_results is not None:
@@ -43,24 +87,14 @@ def extract_retrieval_references(response: UnifiedExecutionResponse) -> list[Ret
             for index, item in enumerate(response.grounded_answer.evidence, start=1)
         ]
 
-    if response.compare_result is not None:
-        ordered: list[RetrievalReference] = []
-        seen: set[tuple[str, str]] = set()
-        for point in (*response.compare_result.common_points, *response.compare_result.differences, *response.compare_result.conflicts):
-            for evidence in (*point.left_evidence, *point.right_evidence):
-                key = (evidence.doc_id, evidence.chunk_id)
-                if key in seen:
-                    continue
-                seen.add(key)
-                ordered.append(
-                    RetrievalReference(
-                        doc_id=evidence.doc_id,
-                        chunk_id=evidence.chunk_id,
-                        source=evidence.source,
-                        rank=len(ordered) + 1,
-                    )
-                )
-        return ordered
+    if response.task_type == TaskType.COMPARE:
+        artifact_keys = _extract_compare_evidence_keys_from_artifact(response)
+        if artifact_keys:
+            return _build_ordered_retrieval_references(artifact_keys)
+        top_level_keys = _extract_compare_evidence_keys_from_top_level(response)
+        if top_level_keys:
+            return _build_ordered_retrieval_references(top_level_keys)
+        return []
 
     seen: set[tuple[str, str]] = set()
     ordered: list[RetrievalReference] = []
@@ -110,12 +144,22 @@ def evaluate_citation_consistency(
     response: UnifiedExecutionResponse,
     references: list[RetrievalReference],
 ) -> CitationConsistencyEvaluation:
-    """Check whether citations map to surfaced evidence and expected sources."""
+    """Check whether citations map to surfaced evidence and expected sources.
+
+    For compare task: reads compare.v1 artifact first (primary), top-level compare_result (fallback).
+    citations list is only used as citation consistency input, not as retrieval truth source.
+    """
 
     valid_keys = {(reference.doc_id, reference.chunk_id) for reference in references}
     if response.grounded_answer is not None:
         valid_keys.update((item.doc_id, item.chunk_id) for item in response.grounded_answer.evidence)
-    if response.compare_result is not None:
+    if response.task_type == TaskType.COMPARE:
+        artifact_keys = _extract_compare_evidence_keys_from_artifact(response)
+        if artifact_keys:
+            valid_keys.update(artifact_keys)
+        else:
+            valid_keys.update(_extract_compare_evidence_keys_from_top_level(response))
+    elif response.compare_result is not None:
         for point in (*response.compare_result.common_points, *response.compare_result.differences, *response.compare_result.conflicts):
             valid_keys.update((item.doc_id, item.chunk_id) for item in point.left_evidence)
             valid_keys.update((item.doc_id, item.chunk_id) for item in point.right_evidence)

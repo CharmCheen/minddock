@@ -68,12 +68,11 @@ export const SourceDetailPanel: React.FC = () => {
   return (
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '24px', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Detail Header */}
-      <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: '#0f172a' }}>{selectedDocDetail.title || selectedDocId}</h3>
+      <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', color: '#0f172a', fontWeight: '700' }}>{selectedDocDetail.title || selectedDocId}</h3>
       <div style={{ fontSize: '13px', color: '#64748b', display: 'flex', gap: '16px', flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9', paddingBottom: '16px', marginBottom: '16px' }}>
-        <span><strong>ID:</strong> {selectedDocId}</span>
-        <span><strong>Category:</strong> {selectedDocDetail.category}</span>
-        <span><strong>Status:</strong> {selectedDocDetail.ingest_status || 'unknown'}</span>
-        <span><strong>Uploaded:</strong> {new Date(selectedDocDetail.uploaded_at).toLocaleString()}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{color:'#94a3b8'}}>🆔</span> {selectedDocId.split('-')[0]}...</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{color:'#94a3b8'}}>🏷️</span> {selectedDocDetail.category}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{color:'#94a3b8'}}>📅</span> {new Date(selectedDocDetail.uploaded_at).toLocaleDateString()}</span>
       </div>
       
       
@@ -102,11 +101,25 @@ export const SourceDetailPanel: React.FC = () => {
               style={{
                 background: isHighlighted ? '#fffbeb' : '#f8fafc',
                 border: isHighlighted ? '1px solid #fcd34d' : '1px solid #e2e8f0',
-                borderRadius: '8px',
+                borderRadius: '10px',
                 padding: '16px',
                 cursor: 'pointer',
-                transition: 'all 0.2s ease-in-out',
-                boxShadow: isHighlighted ? '0 0 0 2px #fde68a' : 'none'
+                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                boxShadow: isHighlighted ? '0 0 0 2px rgba(252, 211, 77, 0.3)' : 'none'
+              }}
+              onMouseEnter={(e) => {
+                if (!isHighlighted) {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)';
+                  e.currentTarget.style.borderColor = '#cbd5e1';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isHighlighted) {
+                  e.currentTarget.style.transform = 'none';
+                  e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.borderColor = '#e2e8f0';
+                }
               }}
             >
               <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>

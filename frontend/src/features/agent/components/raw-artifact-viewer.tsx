@@ -1,9 +1,38 @@
 import { ArtifactResponseItem, CitationItem } from '../../../core/types/api';
 import { CitationList } from './citation-list';
 
+// Helper to normalize evidence items to CitationItem format
+function normalizeToCitationItem(item: any): CitationItem {
+  return {
+    doc_id: item.doc_id || '',
+    chunk_id: item.chunk_id || item.ref || '',
+    chunk_index: item.chunk_index ?? 0,
+    inline_ref: item.inline_ref || item.ref || item.chunk_id || String(item.chunk_index ?? ''),
+    page_num: item.page_num ?? item.page ?? null,
+    snippet: item.snippet || item.text || '',
+    source: item.source || '',
+    page: item.page ?? null,
+    anchor: item.anchor ?? null,
+    title: item.title ?? null,
+    section: item.section ?? null,
+    location: item.location ?? null,
+    ref: item.ref ?? null,
+  };
+}
+
 export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = ({ artifact }) => {
-  const { kind, content, metadata } = artifact;
-  const citations = (metadata?.grounded_answer as any)?.evidence as CitationItem[] | undefined;
+  const { kind, content, metadata, citations: artifactCitations } = artifact;
+
+  // Extract citations from multiple possible locations
+  let citations: CitationItem[] | undefined;
+  if (artifactCitations && artifactCitations.length > 0) {
+    citations = artifactCitations.map(normalizeToCitationItem);
+  } else if (metadata?.grounded_answer) {
+    const evidence = (metadata.grounded_answer as any)?.evidence;
+    if (Array.isArray(evidence) && evidence.length > 0) {
+      citations = evidence.map(normalizeToCitationItem);
+    }
+  }
 
   if (kind === 'text') {
     return (
@@ -42,16 +71,22 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
     // Special rendering for Compare Task schema
     if (typeof rawData === 'object' && rawData !== null && ('common_points' in rawData || 'differences' in rawData)) {
       const dataObj = rawData as any;
+
+      // Helper to extract statement from compared point item
+      const getStatement = (pt: any): string => {
+        return pt?.statement || pt?.summary_note || String(pt) || '';
+      };
+
       return (
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px 24px', marginBottom: '16px' }}>
-          
+
           {dataObj.common_points && dataObj.common_points.length > 0 && (
             <div style={{ marginBottom: '20px' }}>
               <h4 style={{ fontSize: '14px', color: '#10b981', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '16px' }}>🤝</span> Common Points
               </h4>
               <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.6' }}>
-                {dataObj.common_points.map((pt: string, i: number) => <li key={i}>{pt}</li>)}
+                {dataObj.common_points.map((pt: any, i: number) => <li key={i}>{getStatement(pt)}</li>)}
               </ul>
             </div>
           )}
@@ -62,7 +97,7 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
                 <span style={{ fontSize: '16px' }}>⚖️</span> Differences
               </h4>
               <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.6' }}>
-                {dataObj.differences.map((diff: string, i: number) => <li key={i}>{diff}</li>)}
+                {dataObj.differences.map((pt: any, i: number) => <li key={i}>{getStatement(pt)}</li>)}
               </ul>
             </div>
           )}
@@ -73,7 +108,7 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
                 <span style={{ fontSize: '16px' }}>⚠️</span> Conflicts
               </h4>
               <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.6' }}>
-                {dataObj.conflicts.map((c: string, i: number) => <li key={i}>{c}</li>)}
+                {dataObj.conflicts.map((pt: any, i: number) => <li key={i}>{getStatement(pt)}</li>)}
               </ul>
             </div>
           )}

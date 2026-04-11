@@ -34,6 +34,7 @@ class BaseArtifact:
     render_hint: str | None = None
     source_step_id: str | None = None
     metadata: dict[str, object] = field(default_factory=dict)
+    citations: tuple[dict[str, object], ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -101,8 +102,25 @@ class ArtifactBuilder:
 
     def build_chat_artifacts(self, result: ChatServiceResult) -> tuple[BaseArtifact, ...]:
         grounded_metadata = {}
+        citations: tuple[dict[str, object], ...] = ()
         if result.grounded_answer is not None:
             grounded_metadata = {"grounded_answer": result.grounded_answer.to_api_dict()}
+            # Extract citations from evidence for frontend consumption
+            if result.grounded_answer.evidence:
+                citations = tuple(
+                    {
+                        "doc_id": e.doc_id,
+                        "chunk_id": e.chunk_id,
+                        "source": e.source,
+                        "snippet": e.snippet,
+                        "page": e.page,
+                        "anchor": e.anchor,
+                        "ref": e.chunk_id,
+                        "inline_ref": f"[{i + 1}]",
+                        "chunk_index": i,
+                    }
+                    for i, e in enumerate(result.grounded_answer.evidence)
+                )
         return (
             TextArtifact(
                 artifact_id=self._next_id("text"),
@@ -111,14 +129,32 @@ class ArtifactBuilder:
                 render_hint="markdown",
                 source_step_id="generate_answer",
                 metadata=grounded_metadata,
+                citations=citations,
                 text=result.answer,
             ),
         )
 
     def build_summarize_artifacts(self, result: SummarizeServiceResult, *, output_mode: str) -> tuple[BaseArtifact, ...]:
         grounded_metadata = {}
+        citations: tuple[dict[str, object], ...] = ()
         if result.grounded_answer is not None:
             grounded_metadata = {"grounded_answer": result.grounded_answer.to_api_dict()}
+            # Extract citations from evidence for frontend consumption
+            if result.grounded_answer.evidence:
+                citations = tuple(
+                    {
+                        "doc_id": e.doc_id,
+                        "chunk_id": e.chunk_id,
+                        "source": e.source,
+                        "snippet": e.snippet,
+                        "page": e.page,
+                        "anchor": e.anchor,
+                        "ref": e.chunk_id,
+                        "inline_ref": f"[{i + 1}]",
+                        "chunk_index": i,
+                    }
+                    for i, e in enumerate(result.grounded_answer.evidence)
+                )
         artifacts: list[BaseArtifact] = [
             TextArtifact(
                 artifact_id=self._next_id("text"),
@@ -127,6 +163,7 @@ class ArtifactBuilder:
                 render_hint="markdown",
                 source_step_id="generate_summary",
                 metadata=grounded_metadata,
+                citations=citations,
                 text=result.summary,
             )
         ]
@@ -157,6 +194,31 @@ class ArtifactBuilder:
 
     def build_compare_artifacts(self, result: CompareServiceResult) -> tuple[BaseArtifact, ...]:
         compare_payload = result.compare_result.to_api_dict()
+
+        # Extract citations from compare evidence for frontend consumption
+        citations: list[dict[str, object]] = []
+        seen_chunk_ids: set[str] = set()
+        idx = 0
+
+        for point_list_attr in ["common_points", "differences", "conflicts"]:
+            point_list = getattr(result.compare_result, point_list_attr, [])
+            for point in point_list:
+                for evidence in list(point.left_evidence or []) + list(point.right_evidence or []):
+                    if evidence.chunk_id not in seen_chunk_ids:
+                        seen_chunk_ids.add(evidence.chunk_id)
+                        citations.append({
+                            "doc_id": evidence.doc_id,
+                            "chunk_id": evidence.chunk_id,
+                            "source": evidence.source,
+                            "snippet": evidence.snippet,
+                            "page": evidence.page,
+                            "anchor": evidence.anchor,
+                            "ref": evidence.chunk_id,
+                            "inline_ref": f"[{idx + 1}]",
+                            "chunk_index": idx,
+                        })
+                        idx += 1
+
         return (
             TextArtifact(
                 artifact_id=self._next_id("text"),
@@ -165,6 +227,7 @@ class ArtifactBuilder:
                 render_hint="markdown",
                 source_step_id="format_compare_output",
                 metadata={"compare_result": compare_payload},
+                citations=tuple(citations),
                 text=self._compare_summary_text(result),
             ),
             StructuredJsonArtifact(
@@ -175,6 +238,7 @@ class ArtifactBuilder:
                 source_step_id="format_compare_output",
                 data=compare_payload,
                 schema_name="compare.v1",
+                citations=tuple(citations),
             ),
         )
 

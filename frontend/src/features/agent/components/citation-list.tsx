@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { CitationItem } from '../../../core/types/api';
 import { useWorkspaceStore } from '../../workspace/store';
 
 export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citations }) => {
   const { setSelectedDoc, setHighlightedChunkId } = useWorkspaceStore();
+  const [clickedIndex, setClickedIndex] = useState<number | null>(null);
 
   if (!citations || citations.length === 0) return null;
 
-  const handleCitationClick = (citation: CitationItem) => {
+  const handleCitationClick = (citation: CitationItem, index: number) => {
+    setClickedIndex(index);
+    setTimeout(() => setClickedIndex(null), 300);
     // 1. auto-switch to doc
     // Note: Since we might not have the full detail object, we pass null and it handles it simply
     // or we fetch the doc list separately. For linking, we just need the ID to trigger load.
@@ -20,9 +23,12 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
     });
 
     // 2. highlight chunk
-    // Pass chunk_id if available, fallback to chunk_index
+    // Extract chunk_index from chunk_id (format: "doc_id:index") or use chunk_index directly
     setTimeout(() => {
-       setHighlightedChunkId(citation.chunk_id || String(citation.chunk_index));
+      const chunkIndex = citation.chunk_id
+        ? citation.chunk_id.split(':').pop() ?? null
+        : String(citation.chunk_index ?? null);
+      setHighlightedChunkId(chunkIndex);
     }, 0);
   };
 
@@ -35,20 +41,22 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
         {citations.map((c, i) => (
           <div 
             key={i} 
-            onClick={() => handleCitationClick(c)}
+            onClick={() => handleCitationClick(c, i)}
             style={{ 
-              background: '#f8fafc', 
-              border: '1px solid #e2e8f0', 
+              background: clickedIndex === i ? '#e0f2fe' : '#f8fafc',
+              border: '1px solid',
+              borderColor: clickedIndex === i ? '#3b82f6' : '#e2e8f0',
               borderRadius: '6px', 
               padding: '10px 14px', 
               cursor: 'pointer',
               display: 'flex',
               flexDirection: 'column',
               gap: '4px',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+              transform: clickedIndex === i ? 'scale(0.98)' : 'none'
             }}
-            onMouseOver={(e) => e.currentTarget.style.borderColor = '#94a3b8'}
-            onMouseOut={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+            onMouseOver={(e) => { if(clickedIndex !== i) e.currentTarget.style.borderColor = '#94a3b8'; }}
+            onMouseOut={(e) => { if(clickedIndex !== i) e.currentTarget.style.borderColor = '#e2e8f0'; }}
           >
             <div style={{ fontSize: '13px', color: '#3b82f6', fontWeight: '500' }}>
               [{c.inline_ref || (i + 1)}] {c.doc_id}

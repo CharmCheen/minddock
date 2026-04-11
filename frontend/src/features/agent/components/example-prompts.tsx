@@ -38,12 +38,14 @@ export const ExamplePrompts: React.FC<ExamplePromptsProps> = ({ taskType, onSele
             borderRadius: '16px',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
-            whiteSpace: 'nowrap'
+            whiteSpace: 'normal',
+            lineHeight: '1.4',
+            maxWidth: '100%',
           }}
           onMouseOver={(e) => e.currentTarget.style.background = '#dbeafe'}
           onMouseOut={(e) => e.currentTarget.style.background = '#eff6ff'}
         >
-          {ex.length > 50 ? ex.substring(0, 50) + "..." : ex}
+          {ex}
         </div>
       ))}
     </div>

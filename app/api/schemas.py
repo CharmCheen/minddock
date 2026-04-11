@@ -1097,6 +1097,7 @@ class ArtifactResponseItem(BaseModel):
     source_step_id: str | None = None
     content: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, object] = Field(default_factory=dict)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
 
     @classmethod
     def from_artifact(cls, artifact: BaseArtifact) -> "ArtifactResponseItem":
@@ -1148,6 +1149,8 @@ class ArtifactResponseItem(BaseModel):
             metadata["compare_result"] = CompareResultItem.from_record(compare).model_dump()
         if isinstance(artifact, StructuredJsonArtifact) and artifact.schema_name == "compare.v1":
             content["data"] = CompareResultItem.from_record(content["data"]).model_dump()
+        # Extract citations from artifact.citations
+        citations = list(artifact.citations) if artifact.citations else []
         return cls(
             artifact_id=artifact.artifact_id,
             kind=artifact.kind.value,
@@ -1157,6 +1160,7 @@ class ArtifactResponseItem(BaseModel):
             source_step_id=artifact.source_step_id,
             content=content,
             metadata=metadata,
+            citations=citations,
         )
 
 

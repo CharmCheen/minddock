@@ -19,11 +19,18 @@ export type ArtifactKind =
 
 export interface CitationItem {
   doc_id: string;
-  chunk_id?: string;
-  chunk_index: number;
-  inline_ref: string;
-  page_num?: number;
+  chunk_id: string;
+  source?: string;
   snippet?: string;
+  page?: number | null;
+  anchor?: string | null;
+  title?: string | null;
+  section?: string | null;
+  location?: string | null;
+  ref?: string | null;
+  inline_ref?: string | null;
+  chunk_index?: number;
+  page_num?: number | null;
 }
 
 export interface ClientRunStartedPayload {

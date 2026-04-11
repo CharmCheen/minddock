@@ -149,7 +149,7 @@ def test_unified_execution_chat_returns_runtime_profile_metadata(monkeypatch) ->
         run_registry=_run_registry(),
     )
 
-    def fake_run_chat_with_runtime(*, request, runtime):
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
         return ChatServiceResult(
             answer="chat response",
             citations=[],
@@ -196,7 +196,7 @@ def test_unified_execution_chat_collects_stable_event_sequence(monkeypatch) -> N
         run_registry=_run_registry(),
     )
 
-    def fake_run_chat_with_runtime(*, request, runtime):
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
         return ChatServiceResult(
             answer="chat response",
             citations=[],
@@ -240,7 +240,7 @@ def test_unified_execution_chat_preserves_grounded_answer_in_compatibility_entry
         run_registry=_run_registry(),
     )
 
-    def fake_run_chat_with_runtime(*, request, runtime):
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
         return ChatServiceResult(
             answer="chat response",
             citations=[CitationRecord(doc_id="d1", chunk_id="c1", source="kb/doc.md", snippet="proof")],
@@ -271,7 +271,7 @@ def test_unified_execution_summarize_supports_mermaid_with_execution_policy(monk
         run_registry=_run_registry(),
     )
 
-    def fake_run_summarize_with_runtime(*, request, runtime):
+    def fake_run_summarize_with_runtime(*, request, runtime, precomputed_hits=None):
         return SummarizeServiceResult(
             summary="summary response",
             citations=[],
@@ -310,7 +310,7 @@ def test_unified_execution_summarize_emits_mermaid_artifact_event(monkeypatch) -
         run_registry=_run_registry(),
     )
 
-    def fake_run_summarize_with_runtime(*, request, runtime):
+    def fake_run_summarize_with_runtime(*, request, runtime, precomputed_hits=None):
         return SummarizeServiceResult(
             summary="summary response",
             citations=[],
@@ -471,6 +471,8 @@ def test_unified_execution_compare_matches_direct_compare_semantics(monkeypatch)
 
     assert response.compare_result is not None
     assert response.compare_result.support_status.value == "supported"
+    # Note: freshness is FRESH for mock evidence without source_version (refresh_compare_result_freshness
+    # short-circuits when evidence.source_version is None, returning FRESH directly).
     assert response.compare_result.differences[0].left_evidence[0].freshness.value == "fresh"
     assert response.artifacts[0].metadata["compare_result"]["support_status"] == "supported"
     assert direct.compare_result.query == response.compare_result.query
@@ -487,7 +489,7 @@ def test_unified_execution_structured_mode_returns_structured_json_artifact(monk
         runtime_factory=factory,
     )
 
-    def fake_run_summarize_with_runtime(*, request, runtime):
+    def fake_run_summarize_with_runtime(*, request, runtime, precomputed_hits=None):
         return SummarizeServiceResult(
             summary="summary response",
             citations=[],
@@ -527,7 +529,7 @@ def test_skill_disabled_does_not_invoke_skill(monkeypatch) -> None:
         run_registry=_run_registry(),
     )
 
-    def fake_run_chat_with_runtime(*, request, runtime):
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
         return ChatServiceResult(answer="chat response", citations=[], metadata=UseCaseMetadata(retrieved_count=1))
 
     def fail_execute_skill(**kwargs):
@@ -561,7 +563,7 @@ def test_allowlisted_echo_skill_executes_via_plan_step(monkeypatch) -> None:
         run_registry=_run_registry(),
     )
 
-    def fake_run_chat_with_runtime(*, request, runtime):
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
         return ChatServiceResult(answer="chat response", citations=[], metadata=UseCaseMetadata(retrieved_count=1))
 
     monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
@@ -592,7 +594,7 @@ def test_unified_execution_failure_collects_run_failed_event(monkeypatch) -> Non
         run_registry=_run_registry(),
     )
 
-    def fail_run_chat_with_runtime(*, request, runtime):
+    def fail_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
         raise RuntimeError("chat exploded")
 
     monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fail_run_chat_with_runtime)

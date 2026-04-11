@@ -70,6 +70,7 @@ from app.skills import (
     get_skill_registry,
 )
 from app.skills.policy import SkillAccessDecision, SkillAccessEvaluator
+from app.workflows.unified_pipeline import RetrievalPipeline
 
 
 @dataclass
@@ -96,8 +97,13 @@ class ChatOrchestrator:
             output_format=output_format,
         )
 
-    def compare(self, *, question: str, top_k: int, filters=None):
-        return self._compare_service().compare(question=question, top_k=top_k, filters=filters)
+    def compare(self, *, question: str, top_k: int, filters=None, precomputed_hits=None):
+        return self._compare_service().compare(
+            question=question,
+            top_k=top_k,
+            filters=filters,
+            precomputed_hits=precomputed_hits,
+        )
 
     def build_execution_plan(self, request: UnifiedExecutionRequest) -> ExecutionPlan:
         return self.build_execution_plan_with_skills(request)
@@ -196,14 +202,20 @@ class ChatOrchestrator:
         *,
         request: UnifiedExecutionRequest,
         runtime: GenerationRuntime,
+        precomputed_hits: list | None = None,
     ) -> ChatServiceResult:
-        """Execute chat with an explicitly selected runtime."""
+        """Execute chat with an explicitly selected runtime.
 
+        Args:
+            precomputed_hits: If provided, the chat service skips retrieval and uses
+                these hits directly, avoiding duplicate retrieval work.
+        """
         service = replace(self._chat_service(), runtime=runtime)
         return service.chat(
             query=request.user_input,
             top_k=request.retrieval.top_k,
             filters=request.retrieval.filters,
+            precomputed_hits=precomputed_hits,
         )
 
     def run_summarize_with_runtime(
@@ -211,9 +223,14 @@ class ChatOrchestrator:
         *,
         request: UnifiedExecutionRequest,
         runtime: GenerationRuntime,
+        precomputed_hits: list | None = None,
     ) -> SummarizeServiceResult:
-        """Execute summarize with an explicitly selected runtime."""
+        """Execute summarize with an explicitly selected runtime.
 
+        Args:
+            precomputed_hits: If provided, the summarize service skips the LangGraph
+                retrieval workflow and uses these hits directly.
+        """
         service = replace(self._summarize_service(), runtime=runtime)
         mode = str(request.task_options.get("mode") or "basic")
         output_format = "mermaid" if request.output_mode == OutputMode.MERMAID else "text"
@@ -223,6 +240,7 @@ class ChatOrchestrator:
             filters=request.retrieval.filters,
             mode=mode,
             output_format=output_format,
+            precomputed_hits=precomputed_hits,
         )
 
     def _search_service(self) -> SearchService:
@@ -244,6 +262,10 @@ class ChatOrchestrator:
         if self.compare_service is None:
             self.compare_service = CompareService(search_service=self._search_service())
         return self.compare_service
+
+    def _retrieval_pipeline(self) -> RetrievalPipeline:
+        """Shared retrieve → rerank → compress pipeline backed by LangGraph."""
+        return RetrievalPipeline(search_service=self._search_service())
 
 
 @dataclass
@@ -750,11 +772,34 @@ class FrontendFacade:
                 payload=StepStartedPayload(step_name=step.name, step_kind=step.kind.value),
             )
 
+        # Shared retrieval: run the unified pipeline once for CHAT and SUMMARIZE.
+        # For SEARCH, the service handles retrieval directly.
+        # For COMPARE, the CompareService has its own internal retrieval pipeline
+        # and is tested with a fake collection — we skip the unified pipeline to
+        # avoid the real search service interfering with test fixtures.
+        precomputed_retrieval_state: dict | None = None
+        if request.task_type in (TaskType.CHAT, TaskType.SUMMARIZE):
+            pipeline = self.chat._retrieval_pipeline()
+            pipeline_state = pipeline.run(
+                query=request.user_input,
+                top_k=request.retrieval.top_k,
+                filters=request.retrieval.filters,
+            )
+            precomputed_retrieval_state = pipeline_state
+
         if request.task_type == TaskType.CHAT:
-            result = self.chat.run_chat_with_runtime(request=request, runtime=runtime)
+            result = self.chat.run_chat_with_runtime(
+                request=request,
+                runtime=runtime,
+                precomputed_hits=precomputed_retrieval_state["hits"] if precomputed_retrieval_state else None,
+            )
             response = self._build_chat_response(request=request, result=result)
         elif request.task_type == TaskType.SUMMARIZE:
-            result = self.chat.run_summarize_with_runtime(request=request, runtime=runtime)
+            result = self.chat.run_summarize_with_runtime(
+                request=request,
+                runtime=runtime,
+                precomputed_hits=precomputed_retrieval_state["hits"] if precomputed_retrieval_state else None,
+            )
             response = self._build_summarize_response(request=request, result=result)
         elif request.task_type == TaskType.SEARCH:
             result = self.chat.search(
@@ -768,6 +813,7 @@ class FrontendFacade:
                 question=request.user_input,
                 top_k=request.retrieval.top_k,
                 filters=request.retrieval.filters,
+                precomputed_hits=None,  # CompareService has its own internal retrieval
             )
             response = self._build_compare_response(request=request, result=result)
         else:

@@ -6,6 +6,7 @@ from collections import defaultdict
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import Optional
 
 from app.core.exceptions import SummarizeError
 from app.llm.factory import get_generation_runtime
@@ -48,7 +49,14 @@ class SummarizeService:
         filters: RetrievalFilters | None = None,
         mode: str = "basic",
         output_format: str = "text",
+        precomputed_hits: Optional[list] = None,
     ) -> SummarizeServiceResult:
+        """Run the summarize pipeline.
+
+        Args:
+            precomputed_hits: If provided, skip LangGraph retrieval workflow and use
+                these hits directly. Allows the orchestrator to run retrieval once.
+        """
         try:
             started = time.perf_counter()
             logger.info(
@@ -60,14 +68,30 @@ class SummarizeService:
             )
 
             retrieval_started = time.perf_counter()
-            workflow_state = run_retrieval_workflow(
-                query=topic,
-                top_k=top_k,
-                filters=filters,
-                search_service=self.search_service,
-            )
-            retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
-            grounded_hits = workflow_state.grounded_hits
+            if precomputed_hits is not None:
+                from app.services.grounded_generation import select_grounded_hits
+                workflow_hits = precomputed_hits
+                grounded_hits = select_grounded_hits(precomputed_hits).hits
+                retrieval_ms = 0.0
+                # Build a minimal RetrievalPreparationResult from precomputed hits
+                from app.services.service_models import RetrievalPreparationResult
+                from app.services.grounded_generation import build_citation, build_context
+                workflow_state = RetrievalPreparationResult(
+                    hits=workflow_hits,
+                    grounded_hits=grounded_hits,
+                    context=build_context(grounded_hits),
+                    citations=[build_citation(h) for h in grounded_hits],
+                    grouped_hits=[],
+                )
+            else:
+                workflow_state = run_retrieval_workflow(
+                    query=topic,
+                    top_k=top_k,
+                    filters=filters,
+                    search_service=self.search_service,
+                )
+                retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
+                grounded_hits = workflow_state.grounded_hits
             if not grounded_hits:
                 grounding = assess_grounding(retrieved_hits=workflow_state.hits, evidence=[])
                 logger.info("Summarize returning insufficient evidence: topic_preview=%s", topic[:60])

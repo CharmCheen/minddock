@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import Optional
 
 from app.core.exceptions import ChatError
 from app.llm.factory import get_generation_runtime
@@ -38,15 +39,31 @@ class ChatService:
     runtime: GenerationRuntime = field(default_factory=get_generation_runtime)
     llm: LLMProvider | None = None
 
-    def chat(self, query: str, top_k: int, filters: RetrievalFilters | None = None) -> ChatServiceResult:
-        """Run the full RAG chat pipeline."""
+    def chat(
+        self,
+        query: str,
+        top_k: int,
+        filters: RetrievalFilters | None = None,
+        precomputed_hits: Optional[list] = None,
+    ) -> ChatServiceResult:
+        """Run the full RAG chat pipeline.
+
+        Args:
+            precomputed_hits: If provided, skip retrieval and use these hits directly.
+                Allows the caller (e.g. the orchestrator) to run retrieval once and
+                share the result across multiple services.
+        """
         try:
             started = time.perf_counter()
             logger.info("Chat started: query_preview=%s top_k=%d", query[:60], top_k)
 
             retrieval_started = time.perf_counter()
-            hits = self.search_service.retrieve(query=query, top_k=top_k, filters=filters)
-            retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
+            if precomputed_hits is not None:
+                hits = precomputed_hits
+                retrieval_ms = 0.0
+            else:
+                hits = self.search_service.retrieve(query=query, top_k=top_k, filters=filters)
+                retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
             grounded_selection = select_grounded_hits(hits)
             grounded_hits = grounded_selection.hits
             if not grounded_hits:

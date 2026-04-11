@@ -7,6 +7,7 @@ import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Optional
 
 from app.core.exceptions import ChatError
 from app.llm.mock import INSUFFICIENT_EVIDENCE
@@ -75,14 +76,30 @@ class CompareService:
     compressor: Compressor = field(default_factory=get_compressor)
     collection: object = field(default=None)
 
-    def compare(self, *, question: str, top_k: int, filters: RetrievalFilters | None = None) -> CompareServiceResult:
+    def compare(
+        self,
+        *,
+        question: str,
+        top_k: int,
+        filters: RetrievalFilters | None = None,
+        precomputed_hits: Optional[list] = None,
+    ) -> CompareServiceResult:
+        """Run the compare workflow.
+
+        Args:
+            precomputed_hits: If provided, skip retrieval and use these hits directly.
+        """
         try:
             started = time.perf_counter()
             logger.info("Compare started: question_preview=%s top_k=%d", question[:60], top_k)
 
             retrieval_started = time.perf_counter()
-            hits = self.search_service.retrieve(query=question, top_k=top_k, filters=filters)
-            retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
+            if precomputed_hits is not None:
+                hits = precomputed_hits
+                retrieval_ms = 0.0
+            else:
+                hits = self.search_service.retrieve(query=question, top_k=top_k, filters=filters)
+                retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
             grounded_hits = select_grounded_hits(hits).hits
             if not grounded_hits:
                 return self._insufficient_result(

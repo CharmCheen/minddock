@@ -16,6 +16,8 @@ from app.application.events import (
     ExecutionRunStatus,
     MetadataUpdatedPayload,
     PlanBuiltPayload,
+    RetrievalPipelineCompletedPayload,
+    RetrievalPipelineProgressPayload,
     RunCompletedPayload,
     RunFailedPayload,
     RunStartedPayload,
@@ -780,10 +782,31 @@ class FrontendFacade:
         precomputed_retrieval_state: dict | None = None
         if request.task_type in (TaskType.CHAT, TaskType.SUMMARIZE):
             pipeline = self.chat._retrieval_pipeline()
+
+            def _emit_pipeline_event(payload: RetrievalPipelineProgressPayload | RetrievalPipelineCompletedPayload):
+                from app.application.events import RetrievalPipelineCompletedPayload as _Completed
+                if isinstance(payload, _Completed):
+                    collector.emit(
+                        kind=ExecutionEventKind.RETRIEVAL_PIPELINE_COMPLETED,
+                        step_id="retrieval_pipeline",
+                        payload=payload,
+                    )
+                else:
+                    stage_to_kind = {
+                        "retrieval_started": ExecutionEventKind.RETRIEVAL_STARTED,
+                        "retrieval_completed": ExecutionEventKind.RETRIEVAL_COMPLETED,
+                        "rerank_completed": ExecutionEventKind.RERANK_COMPLETED,
+                        "compress_completed": ExecutionEventKind.COMPRESS_COMPLETED,
+                    }
+                    kind = stage_to_kind.get(payload.stage)
+                    if kind:
+                        collector.emit(kind=kind, step_id="retrieval_pipeline", payload=payload)
+
             pipeline_state = pipeline.run(
                 query=request.user_input,
                 top_k=request.retrieval.top_k,
                 filters=request.retrieval.filters,
+                event_emitter=_emit_pipeline_event,
             )
             precomputed_retrieval_state = pipeline_state
 

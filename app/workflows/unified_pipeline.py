@@ -8,7 +8,8 @@ independently called search_service.retrieve / reranker.rerank / compressor.comp
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypedDict
+import time
+from typing import TYPE_CHECKING, Callable, TypedDict
 
 try:
     from langgraph.graph import END, START, StateGraph
@@ -20,9 +21,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency fallback
 from app.rag.postprocess import Compressor, Reranker, get_compressor, get_reranker
 from app.rag.retrieval_models import RetrievedChunk
 from app.services.search_service import SearchService
-
-if TYPE_CHECKING:
-    pass
+from app.application.events import RetrievalPipelineCompletedPayload, RetrievalPipelineProgressPayload
 
 
 class UnifiedWorkflowState(TypedDict, total=False):
@@ -141,13 +140,64 @@ class RetrievalPipeline:
     # Convenience entry point
     # -------------------------------------------------------------------------
 
-    def run(self, *, query: str, top_k: int = 5, filters=None) -> UnifiedWorkflowState:
+    def run(
+        self,
+        *,
+        query: str,
+        top_k: int = 5,
+        filters=None,
+        event_emitter: Callable[["RetrievalPipelineProgressPayload"], None] | None = None,
+    ) -> UnifiedWorkflowState:
         """Run the full pipeline and return the final state dict.
 
-        Returns the full state dict including hits / reranked_hits / compressed_hits
-        so callers can pass the results downstream without re-running the chain.
+        Args:
+            event_emitter: if provided, called after each pipeline stage with
+                a ``RetrievalPipelineProgressPayload`` describing the completed stage.
+                This allows the caller to emit trace events without duplicating the
+                pipeline execution logic.
         """
+        pipeline_started = time.perf_counter()
+
+        if event_emitter is not None:
+            # Emit retrieval_started before the graph runs
+            event_emitter(
+                RetrievalPipelineProgressPayload(stage="retrieval_started")
+            )
+
         compiled = self.build_graph()
+        state: UnifiedWorkflowState = {
+            "query": query,
+            "top_k": top_k,
+            "filters": filters,
+            "hits": [],
+            "reranked_hits": [],
+            "compressed_hits": [],
+        }
+
+        if event_emitter is not None:
+            # Run with inline stage tracking (no separate graph nodes needed)
+            from app.application.events import RetrievalPipelineProgressPayload as _Payload
+            state = {**state, **self.retrieve(state)}
+            event_emitter(_Payload(stage="retrieval_completed", retrieved_hits=len(state.get("hits", []))))
+            state = {**state, **self.rerank(state)}
+            event_emitter(_Payload(stage="rerank_completed", retrieved_hits=len(state.get("hits", [])), reranked_hits=len(state.get("reranked_hits", []))))
+            state = {**state, **self.compress(state)}
+            event_emitter(_Payload(
+                stage="compress_completed",
+                retrieved_hits=len(state.get("hits", [])),
+                reranked_hits=len(state.get("reranked_hits", [])),
+                compressed_hits=len(state.get("compressed_hits", [])),
+            ))
+            total_ms = round((time.perf_counter() - pipeline_started) * 1000, 2)
+            from app.application.events import RetrievalPipelineCompletedPayload
+            event_emitter(RetrievalPipelineCompletedPayload(
+                retrieved_hits=len(state.get("hits", [])),
+                reranked_hits=len(state.get("reranked_hits", [])),
+                compressed_hits=len(state.get("compressed_hits", [])),
+                total_ms=total_ms,
+            ))
+            return state
+
         return compiled.invoke({
             "query": query,
             "top_k": top_k,

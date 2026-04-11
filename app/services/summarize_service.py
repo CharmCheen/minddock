@@ -75,7 +75,6 @@ class SummarizeService:
                 retrieval_ms = 0.0
                 # Build a minimal RetrievalPreparationResult from precomputed hits
                 from app.services.service_models import RetrievalPreparationResult
-                from app.services.grounded_generation import build_citation, build_context
                 workflow_state = RetrievalPreparationResult(
                     hits=workflow_hits,
                     grounded_hits=grounded_hits,

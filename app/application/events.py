@@ -28,6 +28,12 @@ class ExecutionEventKind(StrEnum):
     METADATA_UPDATED = "metadata_updated"
     RUN_COMPLETED = "run_completed"
     RUN_FAILED = "run_failed"
+    # Retrieval pipeline trace events
+    RETRIEVAL_STARTED = "retrieval_started"
+    RETRIEVAL_COMPLETED = "retrieval_completed"
+    RERANK_COMPLETED = "rerank_completed"
+    COMPRESS_COMPLETED = "compress_completed"
+    RETRIEVAL_PIPELINE_COMPLETED = "retrieval_pipeline_completed"
 
 
 class ExecutionRunStatus(StrEnum):
@@ -146,6 +152,26 @@ class RunFailedPayload:
     failed_step_id: str | None = None
 
 
+@dataclass(frozen=True)
+class RetrievalPipelineProgressPayload:
+    """Payload emitted for each retrieval pipeline stage completion."""
+
+    stage: str  # one of: retrieval_started, retrieval_completed, rerank_completed, compress_completed
+    retrieved_hits: int = 0
+    reranked_hits: int = 0
+    compressed_hits: int = 0
+
+
+@dataclass(frozen=True)
+class RetrievalPipelineCompletedPayload:
+    """Payload emitted when the entire retrieval pipeline finishes."""
+
+    retrieved_hits: int = 0
+    reranked_hits: int = 0
+    compressed_hits: int = 0
+    total_ms: float = 0.0
+
+
 ExecutionEventPayload = (
     RunStartedPayload
     | PlanBuiltPayload
@@ -156,6 +182,8 @@ ExecutionEventPayload = (
     | MetadataUpdatedPayload
     | RunCompletedPayload
     | RunFailedPayload
+    | RetrievalPipelineProgressPayload
+    | RetrievalPipelineCompletedPayload
 )
 
 

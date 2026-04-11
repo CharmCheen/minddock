@@ -19,6 +19,8 @@ from app.runtime.profiles import RuntimeProfileRegistry
 from app.runtime.registry import RuntimeRegistry
 from app.runtime.resolver import RuntimeResolver
 from app.services.service_models import ChatServiceResult, CompareServiceResult, IngestServiceResult, SearchServiceResult, SummarizeServiceResult, UseCaseMetadata
+from app.services.search_service import SearchService
+from app.services.chat_service import ChatService
 
 
 @dataclass
@@ -108,6 +110,14 @@ class FakeRuntime:
     runtime_name = "langchain"
     provider_name = "fake-provider"
     capabilities = RuntimeCapabilities(supports_chat=True, supports_summarize=True)
+
+    def generate(self, request):
+        from app.runtime.models import RuntimeResponse
+        return RuntimeResponse(
+            text="fake generated text",
+            runtime_name=self.runtime_name,
+            provider_name=self.provider_name,
+        )
 
 
 def _runtime_stack():
@@ -645,3 +655,259 @@ def test_unified_execution_honors_cancellation_request_at_safe_boundary(monkeypa
     assert run.status == ExecutionRunStatus.CANCELLED
     assert run.events[-1].kind == ExecutionEventKind.RUN_FAILED
     assert "cancelled" in run.events[-1].payload.detail.lower()
+
+
+# -----------------------------------------------------------------------
+# Tests for unified retrieval pipeline
+# -----------------------------------------------------------------------
+
+def test_precomputed_hits_equivalence_chat(monkeypatch) -> None:
+    """precomputed_hits=<hits> and precomputed_hits=None must yield the same answer.
+
+    This verifies that passing hits from the shared pipeline into ChatService.chat()
+    produces the same result as letting ChatService retrieve its own hits, provided
+    the hits are identical. The service must skip retrieval entirely when precomputed
+    hits are supplied.
+    """
+    controlled_hits = [
+        RetrievedChunk(
+            text="MindDock stores chunks in local Chroma.",
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/doc.md",
+            source_type="file",
+            title="doc",
+            section="Storage",
+            location="Storage",
+            ref="doc > Storage",
+            page=None,
+            anchor=None,
+            distance=0.1,
+        ),
+    ]
+
+    retrieval_call_count = 0
+
+    class TrackedSearchService(SearchService):
+        def retrieve(self, query, top_k, filters=None):
+            nonlocal retrieval_call_count
+            retrieval_call_count += 1
+            return controlled_hits
+
+    search_service = TrackedSearchService()
+
+    # Path A: service retrieves its own hits
+    retrieval_call_count = 0
+    chat_service_a = ChatService(search_service=search_service, runtime=FakeRuntime())
+    result_a = chat_service_a.chat(query="what does MindDock store?", top_k=5)
+
+    # Path B: precomputed_hits supplied (as the shared pipeline would do)
+    retrieval_call_count = 0
+    chat_service_b = ChatService(search_service=search_service, runtime=FakeRuntime())
+    result_b = chat_service_b.chat(
+        query="what does MindDock store?",
+        top_k=5,
+        precomputed_hits=controlled_hits,
+    )
+
+    assert retrieval_call_count == 0, "precomputed_hits must skip retrieval"
+    # Same answer
+    assert result_a.answer == result_b.answer
+    # Same grounded evidence count
+    assert len(result_a.grounded_answer.evidence) == len(result_b.grounded_answer.evidence)
+    # Same support status
+    assert result_a.grounded_answer.support_status == result_b.grounded_answer.support_status
+
+
+def test_precomputed_hits_equivalence_summarize(monkeypatch) -> None:
+    """Same equivalence check as above but for the SummarizeService path."""
+    controlled_hits = [
+        RetrievedChunk(
+            text="MindDock stores chunks in local Chroma.",
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/doc.md",
+            source_type="file",
+            title="doc",
+            section="Storage",
+            location="Storage",
+            ref="doc > Storage",
+            page=None,
+            anchor=None,
+            distance=0.1,
+        ),
+    ]
+
+    retrieval_call_count = 0
+
+    class TrackedSearchService(SearchService):
+        def retrieve(self, query, top_k, filters=None):
+            nonlocal retrieval_call_count
+            retrieval_call_count += 1
+            return controlled_hits
+
+    search_service = TrackedSearchService()
+
+    from app.services.summarize_service import SummarizeService
+
+    # Path A: service retrieves its own hits
+    retrieval_call_count = 0
+    summarize_service_a = SummarizeService(
+        search_service=search_service,
+        runtime=FakeRuntime(),
+    )
+    result_a = summarize_service_a.summarize(topic="MindDock storage", top_k=5)
+
+    # Path B: precomputed_hits supplied
+    retrieval_call_count = 0
+    summarize_service_b = SummarizeService(
+        search_service=search_service,
+        runtime=FakeRuntime(),
+    )
+    result_b = summarize_service_b.summarize(
+        topic="MindDock storage",
+        top_k=5,
+        precomputed_hits=controlled_hits,
+    )
+
+    assert retrieval_call_count == 0, "precomputed_hits must skip retrieval"
+    assert result_a.summary == result_b.summary
+
+
+def test_unified_pipeline_retrieval_called_once_in_chat(monkeypatch) -> None:
+    """The facade must run the unified pipeline once for CHAT and pass the hits
+    to the service; SearchService.retrieve must be called exactly once."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    registry = _run_registry()
+
+    retrieval_count = 0
+    original_retrieve = SearchService.retrieve
+
+    def counting_retrieve(self, query, top_k, filters=None):
+        nonlocal retrieval_count
+        retrieval_count += 1
+        return original_retrieve(self, query, top_k, filters)
+
+    monkeypatch.setattr(SearchService, "retrieve", counting_retrieve)
+
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=registry,
+    )
+
+    retrieval_count = 0
+    facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+        )
+    )
+
+    assert retrieval_count == 1, f"Expected exactly 1 retrieval call, got {retrieval_count}"
+
+
+def test_unified_pipeline_retrieval_called_once_in_summarize(monkeypatch) -> None:
+    """Same check as above but for the SUMMARIZE task type."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    registry = _run_registry()
+
+    retrieval_count = 0
+    original_retrieve = SearchService.retrieve
+
+    def counting_retrieve(self, query, top_k, filters=None):
+        nonlocal retrieval_count
+        retrieval_count += 1
+        return original_retrieve(self, query, top_k, filters)
+
+    monkeypatch.setattr(SearchService, "retrieve", counting_retrieve)
+
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=registry,
+    )
+
+    retrieval_count = 0
+    facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.SUMMARIZE,
+            user_input="hello",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+        )
+    )
+
+    assert retrieval_count == 1, f"Expected exactly 1 retrieval call, got {retrieval_count}"
+
+
+def test_unified_pipeline_emits_retrieval_trace_events(monkeypatch) -> None:
+    """Pipeline events (retrieval_started/completed, rerank_completed,
+    compress_completed, retrieval_pipeline_completed) must be emitted for
+    CHAT and SUMMARIZE tasks."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    registry = _run_registry()
+
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
+        return ChatServiceResult(
+            answer="chat response",
+            citations=[],
+            grounded_answer=GroundedAnswer(answer="chat response"),
+            metadata=UseCaseMetadata(retrieved_count=1, mode="grounded", support_status="supported"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
+
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=registry,
+    )
+
+    run = facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_events=True,
+        )
+    )
+
+    event_kinds = {e.kind for e in run.events}
+    expected_pipeline_events = {
+        ExecutionEventKind.RETRIEVAL_STARTED,
+        ExecutionEventKind.RETRIEVAL_COMPLETED,
+        ExecutionEventKind.RERANK_COMPLETED,
+        ExecutionEventKind.COMPRESS_COMPLETED,
+        ExecutionEventKind.RETRIEVAL_PIPELINE_COMPLETED,
+    }
+    assert expected_pipeline_events.issubset(event_kinds), (
+        f"Missing pipeline events. Expected {expected_pipeline_events}, got {event_kinds & expected_pipeline_events}"
+    )
+
+    # verify retrieval_pipeline_completed payload has non-zero hit counts
+    pipeline_done = next(
+        e for e in run.events if e.kind == ExecutionEventKind.RETRIEVAL_PIPELINE_COMPLETED
+    )
+    assert pipeline_done.payload is not None
+    from app.application.events import RetrievalPipelineCompletedPayload
+    assert isinstance(pipeline_done.payload, RetrievalPipelineCompletedPayload)
+    assert pipeline_done.payload.retrieved_hits > 0

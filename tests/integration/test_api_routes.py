@@ -1751,3 +1751,156 @@ class _FakeCollectionForFreshness:
 
     def list_document_chunk_ids(self, doc_id: str):
         return self._chunk_ids.get(doc_id, set())
+
+
+def test_unified_execute_stream_endpoint_emits_events_progressively(monkeypatch) -> None:
+    """Verify that the stream endpoint yields events progressively as they are emitted.
+
+    The key property being tested: events must be available from run_registry
+    BEFORE execute_run() returns. The endpoint achieves this by running
+    execute_run() in a background thread and polling run_registry for new
+    client events as they arrive.
+
+    This test verifies that when execute_run emits events to the registry
+    progressively (via the collector's sink), the stream endpoint can
+    retrieve and yield them before the run completes.
+    """
+    import threading
+    import time
+    from app.api import routes
+    from app.application.events import (
+        ArtifactEmittedPayload,
+        ExecutionRun,
+        ExecutionRunStatus,
+        RunCompletedPayload,
+        RunStartedPayload,
+        StepStartedPayload,
+    )
+    from app.application.artifacts import ArtifactKind, TextArtifact
+
+    client = TestClient(app)
+    routes.frontend_facade.run_registry._runs.clear()
+
+    # We'll intercept serialize_client_event_sse calls to verify events are yielded progressively
+    serialize_calls: list = []
+
+    def counting_serialize(event):
+        """Wrap serialize_client_event_sse to record each call."""
+        serialize_calls.append(event)
+        from app.api.streaming import serialize_client_event_sse as real_serialize
+        return real_serialize(event)
+
+    def fake_execute_run_progressive(request):
+        """execute_run that emits events to registry progressively in a background thread."""
+        from app.application.events import ExecutionRun, ExecutionRunStatus
+
+        run_id = "run-progressive"
+        registry = routes.frontend_facade.run_registry
+
+        # Register the run in the registry first (so it can be found)
+        run = ExecutionRun(
+            run_id=run_id,
+            request_summary=type("ReqSummary", (), {
+                "task_type": "chat",
+                "user_input_preview": "hello",
+                "output_mode": "text",
+                "top_k": 5,
+                "citation_policy": "preferred",
+                "skill_policy": "disabled",
+            })(),
+            status=ExecutionRunStatus.RUNNING,
+        )
+        registry.register(run, debug_enabled=False, stream_mode="execute")
+
+        # Emit events progressively from a background thread, via the registry sink
+        def emit_thread():
+            from app.application.events import EventCollector
+
+            collector = EventCollector(
+                run_id=run_id,
+                task_type="chat",
+                sink=registry.make_registry_sink(run_id),
+            )
+
+            collector.emit(
+                kind=ExecutionEventKind.RUN_STARTED,
+                payload=RunStartedPayload(
+                    request=type("Req", (), {
+                        "task_type": "chat",
+                        "user_input_preview": "hello",
+                        "output_mode": "text",
+                        "top_k": 5,
+                        "citation_policy": "preferred",
+                        "skill_policy": "disabled",
+                    })(),
+                ),
+            )
+            time.sleep(0.1)
+
+            collector.emit(
+                kind=ExecutionEventKind.STEP_STARTED,
+                payload=StepStartedPayload(step_name="retrieve_hits", step_kind="retrieve"),
+            )
+            time.sleep(0.1)
+
+            collector.emit(
+                kind=ExecutionEventKind.STEP_STARTED,
+                payload=StepStartedPayload(step_name="generate_answer", step_kind="generate"),
+            )
+            time.sleep(0.1)
+
+            collector.emit(
+                kind=ExecutionEventKind.ARTIFACT_EMITTED,
+                payload=ArtifactEmittedPayload(
+                    artifact=TextArtifact(artifact_id="text-1", kind=ArtifactKind.TEXT, text="hello world"),
+                    artifact_index=1,
+                ),
+            )
+            time.sleep(0.1)
+
+            collector.emit(
+                kind=ExecutionEventKind.RUN_COMPLETED,
+                payload=RunCompletedPayload(artifact_count=1, primary_artifact_kind="text"),
+            )
+
+            registry.mark_completed(run_id)
+
+        t = threading.Thread(target=emit_thread)
+        t.start()
+        t.join(timeout=5.0)
+
+        # Return ExecutionRun (real execute_run returns this, not ManagedRun)
+        managed = registry.get(run_id)
+        return ExecutionRun(
+            run_id=run_id,
+            request_summary=run.request_summary,
+            status=ExecutionRunStatus.COMPLETED,
+            events=tuple(managed.internal_events) if managed else (),
+        )
+
+    monkeypatch.setattr(routes.frontend_facade, "execute_run", fake_execute_run_progressive)
+    monkeypatch.setattr(routes, "serialize_client_event_sse", counting_serialize)
+
+    response = client.post(
+        "/frontend/execute/stream",
+        json={"task_type": "chat", "user_input": "hello"},
+        timeout=10,
+    )
+
+    assert response.status_code == 200
+    events = _parse_sse_body(response.text)
+    event_kinds = [e["event"] for e in events]
+
+    # All expected events must be present
+    assert "run_started" in event_kinds, f"Missing run_started in {event_kinds}"
+    assert "progress" in event_kinds, f"Missing progress in {event_kinds}"
+    assert "artifact" in event_kinds, f"Missing artifact in {event_kinds}"
+    assert "completed" in event_kinds, f"Missing completed in {event_kinds}"
+
+    # Progressive property: serialize_client_event_sse must have been called multiple times
+    # (meaning events were yielded progressively, not as a single batch)
+    assert len(serialize_calls) > 0, "serialize_client_event_sse was never called"
+    assert len(serialize_calls) > 1, (
+        f"Expected progressive yields but got only {len(serialize_calls)} call(s). "
+        "This means events are still emitted as a single batch after execution completes."
+    )

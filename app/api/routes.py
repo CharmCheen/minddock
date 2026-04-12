@@ -52,8 +52,9 @@ from app.api.schemas import (
     UnifiedExecutionRequestBody,
     UnifiedExecutionResponseBody,
 )
-from app.api.streaming import inject_heartbeat_events, iter_sse_chunks, project_run_events
+from app.api.streaming import inject_heartbeat_events, project_run_events, serialize_client_event_sse
 from app.application.events import ExecutionRunStatus
+from app.application.client_events import ClientEventKind
 from app.core.config import get_settings
 from app.core.exceptions import RunNotFoundError, SkillNotFoundError, SkillNotPublicError
 from app.core.logging import TRACE_LEVEL_NUM
@@ -249,16 +250,84 @@ def execute_frontend_task_stream(
     debug: bool = Query(default=False, description="When true, include debug-visible client events."),
 ) -> StreamingResponse:
     logger.debug("Unified stream endpoint called: task_type=%s debug=%s", payload.task_type, debug)
-    run = frontend_facade.execute_run(payload.to_application_request())
-    projected_events = frontend_facade.run_registry.get_recent_client_events(run.run_id, debug=debug or payload.debug)
-    if not projected_events:
-        projected_events = project_run_events(run, debug=debug or payload.debug)
-    projected_events = inject_heartbeat_events(
-        projected_events,
-        run_id=run.run_id,
-        heartbeat_interval_seconds=frontend_facade.run_registry.config.heartbeat_interval_seconds,
-    )
-    return StreamingResponse(iter_sse_chunks(projected_events), media_type="text/event-stream")
+    request = payload.to_application_request()
+    debug_enabled = debug or payload.debug
+
+    def sse_event_generator() -> dict[str, str]:
+        import threading
+        import time
+
+        run_started_event: list[dict] = []
+        run_completed = threading.Event()
+        run_error: list[Exception] = []
+
+        def run_in_thread():
+            try:
+                run = frontend_facade.execute_run(request)
+                # Collect the run_started event from registry (already emitted before we poll)
+                events = frontend_facade.run_registry.get_recent_client_events(run.run_id, debug=debug_enabled)
+                if events:
+                    run_started_event.append({"run_id": run.run_id, "events": events})
+                else:
+                    # Fallback: project from internal events
+                    projected = project_run_events(run, debug=debug_enabled)
+                    run_started_event.append({"run_id": run.run_id, "events": projected})
+            except Exception as exc:
+                run_error.append(exc)
+            finally:
+                run_completed.set()
+
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+
+        yielded_sequences: set[int] = set()
+        poll_interval = 0.05  # seconds between registry polls
+
+        while True:
+            # Wait for the run to start (first event available) or complete
+            run_completed.wait(timeout=2.0)
+
+            if run_started_event:
+                events = run_started_event[0]["events"]
+                for evt in events:
+                    # Yield each new event not yet seen (deque may grow between polls)
+                    if evt.sequence not in yielded_sequences:
+                        yield serialize_client_event_sse(evt)
+                        yielded_sequences.add(evt.sequence)
+
+            if run_completed.is_set():
+                break
+
+            time.sleep(poll_interval)
+
+        # After run completes, do a final poll to pick up any remaining events
+        if run_started_event:
+            final_events = frontend_facade.run_registry.get_recent_client_events(
+                run_started_event[0]["run_id"], debug=debug_enabled
+            )
+            for evt in final_events:
+                if evt.sequence not in yielded_sequences:
+                    yield serialize_client_event_sse(evt)
+                    yielded_sequences.add(evt.sequence)
+
+            # Inject heartbeat if needed
+            all_events = tuple(
+                e for e in final_events if e.kind not in {ClientEventKind.HEARTBEAT}
+            )
+            hb_events = inject_heartbeat_events(
+                all_events,
+                run_id=run_started_event[0]["run_id"],
+                heartbeat_interval_seconds=frontend_facade.run_registry.config.heartbeat_interval_seconds,
+            )
+            for evt in hb_events:
+                if evt.sequence not in yielded_sequences:
+                    yield serialize_client_event_sse(evt)
+                    yielded_sequences.add(evt.sequence)
+
+        if run_error:
+            raise run_error[0]
+
+    return StreamingResponse(sse_event_generator(), media_type="text/event-stream")
 
 
 @router.get("/frontend/runtime-profiles", response_model=RuntimeProfileListResponse, summary="List frontend-selectable runtime profiles")

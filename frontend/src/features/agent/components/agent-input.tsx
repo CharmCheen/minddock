@@ -22,7 +22,8 @@ export const AgentInput: React.FC<{
         onEvent: (event: ClientEvent) => {
           appendEvent(event);
           if (event.event === 'run_started') {
-            startRun((event.data as any).run_id, query);
+            // run_id is at top level of ClientEventResponseItem, not in payload
+            startRun(event.run_id!, query);
           } else if (event.event === 'artifact') {
             const payload = event.data as ClientArtifactPayload;
             if (payload && payload.artifact) {

@@ -60,12 +60,14 @@ export interface ClientFailedPayload {
 
 export interface ClientEvent {
   event: ClientEventKind;
-  data: 
-    | ClientRunStartedPayload 
-    | ClientProgressPayload 
-    | ClientArtifactPayload 
-    | ClientCompletedPayload 
+  data:
+    | ClientRunStartedPayload
+    | ClientProgressPayload
+    | ClientArtifactPayload
+    | ClientCompletedPayload
     | ClientFailedPayload;
+  // Backend sends run_id at top level of ClientEventResponseItem
+  run_id?: string;
 }
 
 export interface ArtifactResponseItem {

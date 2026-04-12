@@ -36,8 +36,35 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
 
   if (kind === 'text') {
     return (
-      <div style={{ background: '#fff', border: '1px solid #f1f5f9', borderRadius: '12px', padding: '20px 24px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
-        <div style={{ fontSize: '15px', lineHeight: '1.7', color: '#334155', whiteSpace: 'pre-wrap', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      <div style={{
+        background: '#fff',
+        border: '1px solid #e2e8f0',
+        borderRadius: '12px',
+        padding: '20px 24px',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+      }}>
+        {/* Artifact Type Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <span style={{
+            fontSize: '11px',
+            fontWeight: '600',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            color: '#3b82f6',
+            background: '#eff6ff',
+            padding: '3px 10px',
+            borderRadius: '6px'
+          }}>
+            Text Response
+          </span>
+        </div>
+        <div style={{
+          fontSize: '15px',
+          lineHeight: '1.8',
+          color: '#334155',
+          whiteSpace: 'pre-wrap',
+          fontFamily: 'system-ui, -apple-system, sans-serif'
+        }}>
           {String(content.text || '')}
         </div>
         {citations && citations.length > 0 && <CitationList citations={citations} />}
@@ -47,13 +74,46 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
 
   if (kind === 'mermaid') {
     return (
-      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 24px', marginBottom: '16px' }}>
-        <div style={{ fontSize: '12px', color: '#6366f1', marginBottom: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Diagram Data (Mermaid)
+      <div style={{
+        background: '#fff',
+        border: '1px solid #e2e8f0',
+        borderRadius: '12px',
+        padding: '20px 24px',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+      }}>
+        {/* Artifact Type Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <span style={{
+            fontSize: '11px',
+            fontWeight: '600',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            color: '#8b5cf6',
+            background: '#f3e8ff',
+            padding: '3px 10px',
+            borderRadius: '6px'
+          }}>
+            Diagram
+          </span>
         </div>
-        <pre style={{ fontSize: '13px', overflowX: 'auto', whiteSpace: 'pre-wrap', color: '#1e293b', fontFamily: 'monospace' }}>
-          {String(content.mermaid_code || '')}
-        </pre>
+        <div style={{
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: '8px',
+          padding: '16px 20px',
+          overflowX: 'auto'
+        }}>
+          <pre style={{
+            fontSize: '13px',
+            overflowX: 'auto',
+            whiteSpace: 'pre-wrap',
+            color: '#1e293b',
+            fontFamily: 'monospace',
+            margin: 0
+          }}>
+            {String(content.mermaid_code || '')}
+          </pre>
+        </div>
         {citations && citations.length > 0 && <CitationList citations={citations} />}
       </div>
     );
@@ -78,42 +138,150 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
       };
 
       return (
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px 24px', marginBottom: '16px' }}>
+        <div style={{
+          background: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '12px',
+          padding: '20px 24px',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+        }}>
+          {/* Artifact Type Badge */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: '600',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: '#8b5cf6',
+              background: '#f3e8ff',
+              padding: '3px 10px',
+              borderRadius: '6px'
+            }}>
+              Comparison Result
+            </span>
+          </div>
 
           {dataObj.common_points && dataObj.common_points.length > 0 && (
             <div style={{ marginBottom: '20px' }}>
-              <h4 style={{ fontSize: '14px', color: '#10b981', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '16px' }}>🤝</span> Common Points
-              </h4>
-              <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.6' }}>
-                {dataObj.common_points.map((pt: any, i: number) => <li key={i}>{getStatement(pt)}</li>)}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '10px',
+                padding: '8px 12px',
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderRadius: '8px'
+              }}>
+                <h4 style={{
+                  fontSize: '12px',
+                  color: '#15803d',
+                  margin: 0,
+                  fontWeight: '700',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em'
+                }}>
+                  Common Points
+                </h4>
+                <span style={{
+                  fontSize: '11px',
+                  color: '#15803d',
+                  background: '#dcfce7',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  marginLeft: 'auto',
+                  fontWeight: '500'
+                }}>
+                  {dataObj.common_points.length}
+                </span>
+              </div>
+              <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.8' }}>
+                {dataObj.common_points.map((pt: any, i: number) => <li key={i} style={{ marginBottom: '6px' }}>{getStatement(pt)}</li>)}
               </ul>
             </div>
           )}
 
           {dataObj.differences && dataObj.differences.length > 0 && (
             <div style={{ marginBottom: '20px' }}>
-              <h4 style={{ fontSize: '14px', color: '#f59e0b', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '16px' }}>⚖️</span> Differences
-              </h4>
-              <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.6' }}>
-                {dataObj.differences.map((pt: any, i: number) => <li key={i}>{getStatement(pt)}</li>)}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '10px',
+                padding: '8px 12px',
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                borderRadius: '8px'
+              }}>
+                <h4 style={{
+                  fontSize: '12px',
+                  color: '#b45309',
+                  margin: 0,
+                  fontWeight: '700',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em'
+                }}>
+                  Differences
+                </h4>
+                <span style={{
+                  fontSize: '11px',
+                  color: '#b45309',
+                  background: '#fef3c7',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  marginLeft: 'auto',
+                  fontWeight: '500'
+                }}>
+                  {dataObj.differences.length}
+                </span>
+              </div>
+              <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.8' }}>
+                {dataObj.differences.map((pt: any, i: number) => <li key={i} style={{ marginBottom: '6px' }}>{getStatement(pt)}</li>)}
               </ul>
             </div>
           )}
 
           {dataObj.conflicts && dataObj.conflicts.length > 0 && (
-            <div style={{ marginBottom: '12px' }}>
-              <h4 style={{ fontSize: '14px', color: '#ef4444', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '16px' }}>⚠️</span> Conflicts
-              </h4>
-              <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.6' }}>
-                {dataObj.conflicts.map((pt: any, i: number) => <li key={i}>{getStatement(pt)}</li>)}
+            <div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '10px',
+                padding: '8px 12px',
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '8px'
+              }}>
+                <h4 style={{
+                  fontSize: '12px',
+                  color: '#dc2626',
+                  margin: 0,
+                  fontWeight: '700',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em'
+                }}>
+                  Conflicts
+                </h4>
+                <span style={{
+                  fontSize: '11px',
+                  color: '#dc2626',
+                  background: '#fee2e2',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  marginLeft: 'auto',
+                  fontWeight: '500'
+                }}>
+                  {dataObj.conflicts.length}
+                </span>
+              </div>
+              <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.8' }}>
+                {dataObj.conflicts.map((pt: any, i: number) => <li key={i} style={{ marginBottom: '6px' }}>{getStatement(pt)}</li>)}
               </ul>
             </div>
           )}
 
-          {citations && citations.length > 0 && <div style={{ marginTop: '16px' }}><CitationList citations={citations} /></div>}
+          {citations && citations.length > 0 && <div style={{ marginTop: '20px' }}><CitationList citations={citations} /></div>}
         </div>
       );
     }
@@ -122,8 +290,35 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
     if (typeof rawData === 'object' && rawData !== null && 'summary' in rawData && Object.keys(rawData).length <= 3) {
       const dataObj = rawData as any;
       return (
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px 24px', marginBottom: '16px' }}>
-          <div style={{ fontSize: '15px', lineHeight: '1.7', color: '#334155', whiteSpace: 'pre-wrap', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+        <div style={{
+          background: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '12px',
+          padding: '20px 24px',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+        }}>
+          {/* Artifact Type Badge */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: '600',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: '#10b981',
+              background: '#d1fae5',
+              padding: '3px 10px',
+              borderRadius: '6px'
+            }}>
+              Summary
+            </span>
+          </div>
+          <div style={{
+            fontSize: '15px',
+            lineHeight: '1.8',
+            color: '#334155',
+            whiteSpace: 'pre-wrap',
+            fontFamily: 'system-ui, -apple-system, sans-serif'
+          }}>
             {String(dataObj.summary || '')}
           </div>
           {citations && citations.length > 0 && <CitationList citations={citations} />}
@@ -131,13 +326,38 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
       );
     }
 
-    // Default JSON Dump
+    // Default JSON Dump - improved styling
     return (
-      <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '16px 24px', marginBottom: '16px' }}>
-        <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Structured Data
+      <div style={{
+        background: '#1e293b',
+        border: '1px solid #334155',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+      }}>
+        {/* Artifact Type Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+          <span style={{
+            fontSize: '11px',
+            fontWeight: '600',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            color: '#94a3b8',
+            background: 'rgba(148,163,184,0.15)',
+            padding: '3px 10px',
+            borderRadius: '6px'
+          }}>
+            Data
+          </span>
         </div>
-        <pre style={{ fontSize: '13px', overflowX: 'auto', whiteSpace: 'pre-wrap', color: '#22d3ee', fontFamily: 'monospace' }}>
+        <pre style={{
+          fontSize: '13px',
+          overflowX: 'auto',
+          whiteSpace: 'pre-wrap',
+          color: '#e2e8f0',
+          fontFamily: 'monospace',
+          margin: 0
+        }}>
           {parsed}
         </pre>
         {citations && citations.length > 0 && <CitationList citations={citations} />}

@@ -66,13 +66,32 @@ export const SourceDetailPanel: React.FC = () => {
   }
 
   return (
-    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '24px', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
       {/* Detail Header */}
-      <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', color: '#0f172a', fontWeight: '700' }}>{selectedDocDetail.title || selectedDocId}</h3>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '40px',
+          height: '40px',
+          borderRadius: '10px',
+          background: '#f0fdf4',
+          color: '#10b981',
+          fontSize: '20px',
+          flexShrink: 0
+        }}>
+          📄
+        </div>
+        <div style={{ flex: 1 }}>
+          <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#0f172a', fontWeight: '600' }}>{selectedDocDetail.title || selectedDocId}</h3>
+          <div style={{ fontSize: '12px', color: '#64748b' }}>Document ID: {selectedDocId.split('-')[0]}...</div>
+        </div>
+      </div>
       <div style={{ fontSize: '13px', color: '#64748b', display: 'flex', gap: '16px', flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9', paddingBottom: '16px', marginBottom: '16px' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{color:'#94a3b8'}}>🆔</span> {selectedDocId.split('-')[0]}...</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{color:'#94a3b8'}}>🏷️</span> {selectedDocDetail.category}</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{color:'#94a3b8'}}>📅</span> {new Date(selectedDocDetail.uploaded_at).toLocaleDateString()}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{color:'#94a3b8'}}>📦</span> {selectedDocChunks.length} chunks</span>
       </div>
       
       
@@ -80,7 +99,12 @@ export const SourceDetailPanel: React.FC = () => {
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '8px' }}>
         {loadingChunks && (
            <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-             <span className="dot-pulse" style={{ color: '#3b82f6' }}>●●●</span>
+             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px' }}>
+               <svg viewBox="0 0 24 24" width="24" height="24" style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }}>
+                 <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
+                 <path fill="currentColor" d="M12 2v4a6 6 0 006 6h4a10 10 0 01-10-10z"/>
+               </svg>
+             </div>
              <span style={{ color: '#64748b', fontSize: '13px' }}>Extracting Document Chunks...</span>
            </div>
         )}
@@ -101,7 +125,7 @@ export const SourceDetailPanel: React.FC = () => {
               style={{
                 background: isHighlighted ? '#fffbeb' : '#f8fafc',
                 border: isHighlighted ? '1px solid #fcd34d' : '1px solid #e2e8f0',
-                borderRadius: '10px',
+                borderRadius: '12px',
                 padding: '16px',
                 cursor: 'pointer',
                 transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',

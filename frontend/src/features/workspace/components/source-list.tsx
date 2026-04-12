@@ -31,8 +31,32 @@ export const SourceList: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f8fafc' }}>
-      <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', background: '#fff' }}>
-        <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#0f172a' }}>Document Workspace</h2>
+      <div style={{
+        padding: '16px 24px',
+        borderBottom: '1px solid #e2e8f0',
+        background: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '36px',
+          height: '36px',
+          borderRadius: '10px',
+          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+          color: '#fff',
+          fontSize: '18px',
+          boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+        }}>
+          📚
+        </div>
+        <div>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#0f172a' }}>Document Workspace</h2>
+          <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Manage your knowledge base sources</p>
+        </div>
       </div>
       
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -43,8 +67,13 @@ export const SourceList: React.FC = () => {
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {loading && (
-              <div style={{ padding: '24px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                <span className="dot-pulse" style={{ color: '#3b82f6' }}>●●●</span>
+              <div style={{ padding: '32px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px' }}>
+                  <svg viewBox="0 0 24 24" width="24" height="24" style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }}>
+                    <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
+                    <path fill="currentColor" d="M12 2v4a6 6 0 006 6h4a10 10 0 01-10-10z"/>
+                  </svg>
+                </div>
                 <span style={{ color: '#64748b', fontSize: '13px' }}>Loading Sources...</span>
               </div>
             )}
@@ -63,15 +92,26 @@ export const SourceList: React.FC = () => {
               </div>
             )}
             {sources.map(src => (
-              <div 
+              <div
                 key={src.doc_id}
                 onClick={() => setSelectedDoc(src.doc_id, src)}
-                style={{ 
-                  padding: '12px 16px', 
+                onMouseEnter={(e) => {
+                  if (selectedDocId !== src.doc_id) {
+                    e.currentTarget.style.background = '#f8fafc';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (selectedDocId !== src.doc_id) {
+                    e.currentTarget.style.background = '#fff';
+                  }
+                }}
+                style={{
+                  padding: '12px 16px',
                   borderBottom: '1px solid #f1f5f9',
                   cursor: 'pointer',
                   background: selectedDocId === src.doc_id ? '#eff6ff' : '#fff',
-                  borderLeft: selectedDocId === src.doc_id ? '3px solid #3b82f6' : '3px solid transparent'
+                  borderLeft: selectedDocId === src.doc_id ? '3px solid #3b82f6' : '3px solid transparent',
+                  transition: 'background 0.15s ease'
                 }}
               >
                 <div style={{ fontSize: '14px', fontWeight: '500', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

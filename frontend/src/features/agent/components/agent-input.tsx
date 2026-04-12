@@ -66,24 +66,37 @@ export const AgentInput: React.FC<{
   ];
 
   return (
-    <div style={{ padding: '16px', borderTop: '1px solid #e2e8f0', background: '#fff', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+    <div style={{
+      padding: '16px 20px',
+      borderTop: '1px solid #e2e8f0',
+      background: '#fff',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '12px'
+    }}>
       {/* Mode Switcher */}
       <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '8px', gap: '4px' }}>
+        <div style={{
+          display: 'flex',
+          background: '#f1f5f9',
+          padding: '4px',
+          borderRadius: '10px',
+          gap: '4px'
+        }}>
           {modes.map(m => (
-            <div 
+            <div
               key={m.id}
               onClick={() => !isRunning && setTaskType(m.id as any)}
               style={{
-                padding: '6px 16px',
+                padding: '8px 20px',
                 fontSize: '13px',
                 fontWeight: taskType === m.id ? '600' : '500',
-                color: taskType === m.id ? '#0f172a' : '#64748b',
+                color: taskType === m.id ? '#1e293b' : '#64748b',
                 background: taskType === m.id ? '#fff' : 'transparent',
-                borderRadius: '6px',
+                borderRadius: '8px',
                 cursor: isRunning ? 'not-allowed' : 'pointer',
-                boxShadow: taskType === m.id ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-                transition: 'all 0.2s'
+                boxShadow: taskType === m.id ? '0 2px 4px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.2s ease'
               }}
             >
               {m.label}
@@ -96,28 +109,82 @@ export const AgentInput: React.FC<{
         <ExamplePrompts taskType={taskType} onSelect={(text) => setQuery(text)} />
       )}
 
-      <div style={{ display: 'flex', gap: '8px', maxWidth: '800px', margin: '0 auto', width: '100%', padding: '0 24px' }}>
-        <input 
-          type="text" 
-          value={query} 
-          onChange={(e) => setQuery(e.target.value)} 
+      <div style={{
+        display: 'flex',
+        gap: '10px',
+        maxWidth: '800px',
+        margin: '0 auto',
+        width: '100%',
+        padding: '0 24px'
+      }}>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleStart()}
-          placeholder="Ask the agent anything..." 
-          style={{ flex: 1, padding: '12px 16px', fontSize: '15px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none' }}
+          placeholder="Ask the agent anything..."
+          style={{
+            flex: 1,
+            padding: '14px 18px',
+            fontSize: '15px',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            outline: 'none',
+            transition: 'all 0.2s ease',
+            boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.04)'
+          }}
+          onFocus={(e) => {
+            e.target.style.borderColor = '#3b82f6';
+            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+          }}
+          onBlur={(e) => {
+            e.target.style.borderColor = '#e2e8f0';
+            e.target.style.boxShadow = 'inset 0 1px 3px rgba(0,0,0,0.04)';
+          }}
           disabled={isRunning}
         />
         {isRunning ? (
-          <button 
+          <button
             onClick={handleCancel}
-            style={{ padding: '0 20px', cursor: 'pointer', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '500' }}
+            style={{
+              padding: '0 24px',
+              cursor: 'pointer',
+              background: '#ef4444',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '12px',
+              fontWeight: '600',
+              fontSize: '14px',
+              boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.background = '#dc2626'}
+            onMouseOut={(e) => e.currentTarget.style.background = '#ef4444'}
           >
             Stop
           </button>
         ) : (
-          <button 
-            onClick={handleStart} 
+          <button
+            onClick={handleStart}
             disabled={!query.trim()}
-            style={{ padding: '0 20px', cursor: !query.trim() ? 'not-allowed' : 'pointer', background: !query.trim() ? '#94a3b8' : '#3b82f6', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '500' }}
+            style={{
+              padding: '0 24px',
+              cursor: !query.trim() ? 'not-allowed' : 'pointer',
+              background: !query.trim() ? '#cbd5e1' : '#3b82f6',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '12px',
+              fontWeight: '600',
+              fontSize: '14px',
+              boxShadow: !query.trim() ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.3)',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => {
+              if (query.trim()) e.currentTarget.style.background = '#2563eb';
+            }}
+            onMouseOut={(e) => {
+              if (query.trim()) e.currentTarget.style.background = '#3b82f6';
+            }}
           >
             Send
           </button>

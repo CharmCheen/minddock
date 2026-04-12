@@ -70,7 +70,12 @@ export const ExecutionService = {
             if (event && data) {
               try {
                 const parsedData = JSON.parse(data);
-                callbacks.onEvent({ event: event as any, data: parsedData });
+                // Backend sends ClientEventResponseItem: { kind, payload, event_id, ... }
+                // Frontend ClientEvent expects: { event: kind, data: payload }
+                callbacks.onEvent({
+                  event: parsedData.kind as any,
+                  data: parsedData.payload,
+                });
               } catch (e) {
                 console.warn('Failed to parse SSE payload', data, e);
               }

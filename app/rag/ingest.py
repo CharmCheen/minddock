@@ -20,6 +20,7 @@ from app.rag.source_models import Document, DocumentPayload, SourceDescriptor, S
 from app.rag.source_models import utc_now_iso
 from app.rag.splitter import _chunk_by_tokens, split_text
 from app.rag.vectorstore import clear_vectorstore_cache, get_vectorstore
+from app.rag.structured_chunker import structured_pdf_chunks, ChunkMeta
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,122 @@ def iter_docs(kb_dir: Path):
             yield descriptor.local_path
 
 
+def _build_page_mode_chunks(
+    *, load_result: SourceLoadResult,
+) -> list[Document]:
+    """Legacy fallback: page-mode token chunking without structured parsing."""
+    documents: list[Document] = []
+    normalized_text = load_result.text.strip()
+    descriptor = load_result.descriptor
+    extra = {k: v for k, v in load_result.metadata.items() if k != "_page_blocks"}
+    content_hash = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
+    last_ingested_at = utc_now_iso()
+    title = load_result.title.strip() or descriptor.display_name
+
+    chunk_index = 0
+    for page_block in normalized_text.split("\n\n[page "):
+        block = page_block.strip()
+        if not block:
+            continue
+        if block.startswith("[page "):
+            header, _, page_text = block.partition("]\n")
+        else:
+            header, _, page_text = block.partition("]\n")
+        if not page_text.strip():
+            continue
+        page_number = header.replace("[page ", "").strip()
+        for chunk_text in _chunk_by_tokens(page_text.strip(), chunk_size=600, overlap=80):
+            chunk_text = chunk_text.strip()
+            if not chunk_text:
+                continue
+            chunk_id = f"{descriptor.doc_id}:{chunk_index}"
+            location = f"page {page_number}"
+            ref = f"{title} > page {page_number}"
+            metadata = {
+                "doc_id": descriptor.doc_id,
+                "source": descriptor.source,
+                "source_path": descriptor.source_path,
+                "source_type": descriptor.source_type,
+                "title": title,
+                "chunk_id": chunk_id,
+                "section": "",
+                "location": location,
+                "ref": ref,
+                "page": str(page_number),
+                "anchor": "",
+                "source_version": content_hash,
+                "content_hash": content_hash,
+                "last_ingested_at": last_ingested_at,
+                "ingest_status": "ready",
+                **extra,
+            }
+            documents.append(Document(page_content=chunk_text, metadata=metadata))
+            chunk_index += 1
+    return documents
+
+
+def _build_structured_chunks(
+    *, load_result: SourceLoadResult, page_blocks: list,
+) -> list[Document]:
+    """Structured block-level PDF chunking with rich metadata."""
+    documents: list[Document] = []
+    descriptor = load_result.descriptor
+    extra = {k: v for k, v in load_result.metadata.items() if k != "_page_blocks"}
+    content_hash = hashlib.sha256(load_result.text.encode("utf-8")).hexdigest()
+    last_ingested_at = utc_now_iso()
+    title = load_result.title.strip() or descriptor.display_name
+
+    # Convert page_blocks dicts → structured_chunker expected format
+    pages_input = [
+        {"page": pb["page"], "blocks": pb["blocks"]}
+        for pb in page_blocks
+    ]
+
+    for chunk_text, meta in structured_pdf_chunks(
+        pages_input,
+        doc_id=descriptor.doc_id,
+        source=descriptor.source,
+        source_path=descriptor.source_path,
+        source_type=descriptor.source_type,
+        title=title,
+        source_version=content_hash,
+        content_hash=content_hash,
+        last_ingested_at=last_ingested_at,
+    ):
+        # Build Chroma-compatible metadata (flat str dict)
+        metadata: dict[str, str] = {
+            "doc_id": meta.doc_id,
+            "source": meta.source,
+            "source_path": meta.source_path,
+            "source_type": meta.source_type,
+            "title": meta.title,
+            "chunk_id": meta.chunk_id,
+            "section": meta.section_title,
+            "location": meta.location,
+            "ref": meta.ref,
+            "page": str(meta.page_start) if meta.page_start == meta.page_end
+                    else f"{meta.page_start}-{meta.page_end}",
+            "anchor": meta.table_id or "",
+            # New structured fields (forward-compatible)
+            "block_type": meta.block_type,
+            "table_id": meta.table_id or "",
+            "section_title": meta.section_title,
+            "order_in_doc": str(meta.order_in_doc),
+            "char_count": str(meta.char_count),
+            "token_estimate": str(meta.token_estimate),
+            "page_start": str(meta.page_start),
+            "page_end": str(meta.page_end),
+            "source_version": meta.source_version,
+            "content_hash": meta.content_hash,
+            "last_ingested_at": meta.last_ingested_at,
+            "ingest_status": meta.ingest_status,
+            **extra,
+        }
+        documents.append(Document(page_content=chunk_text, metadata=metadata))
+
+    return documents
+
+
 def _build_chunk_documents(
     *,
     load_result: SourceLoadResult,
@@ -61,46 +178,15 @@ def _build_chunk_documents(
     title = load_result.title.strip() or descriptor.display_name
 
     if page_mode:
-        chunk_index = 0
-        for page_block in normalized_text.split("\n\n[page "):
-            block = page_block.strip()
-            if not block:
-                continue
-            if block.startswith("[page "):
-                header, _, page_text = block.partition("]\n")
-            else:
-                header, _, page_text = block.partition("]\n")
-            if not page_text.strip():
-                continue
-            page_number = header.replace("[page ", "").strip()
-            for chunk_text in _chunk_by_tokens(page_text.strip(), chunk_size=600, overlap=80):
-                chunk_text = chunk_text.strip()
-                if not chunk_text:
-                    continue
-                chunk_id = f"{descriptor.doc_id}:{chunk_index}"
-                location = f"page {page_number}"
-                ref = f"{title} > page {page_number}"
-                metadata = {
-                    "doc_id": descriptor.doc_id,
-                    "source": descriptor.source,
-                    "source_path": descriptor.source_path,
-                    "source_type": descriptor.source_type,
-                    "title": title,
-                    "chunk_id": chunk_id,
-                    "section": "",
-                    "location": location,
-                    "ref": ref,
-                    "page": str(page_number),
-                    "anchor": "",
-                    "source_version": content_hash,
-                    "content_hash": content_hash,
-                    "last_ingested_at": last_ingested_at,
-                    "ingest_status": "ready",
-                    **extra,
-                }
-                documents.append(Document(page_content=chunk_text, metadata=metadata))
-                chunk_index += 1
-        return documents
+        # Try structured PDF chunking when block data is available
+        page_blocks = load_result.metadata.get("_page_blocks")
+        if page_blocks:
+            return _build_structured_chunks(
+                load_result=load_result,
+                page_blocks=page_blocks,
+            )
+        # Fallback to legacy page-mode token chunking
+        return _build_page_mode_chunks(load_result=load_result)
 
     for index, chunk in enumerate(split_text(normalized_text)):
         chunk_text = (chunk.get("text") or "").strip()

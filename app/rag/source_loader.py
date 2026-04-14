@@ -7,7 +7,10 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from urllib.parse import urlparse
 
-from app.rag.pdf_parser import extract_pages
+from app.rag.pdf_parser import extract_page_blocks, PageBlocks
+
+# Minimum characters on a page to consider it "has text"
+_MIN_PAGE_TEXT_LENGTH = 20
 from app.rag.source_models import SourceDescriptor, SourceLoadResult, utc_now_iso
 from app.rag.url_loader import URLContent, fetch_url_content
 
@@ -56,8 +59,8 @@ class FileSourceLoader(SourceLoader):
         raise ValueError(f"Unsupported file extension: {suffix}")
 
     def _load_pdf(self, *, descriptor: SourceDescriptor, path: Path) -> SourceLoadResult:
-        pages = extract_pages(path)
-        if not pages:
+        page_blocks_list = extract_page_blocks(path)
+        if not page_blocks_list:
             logger.warning("PDF yielded no extractable text: path=%s", path)
             return SourceLoadResult(
                 descriptor=descriptor,
@@ -65,17 +68,25 @@ class FileSourceLoader(SourceLoader):
                 text="",
             )
 
+        # Backward-compatible plain text (used by non-structured path)
         page_texts: list[str] = []
-        for page_data in pages:
-            text = page_data.text.strip()
-            if not text:
-                continue
-            page_texts.append(f"\n\n[page {page_data.page}]\n{text}")
+        for pb in page_blocks_list:
+            if len(pb.text.strip()) >= _MIN_PAGE_TEXT_LENGTH:
+                page_texts.append(f"\n\n[page {pb.page}]\n{pb.text}")
+
+        plain_text = "".join(page_texts).strip()
+
+        # Convert PageBlocks dataclasses to plain dicts for metadata serialization
+        pages_dicts = [
+            {"page": pb.page, "text": pb.text, "blocks": pb.blocks}
+            for pb in page_blocks_list
+        ]
 
         return SourceLoadResult(
             descriptor=descriptor,
             title=path.stem,
-            text="".join(page_texts).strip(),
+            text=plain_text,
+            metadata={"_page_blocks": pages_dicts},  # injected for structured chunker
         )
 
 

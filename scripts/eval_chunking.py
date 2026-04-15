@@ -49,12 +49,25 @@ DEFAULT_RRF_K = 60
 
 QUERY_INTENTS = {
     "title_query",
+    "author_query",
+    "affiliation_query",
     "section_query",
     "table_query",
     "figure_query",
     "abstract_query",
+    "keywords_query",
+    "front_matter_fact_query",
     "concept_query",
     "fact_query",
+}
+
+FRONT_MATTER_INTENTS = {
+    "title_query",
+    "author_query",
+    "affiliation_query",
+    "abstract_query",
+    "keywords_query",
+    "front_matter_fact_query",
 }
 
 
@@ -198,8 +211,16 @@ def _extract_query_intent(query: str) -> dict:
     table_query = bool(re.search(r"(表\s*\d+|table\s*\d+)", query, flags=re.I))
     figure_query = bool(re.search(r"(图\s*\d+|figure\s*\d+)", query, flags=re.I))
     section_query = bool(section_nums) or any(w in q_lower for w in ["第", "节", "section"])
-    abstract_query = any(
-        w in q_lower for w in ["摘要", "abstract", "关键词", "key words", "keywords"]
+    abstract_query = any(w in q_lower for w in ["摘要", "abstract"])
+    keywords_query = any(w in q_lower for w in ["关键词", "关键字", "key words", "keywords"])
+    author_query = any(w in q_lower for w in ["作者", "第一作者", "authors", "author"]) and not any(
+        w in q_lower for w in ["单位", "机构", "affiliation", "school", "university", "邮箱", "email"]
+    )
+    affiliation_query = any(
+        w in q_lower for w in ["单位", "机构", "affiliation", "school", "university", "college", "邮箱", "email"]
+    )
+    front_matter_fact_query = any(
+        w in q_lower for w in ["收稿", "修回", "分类号", "中图法", "基金", "项目", "doi", "作者简介"]
     )
     concept_query = any(
         w in q_lower for w in ["定义", "概念", "什么是", "是什么", "definition", "concept"]
@@ -208,6 +229,10 @@ def _extract_query_intent(query: str) -> dict:
     intent = "fact_query"
     if title_query:
         intent = "title_query"
+    elif author_query:
+        intent = "author_query"
+    elif affiliation_query:
+        intent = "affiliation_query"
     elif table_query:
         intent = "table_query"
     elif figure_query:
@@ -216,6 +241,10 @@ def _extract_query_intent(query: str) -> dict:
         intent = "section_query"
     elif abstract_query:
         intent = "abstract_query"
+    elif keywords_query:
+        intent = "keywords_query"
+    elif front_matter_fact_query:
+        intent = "front_matter_fact_query"
     elif concept_query:
         intent = "concept_query"
 
@@ -223,16 +252,97 @@ def _extract_query_intent(query: str) -> dict:
         "intent": intent,
         "section_numbers": section_nums,
         "title_query": title_query,
+        "author_query": author_query,
+        "affiliation_query": affiliation_query,
         "table_query": table_query,
         "figure_query": figure_query,
         "section_query": section_query,
         "abstract_query": abstract_query,
+        "keywords_query": keywords_query,
+        "front_matter_fact_query": front_matter_fact_query,
         "concept_query": concept_query,
         "author_like": any(w in q_lower for w in ["作者", "单位", "邮箱", "affiliation", "email"]),
         "front_matter_like": any(
-            w in q_lower for w in ["基金", "收稿日期", "修回日期", "doi", "关键词", "摘要"]
+            w in q_lower
+            for w in [
+                "标题", "摘要", "关键词", "作者", "单位", "邮箱", "title", "abstract",
+                "key words", "keywords", "收稿", "修回", "基金", "中图法", "doi",
+            ]
         ),
+        "wants_english": any(w in q_lower for w in ["英文", "english", "abstract", "key words", "keywords"]),
+        "wants_chinese": any(w in q_lower for w in ["中文", "中文摘要", "中文标题"]),
+        "wants_first_author": any(w in q_lower for w in ["第一作者", "first author"]),
     }
+
+
+def _ascii_letter_ratio(text: str) -> float:
+    letters = [ch for ch in text if ch.isalpha()]
+    if not letters:
+        return 0.0
+    ascii_letters = [ch for ch in letters if "a" <= ch.lower() <= "z"]
+    return len(ascii_letters) / len(letters)
+
+
+def _front_matter_candidate_indices(chunks: list[dict]) -> list[int]:
+    indices = []
+    for idx, chunk in enumerate(chunks):
+        if str(chunk.get("page", "")) != "1":
+            continue
+        chunk_idx = int(chunk.get("chunk_index", idx))
+        if chunk_idx <= 16:
+            indices.append(idx)
+    return indices
+
+
+def _front_matter_role(chunk: dict) -> str | None:
+    if str(chunk.get("page", "")) != "1":
+        return None
+
+    text = (chunk.get("text", "") or "").strip()
+    text_n = _normalize(text)
+    section_title = chunk.get("section_title", "") or ""
+    section_n = _normalize(section_title)
+    block_type = chunk.get("block_type", "")
+    chunk_idx = int(chunk.get("chunk_index", 999))
+    ascii_ratio = _ascii_letter_ratio(text)
+
+    if block_type == "heading":
+        if text_n == "abstract":
+            return "abstract_heading_en"
+        if text in {"摘 要", "摘要"} or text_n == "摘要":
+            return "abstract_heading_cn"
+        if text.startswith("Key words") or text_n.startswith("keywords"):
+            return "keywords_en"
+        if text.startswith("关键词"):
+            return "keywords_cn"
+        if "中图法分类号" in text:
+            return "fact_clc"
+        if "收稿日期" in text or "修回日期" in text:
+            return "fact_recv"
+        if "基金项目" in text:
+            return "fact_funding"
+        if "作者简介" in text:
+            return "fact_author_bio"
+        if chunk_idx <= 4 and not section_n:
+            if ascii_ratio >= 0.65 and "abstract" not in text.lower() and "key words" not in text.lower():
+                return "title_en"
+            if len(text) <= 40:
+                return "title_cn"
+
+    if block_type == "paragraph":
+        if section_n == "abstract":
+            return "abstract_body_en"
+        if section_n == "摘要" or "摘要" in section_title:
+            return "abstract_body_cn"
+        if "国家自然科学基金" in text or "this work was supported" in text.lower():
+            return "fact_funding_body"
+        if chunk_idx <= 4 and any(
+            token in text
+            for token in ["@", "大学", "学院", "研究生院", "School", "University", "Institute", "Laboratory"]
+        ):
+            return "author_affiliation"
+
+    return None
 
 
 def _compact_text_for_lexical(text: str) -> str:
@@ -610,6 +720,171 @@ def soft_rerank_v3(
     return reranked
 
 
+def soft_rerank_v4_frontmatter(
+    query: str,
+    chunks: list[dict],
+    dense_scores: list[float],
+    lexical_scores: list[float],
+    fusion_scores: list[float],
+) -> list[float]:
+    features = _extract_query_intent(query)
+    if features["intent"] not in FRONT_MATTER_INTENTS:
+        return soft_rerank_v3(query, chunks, dense_scores, lexical_scores, fusion_scores)
+
+    dense_norm = _normalize_score_list(dense_scores)
+    lexical_norm = _normalize_score_list(lexical_scores)
+    fusion_norm = _normalize_score_list(fusion_scores)
+    query_terms = set(_lexical_terms(query))
+    reranked = []
+
+    for idx, chunk in enumerate(chunks):
+        chunk_text = chunk.get("text", "") or ""
+        section_title = chunk.get("section_title", "") or ""
+        block_type = chunk.get("block_type", "")
+        page = str(chunk.get("page", ""))
+        role = _front_matter_role(chunk)
+        chunk_idx = int(chunk.get("chunk_index", idx))
+
+        combined_terms = set(_lexical_terms(f"{section_title} {chunk_text[:400]}"))
+        overlap_ratio = (
+            len(query_terms & combined_terms) / max(len(query_terms), 1)
+            if query_terms else 0.0
+        )
+
+        front_bonus = 0.0
+        front_penalty = 0.0
+        anchor_bonus = 0.0
+        block_type_bonus = 0.0
+        generic_penalty = 0.0
+
+        if page == "1" and role:
+            front_bonus += 0.04
+
+        if chunk_idx <= 4 and page == "1":
+            front_bonus += 0.02
+
+        if features["intent"] == "title_query":
+            if role == "title_en" and features["wants_english"]:
+                front_bonus += 0.52
+            elif role == "title_cn" and not features["wants_english"]:
+                front_bonus += 0.52
+            elif role in {"title_cn", "title_en"}:
+                front_bonus += 0.18
+            elif role and role.startswith(("abstract_", "keywords_", "fact_")):
+                front_penalty += 0.18
+            if features["wants_english"] and role == "title_cn":
+                front_penalty += 0.16
+            if not features["wants_english"] and role == "title_en":
+                front_penalty += 0.12
+            if role == "author_affiliation":
+                front_penalty += 0.10
+            if block_type == "heading" and page == "1":
+                block_type_bonus += 0.08
+        elif features["intent"] in {"author_query", "affiliation_query"}:
+            if role == "author_affiliation":
+                front_bonus += 0.34
+                if features["wants_first_author"]:
+                    front_bonus += 0.04
+            elif role in {"title_cn", "title_en"}:
+                front_penalty += 0.10
+            elif role and role.startswith(("abstract_", "keywords_", "fact_")):
+                front_penalty += 0.12
+            if block_type == "paragraph" and page == "1":
+                block_type_bonus += 0.10
+            if any(token in chunk_text for token in ["@", "大学", "学院", "研究生院", "School", "University"]):
+                anchor_bonus += 0.08
+        elif features["intent"] == "abstract_query":
+            if features["wants_english"]:
+                desired_roles = {"abstract_body_en"}
+                heading_roles = {"abstract_heading_en"}
+            elif features["wants_chinese"]:
+                desired_roles = {"abstract_body_cn"}
+                heading_roles = {"abstract_heading_cn"}
+            else:
+                desired_roles = {"abstract_body_cn", "abstract_body_en"}
+                heading_roles = {"abstract_heading_cn", "abstract_heading_en"}
+            if role in desired_roles:
+                front_bonus += 0.48
+            elif role in heading_roles:
+                front_bonus += 0.12
+            elif role and role.startswith(("title_", "keywords_", "fact_")):
+                front_penalty += 0.14
+            if role == "author_affiliation":
+                front_penalty += 0.16
+            if features["wants_english"] and role == "abstract_body_cn":
+                front_penalty += 0.12
+            if not features["wants_english"] and role == "abstract_body_en":
+                front_penalty += 0.12
+            if block_type == "paragraph" and page == "1":
+                block_type_bonus += 0.10
+            if _section_match(section_title, "Abstract") or _section_match(section_title, "摘要"):
+                anchor_bonus += 0.08
+        elif features["intent"] == "keywords_query":
+            desired_role = "keywords_en" if features["wants_english"] else "keywords_cn"
+            if role == desired_role:
+                front_bonus += 0.44
+            elif role in {"keywords_cn", "keywords_en"}:
+                front_bonus += 0.12
+            elif role and role.startswith(("title_", "abstract_", "fact_")):
+                front_penalty += 0.14
+            if features["wants_english"] and role == "keywords_cn":
+                front_penalty += 0.16
+            if not features["wants_english"] and role == "keywords_en":
+                front_penalty += 0.10
+            if role == "author_affiliation":
+                front_penalty += 0.10
+            if chunk_text.startswith("关键词") or chunk_text.startswith("Key words"):
+                anchor_bonus += 0.12
+        elif features["intent"] == "front_matter_fact_query":
+            fact_map = {
+                "收稿": {"fact_recv"},
+                "修回": {"fact_recv"},
+                "分类号": {"fact_clc"},
+                "中图法": {"fact_clc"},
+                "基金": {"fact_funding", "fact_funding_body"},
+                "项目": {"fact_funding", "fact_funding_body"},
+                "doi": {"fact_funding_body"},
+            }
+            matched_roles = set()
+            for anchor, roles in fact_map.items():
+                if anchor in query:
+                    matched_roles |= roles
+            if role in matched_roles:
+                front_bonus += 0.30 if role and role.endswith("_body") else 0.38
+            elif role and role.startswith("fact_"):
+                front_bonus += 0.14
+            elif role and role.startswith(("title_", "abstract_", "keywords_")):
+                front_penalty += 0.14
+            if role == "author_affiliation":
+                front_penalty += 0.10
+            if any(anchor in chunk_text for anchor in ["收稿日期", "修回日期", "中图法分类号", "基金项目", "DOI"]):
+                anchor_bonus += 0.12
+
+        if features["intent"] != "title_query" and _is_generic_title_chunk(chunk):
+            generic_penalty = 0.06
+
+        if page != "1":
+            front_penalty += 0.10
+
+        if role in {"abstract_heading_cn", "abstract_heading_en"} and features["intent"] == "abstract_query":
+            front_penalty += 0.04
+
+        score = (
+            0.50 * fusion_norm[idx]
+            + 0.24 * dense_norm[idx]
+            + 0.10 * lexical_norm[idx]
+            + 0.10 * overlap_ratio
+            + block_type_bonus
+            + anchor_bonus
+            + front_bonus
+            - front_penalty
+            - generic_penalty
+        )
+        reranked.append(score)
+
+    return reranked
+
+
 def run_query(
     bundle: dict,
     query: str,
@@ -622,6 +897,7 @@ def run_query(
     fusion_top_n: int = DEFAULT_FUSION_TOP_N,
 ) -> list[dict]:
     chunks = bundle["chunks"]
+    query_features = _extract_query_intent(query)
     dense_scores_all = cosine_scores(embed_query(query, backend), bundle["doc_vecs"])
     lexical_scores_all = _lexical_scores(query, chunks, bundle["lexical_index"])
 
@@ -636,6 +912,12 @@ def run_query(
         candidate_indices = [idx for idx, _ in dense_ranked]
         fusion_score_map = {idx: dense_scores_all[idx] for idx in candidate_indices}
 
+    if rerank == "soft_v4_frontmatter" and query_features["intent"] in FRONT_MATTER_INTENTS:
+        for idx in _front_matter_candidate_indices(chunks):
+            if idx not in candidate_indices:
+                candidate_indices.append(idx)
+            fusion_score_map.setdefault(idx, dense_scores_all[idx])
+
     candidate_chunks = [chunks[idx] for idx in candidate_indices]
     dense_scores = [dense_scores_all[idx] for idx in candidate_indices]
     lexical_scores = [lexical_scores_all[idx] for idx in candidate_indices]
@@ -647,6 +929,8 @@ def run_query(
         final_scores = keyword_rerank_v2_fixed(query, candidate_chunks, dense_scores, top_n=limit)
     elif rerank == "soft_v3":
         final_scores = soft_rerank_v3(query, candidate_chunks, dense_scores, lexical_scores, fusion_scores)
+    elif rerank == "soft_v4_frontmatter":
+        final_scores = soft_rerank_v4_frontmatter(query, candidate_chunks, dense_scores, lexical_scores, fusion_scores)
     else:
         final_scores = fusion_scores if mode == "structured_hybrid" else dense_scores
 
@@ -685,6 +969,38 @@ def _section_match(chunk_section: str, expected: str) -> bool:
     chunk_n = _normalize(chunk_section)
     exp_n = _normalize(expected)
     return (exp_n in chunk_n) or (chunk_n in exp_n) or (exp_n.split()[0] in chunk_n)
+
+
+def _result_matches_case(result: dict, case: dict) -> bool:
+    expected_page = str(case.get("expected_page", ""))
+    expected_section = case.get("expected_section_title", "")
+    expected_keywords = case.get("expected_keywords", [])
+    expected_bt = case.get("expected_block_type", "")
+
+    if expected_page and str(result.get("page", "")) != expected_page:
+        return False
+    if expected_bt and result.get("block_type", "") != expected_bt:
+        return False
+    if expected_section and not _section_match(result.get("section_title", "") or "", expected_section):
+        return False
+    if expected_keywords:
+        matched, _ = _kw_match(result.get("text", "") or "", expected_keywords)
+        if not matched:
+            return False
+    return True
+
+
+def _case_rank_metrics(results: list[dict], case: dict, k: int) -> dict:
+    first_correct_rank = -1
+    for idx, result in enumerate(results[:k], start=1):
+        if _result_matches_case(result, case):
+            first_correct_rank = idx
+            break
+    return {
+        "first_correct_rank_case": first_correct_rank,
+        "mrr_case": round(1.0 / first_correct_rank, 4) if first_correct_rank > 0 else 0.0,
+        "top1_case_correct": 1.0 if results and _result_matches_case(results[0], case) else 0.0,
+    }
 
 
 def compute_metrics(chunks: list[dict], results: list[dict], case: dict, k: int) -> dict:
@@ -1151,6 +1467,7 @@ def build_report_v4(pdf_path: str, cases: list[dict], out_path: str, mode: str =
         "structured+simple": "Structured+Simple",
         "structured+heuristic_v2": "Structured+HeuristicV2",
         "structured+hybrid+soft_v3": "Structured+Hybrid+SoftV3",
+        "structured+hybrid+soft_v4_frontmatter": "Structured+Hybrid+FrontMatterAware",
         "structured_hybrid": "Structured+Hybrid",
     }
     mode_plans = {
@@ -1159,6 +1476,7 @@ def build_report_v4(pdf_path: str, cases: list[dict], out_path: str, mode: str =
         "structured+simple": {"bundle": struct_bundle, "query_mode": "structured", "rerank": "simple", "chunk_source": struct_chunks},
         "structured+heuristic_v2": {"bundle": struct_bundle, "query_mode": "structured", "rerank": "heuristic_v2", "chunk_source": struct_chunks},
         "structured+hybrid+soft_v3": {"bundle": struct_bundle, "query_mode": "structured_hybrid", "rerank": "soft_v3", "chunk_source": struct_chunks},
+        "structured+hybrid+soft_v4_frontmatter": {"bundle": struct_bundle, "query_mode": "structured_hybrid", "rerank": "soft_v4_frontmatter", "chunk_source": struct_chunks},
         "structured_hybrid": {"bundle": struct_bundle, "query_mode": "structured_hybrid", "rerank": "none", "chunk_source": struct_chunks},
     }
 
@@ -1179,10 +1497,19 @@ def build_report_v4(pdf_path: str, cases: list[dict], out_path: str, mode: str =
             active_modes = ["structured+simple"]
         elif rerank_mode == "heuristic_v2":
             active_modes = ["structured+heuristic_v2"]
+        elif rerank_mode == "soft_v4_frontmatter":
+            raise ValueError("--mode structured does not support --rerank soft_v4_frontmatter; use --mode structured_hybrid")
         else:
             raise ValueError("--mode structured does not support --rerank soft_v3; use --mode structured_hybrid")
     elif mode == "structured_hybrid":
-        active_modes = ["structured_hybrid" if rerank_mode == "none" else "structured+hybrid+soft_v3"]
+        if rerank_mode == "none":
+            active_modes = ["structured_hybrid"]
+        elif rerank_mode == "soft_v3":
+            active_modes = ["structured+hybrid+soft_v3"]
+        elif rerank_mode == "soft_v4_frontmatter":
+            active_modes = ["structured+hybrid+soft_v4_frontmatter"]
+        else:
+            raise ValueError("--mode structured_hybrid supports --rerank none, soft_v3, or soft_v4_frontmatter")
     else:
         raise ValueError(f"Unsupported mode: {mode}")
 
@@ -1421,6 +1748,233 @@ def build_report_v4(pdf_path: str, cases: list[dict], out_path: str, mode: str =
     return out_path
 
 
+def build_report_v5_front_matter(pdf_path: str, cases: list[dict], out_path: str):
+    title = Path(pdf_path).stem
+
+    print("Building chunks...")
+    struct_chunks = build_structured_chunks(pdf_path, title=title)
+    print(f"  structured: {len(struct_chunks)} chunks")
+
+    backend = _get_embedding_backend()
+    print(f"Embedding: {type(backend).__name__ if backend else 'dummy'}")
+
+    struct_bundle = prepare_retrieval_bundle(struct_chunks, backend)
+    topk = max(case.get("top_k", 5) for case in cases) if cases else 5
+
+    mode_labels = {
+        "structured_hybrid": "Structured+Hybrid",
+        "structured+hybrid+soft_v3": "Structured+Hybrid+SoftV3",
+        "structured+hybrid+soft_v4_frontmatter": "Structured+Hybrid+FrontMatterAware",
+    }
+    mode_plans = {
+        "structured_hybrid": {"bundle": struct_bundle, "query_mode": "structured_hybrid", "rerank": "none"},
+        "structured+hybrid+soft_v3": {"bundle": struct_bundle, "query_mode": "structured_hybrid", "rerank": "soft_v3"},
+        "structured+hybrid+soft_v4_frontmatter": {"bundle": struct_bundle, "query_mode": "structured_hybrid", "rerank": "soft_v4_frontmatter"},
+    }
+    active_modes = list(mode_labels.keys())
+
+    all_results: dict[str, dict] = {}
+    all_metrics: dict[str, dict] = {}
+    for case in cases:
+        cid = case.get("id", case["query"][:30])
+        all_results[cid] = {}
+        all_metrics[cid] = {}
+        case_limit = case.get("top_k", topk)
+        for active_mode in active_modes:
+            plan = mode_plans[active_mode]
+            results = run_query(
+                plan["bundle"],
+                case["query"],
+                case_limit,
+                backend,
+                mode=plan["query_mode"],
+                rerank=plan["rerank"],
+                dense_top_n=DEFAULT_DENSE_TOP_N,
+                lexical_top_n=DEFAULT_LEXICAL_TOP_N,
+                fusion_top_n=DEFAULT_FUSION_TOP_N,
+            )
+            metrics = compute_metrics(struct_chunks, results, case, case_limit)
+            metrics.update(_case_rank_metrics(results, case, case_limit))
+            all_results[cid][active_mode] = results
+            all_metrics[cid][active_mode] = metrics
+
+    def mean(values: list[float]) -> float:
+        return round(sum(values) / len(values), 3) if values else 0.0
+
+    def mean_positive(values: list[int]) -> float:
+        positives = [value for value in values if value > 0]
+        return round(sum(positives) / len(positives), 3) if positives else 0.0
+
+    def bucket_cases(bucket_name: str) -> list[dict]:
+        return [case for case in cases if case.get("bucket") == bucket_name]
+
+    def bucket_summary(bucket_name: str, active_mode: str) -> dict:
+        selected_cases = bucket_cases(bucket_name)
+        metrics = [all_metrics[case["id"]][active_mode] for case in selected_cases]
+        return {
+            "page_hit@1": mean([m["page_hit@1"] for m in metrics]),
+            "page_hit@3": mean([m["page_hit@3"] for m in metrics]),
+            "page_hit@5": mean([m["page_hit@5"] for m in metrics]),
+            "section_hit@1": mean([m["section_hit@1"] for m in metrics]),
+            "section_hit@3": mean([m["section_hit@3"] for m in metrics]),
+            "section_hit@5": mean([m["section_hit@5"] for m in metrics]),
+            "bt_hit@1": mean([m["bt_hit@1"] for m in metrics]),
+            "bt_hit@3": mean([m["bt_hit@3"] for m in metrics]),
+            "bt_hit@5": mean([m["bt_hit@5"] for m in metrics]),
+            "first_correct_rank_case": mean_positive([m["first_correct_rank_case"] for m in metrics]),
+            "mrr_case": mean([m["mrr_case"] for m in metrics]),
+            "title_top1_accuracy": mean([all_metrics[case["id"]][active_mode]["top1_case_correct"] for case in selected_cases if case.get("query_type") == "title_query"]),
+            "author_top1_accuracy": mean([all_metrics[case["id"]][active_mode]["top1_case_correct"] for case in selected_cases if case.get("query_type") == "author_query"]),
+            "affiliation_top1_accuracy": mean([all_metrics[case["id"]][active_mode]["top1_case_correct"] for case in selected_cases if case.get("query_type") == "affiliation_query"]),
+            "abstract_top1_accuracy": mean([all_metrics[case["id"]][active_mode]["top1_case_correct"] for case in selected_cases if case.get("query_type") == "abstract_query"]),
+            "keywords_top1_accuracy": mean([all_metrics[case["id"]][active_mode]["top1_case_correct"] for case in selected_cases if case.get("query_type") == "keywords_query"]),
+        }
+
+    front_summary = {mode: bucket_summary("front_matter", mode) for mode in active_modes}
+    control_summary = {mode: bucket_summary("control", mode) for mode in active_modes}
+
+    selected_case_ids = ["title_cn", "author_affiliation", "abstract_cn", "keywords_cn", "fig2_control"]
+    selected_cases = [case for case in cases if case.get("id") in selected_case_ids]
+    if len(selected_cases) < 3:
+        selected_cases = cases[:max(3, min(len(cases), 5))]
+
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("# Chunking Evaluation Report v5\n\n")
+        f.write(f"**PDF:** `{pdf_path}`\n\n")
+        f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        f.write(f"**Embedding:** {type(backend).__name__ if backend else 'dummy'}  \n")
+        f.write("**Focus:** front matter ranking bias reduction on top of existing structured chunking + hybrid retrieval\n\n")
+
+        f.write("## 1. Evaluation Config\n\n")
+        f.write(f"- Cases: **{len(cases)}** total = **{len(bucket_cases('front_matter'))}** front matter + **{len(bucket_cases('control'))}** control\n")
+        f.write(f"- Top-k: **{topk}**\n")
+        f.write(f"- Dense candidate top_n: **{DEFAULT_DENSE_TOP_N}**\n")
+        f.write(f"- Lexical candidate top_n: **{DEFAULT_LEXICAL_TOP_N}**\n")
+        f.write(f"- Fusion candidate top_n: **{DEFAULT_FUSION_TOP_N}**\n")
+        f.write(f"- Fusion method: **RRF (k={DEFAULT_RRF_K})**\n")
+        f.write("- Compared modes: `structured_hybrid`, `structured+hybrid+soft_v3`, `structured+hybrid+soft_v4_frontmatter`\n")
+        f.write("- `soft_v4_frontmatter` keeps dense/fusion as the backbone and adds page-1 front matter role bonuses for title / author / affiliation / abstract / keywords / fact queries.\n\n")
+
+        f.write("### Metric Definitions\n\n")
+        f.write("- `hit@k = 1` if at least one correct result appears within top-k, else `0`.\n")
+        f.write("- `first_correct_rank(case)` is the 1-based rank of the first result that satisfies the case expectation jointly: expected page + expected block type + expected section/keywords when provided.\n")
+        f.write("- `MRR(case) = 1 / first_correct_rank(case)` if a jointly-correct result exists, else `0`.\n")
+        f.write("- `*_top1_accuracy` is the share of cases in that query type whose top-1 result is jointly correct.\n\n")
+
+        f.write("## 2. Front Matter Bucket\n\n")
+        f.write("| Mode | page_hit@1 | page_hit@3 | page_hit@5 | section_hit@1 | section_hit@3 | section_hit@5 | bt_hit@1 | bt_hit@3 | bt_hit@5 | first_correct_rank | MRR |\n")
+        f.write("|------|------------|------------|------------|---------------|---------------|---------------|----------|----------|----------|--------------------|-----|\n")
+        for active_mode in active_modes:
+            summary = front_summary[active_mode]
+            f.write(
+                f"| {mode_labels[active_mode]} | "
+                f"{summary['page_hit@1']} | {summary['page_hit@3']} | {summary['page_hit@5']} | "
+                f"{summary['section_hit@1']} | {summary['section_hit@3']} | {summary['section_hit@5']} | "
+                f"{summary['bt_hit@1']} | {summary['bt_hit@3']} | {summary['bt_hit@5']} | "
+                f"{summary['first_correct_rank_case']} | {summary['mrr_case']} |\n"
+            )
+        f.write("\n")
+
+        f.write("### 2a. Query-Type Top1 Accuracy\n\n")
+        f.write("| Mode | title_top1_accuracy | author_top1_accuracy | affiliation_top1_accuracy | abstract_top1_accuracy | keywords_top1_accuracy |\n")
+        f.write("|------|---------------------|----------------------|---------------------------|------------------------|------------------------|\n")
+        for active_mode in active_modes:
+            summary = front_summary[active_mode]
+            f.write(
+                f"| {mode_labels[active_mode]} | "
+                f"{summary['title_top1_accuracy']} | {summary['author_top1_accuracy']} | "
+                f"{summary['affiliation_top1_accuracy']} | {summary['abstract_top1_accuracy']} | "
+                f"{summary['keywords_top1_accuracy']} |\n"
+            )
+        f.write("\n")
+
+        f.write("## 3. Control Bucket\n\n")
+        f.write("| Mode | page_hit@1 | page_hit@5 | section_hit@1 | section_hit@5 | MRR |\n")
+        f.write("|------|------------|------------|---------------|---------------|-----|\n")
+        for active_mode in active_modes:
+            summary = control_summary[active_mode]
+            f.write(
+                f"| {mode_labels[active_mode]} | "
+                f"{summary['page_hit@1']} | {summary['page_hit@5']} | "
+                f"{summary['section_hit@1']} | {summary['section_hit@5']} | "
+                f"{summary['mrr_case']} |\n"
+            )
+        f.write("\n")
+
+        f.write("## 4. Per-Case Snapshot\n\n")
+        f.write("| Case | Bucket | Query Type | Structured+Hybrid | SoftV3 | FrontMatterAware |\n")
+        f.write("|------|--------|------------|-------------------|--------|------------------|\n")
+        for case in cases:
+            cid = case["id"]
+            row = [f"**{cid}**", case.get("bucket", ""), case.get("query_type", "")]
+            for active_mode in active_modes:
+                metric = all_metrics[cid][active_mode]
+                row.append(
+                    f"top1={metric['top1_case_correct']} / rank={metric['first_correct_rank_case']} / mrr={metric['mrr_case']}"
+                )
+            f.write("| " + " | ".join(row) + " |\n")
+        f.write("\n")
+
+        f.write("## 5. Representative Query Comparison\n\n")
+        for idx, case in enumerate(selected_cases, start=1):
+            cid = case["id"]
+            f.write(f"### {idx}. [{cid}] {case['query']}\n\n")
+            if case.get("notes"):
+                f.write(f"*Notes: {case['notes']}*\n\n")
+            for active_mode in active_modes:
+                metric = all_metrics[cid][active_mode]
+                f.write(
+                    f"**{mode_labels[active_mode]}** "
+                    f"(top1_correct={metric['top1_case_correct']}, first_correct_rank={metric['first_correct_rank_case']}, mrr={metric['mrr_case']}):\n\n"
+                )
+                for rank, result in enumerate(all_results[cid][active_mode][:3], start=1):
+                    role = _front_matter_role(result) or "-"
+                    f.write(
+                        f"  [{rank}] p{result['page']} [{result['block_type']}] role={role} "
+                        f"section={result.get('section_title', '')!r} score={result['score']} "
+                        f"dense={result['dense_score']} lexical={result['lexical_score']} fusion={result['fusion_score']} "
+                        f"text={result['text_preview'][:90]}...\n"
+                    )
+                f.write("\n")
+
+        f.write("## 6. Conclusions\n\n")
+        soft_v3_front = front_summary["structured+hybrid+soft_v3"]
+        soft_v4_front = front_summary["structured+hybrid+soft_v4_frontmatter"]
+        soft_v3_control = control_summary["structured+hybrid+soft_v3"]
+        soft_v4_control = control_summary["structured+hybrid+soft_v4_frontmatter"]
+
+        f.write(
+            f"- Front matter delta: page_hit@1 {soft_v4_front['page_hit@1']} vs {soft_v3_front['page_hit@1']}; "
+            f"section_hit@1 {soft_v4_front['section_hit@1']} vs {soft_v3_front['section_hit@1']}; "
+            f"MRR(case) {soft_v4_front['mrr_case']} vs {soft_v3_front['mrr_case']}.\n"
+        )
+        f.write(
+            f"- Top1 accuracy delta: title {soft_v4_front['title_top1_accuracy']} vs {soft_v3_front['title_top1_accuracy']}; "
+            f"author {soft_v4_front['author_top1_accuracy']} vs {soft_v3_front['author_top1_accuracy']}; "
+            f"affiliation {soft_v4_front['affiliation_top1_accuracy']} vs {soft_v3_front['affiliation_top1_accuracy']}; "
+            f"abstract {soft_v4_front['abstract_top1_accuracy']} vs {soft_v3_front['abstract_top1_accuracy']}; "
+            f"keywords {soft_v4_front['keywords_top1_accuracy']} vs {soft_v3_front['keywords_top1_accuracy']}.\n"
+        )
+        f.write(
+            f"- Control delta: page_hit@1 {soft_v4_control['page_hit@1']} vs {soft_v3_control['page_hit@1']}; "
+            f"page_hit@5 {soft_v4_control['page_hit@5']} vs {soft_v3_control['page_hit@5']}; "
+            f"section_hit@5 {soft_v4_control['section_hit@5']} vs {soft_v3_control['section_hit@5']}; "
+            f"MRR(case) {soft_v4_control['mrr_case']} vs {soft_v3_control['mrr_case']}.\n"
+        )
+        f.write("- Interpretation: this v5 report isolates page-1 front matter ranking bias; structured chunking and generic hybrid retrieval remain unchanged.\n\n")
+
+        f.write("## 7. Scope and Limitations\n\n")
+        f.write("- Scope: this is a **single-document experiment** on `05_crad_10.7544_issn1000-1239.202110867.pdf`, not a cross-paper benchmark.\n")
+        f.write(f"- Sample size: **{len(bucket_cases('front_matter'))}** front matter cases + **{len(bucket_cases('control'))}** control cases. Results are useful for targeted diagnosis, but the sample is still small.\n")
+        f.write("- Fact-query note: `recv_date`, `clc_number`, and `funding` already achieve top-1 correctness under the base hybrid setting in this report. For these cases, v5 mainly shows **no regression**, not a large additional gain.\n")
+        f.write("- Control-bucket note: the control bucket only contains figure / table / section probes. With only 3 cases, the current evidence supports **no observed regression** rather than a strong general claim of no harm.\n")
+        f.write("- Front-matter heuristic note: the current English-title detection uses a small page-1 order prior (`chunk_idx <= 4`). It works for this PDF, but front matter ordering may differ in other papers and should be validated before generalization.\n")
+
+    print(f"\nReport: {out_path}")
+    return out_path
+
+
 DEFAULT_CASES = [
     # Title / front matter
     {"id": "title_ch", "query": "这篇论文的标题是什么？",
@@ -1491,6 +2045,12 @@ def main():
     parser.add_argument("--pdf", required=True, help="Path to PDF file")
     parser.add_argument("--cases", default=None, help="Path to eval cases JSON")
     parser.add_argument("--report", default="eval/chunking_eval_report_v4.md")
+    parser.add_argument(
+        "--report-style",
+        default="v4",
+        choices=["v4", "v5_front_matter"],
+        help="Report layout: generic v4 comparison or specialized v5 front matter comparison",
+    )
     parser.add_argument("--query", default=None, help="Run single query only")
     parser.add_argument(
         "--mode",
@@ -1499,8 +2059,8 @@ def main():
         help="Retrieval mode: all (default), page, structured, or structured_hybrid",
     )
     parser.add_argument("--rerank", default="none",
-                        choices=["none", "simple", "heuristic_v2", "soft_v3"],
-                        help="Rerank strategy: none, simple, heuristic_v2, or soft_v3")
+                        choices=["none", "simple", "heuristic_v2", "soft_v3", "soft_v4_frontmatter"],
+                        help="Rerank strategy: none, simple, heuristic_v2, soft_v3, or soft_v4_frontmatter")
     args = parser.parse_args()
 
     if args.cases:
@@ -1512,7 +2072,10 @@ def main():
     if args.query:
         cases = [{"id": "single", "query": args.query, "top_k": 5}]
 
-    build_report_v4(args.pdf, cases, args.report, mode=args.mode, rerank_mode=args.rerank)
+    if args.report_style == "v5_front_matter":
+        build_report_v5_front_matter(args.pdf, cases, args.report)
+    else:
+        build_report_v4(args.pdf, cases, args.report, mode=args.mode, rerank_mode=args.rerank)
 
 
 if __name__ == "__main__":

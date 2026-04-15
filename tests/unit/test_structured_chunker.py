@@ -420,6 +420,137 @@ def test_split_front_matter_heading_no_split_no_marker():
     print("PASS: split_front_matter_heading_no_split_no_marker")
 
 
+def test_extract_blocks_classifies_caption_variants_and_plain_reference():
+    blocks = [
+        {"type": 0, "lines": [{"spans": [{"text": "Fig. 1. Correlation between personalization and RAG."}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": "Figure 2: Overall system pipeline"}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": "Table 1. Evaluation datasets"}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": "As shown in Figure 1, the method improves accuracy."}]}]},
+    ]
+    result = extract_blocks_from_page(3, blocks)
+    assert [b.block_type for b in result[:3]] == [BlockType.CAPTION, BlockType.CAPTION, BlockType.CAPTION]
+    assert result[3].block_type == BlockType.PARAGRAPH
+    print("PASS: extract_blocks_classifies_caption_variants_and_plain_reference")
+
+
+def test_extract_blocks_classifies_pipe_style_heading():
+    blocks = [
+        {"type": 0, "lines": [{"spans": [{"text": "1 | INTRODUCTION"}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": "Large Language Models have revolutionized AI-driven applications."}]}]},
+    ]
+    result = extract_blocks_from_page(2, blocks)
+    assert result[0].block_type == BlockType.HEADING
+    assert result[1].block_type == BlockType.PARAGRAPH
+    print("PASS: extract_blocks_classifies_pipe_style_heading")
+
+
+def test_extract_blocks_classifies_multiline_numeric_heading():
+    blocks = [
+        {
+            "type": 0,
+            "lines": [
+                {"spans": [{"text": "1"}]},
+                {"spans": [{"text": "INTRODUCTION"}]},
+            ],
+        },
+    ]
+    result = extract_blocks_from_page(2, blocks)
+    assert len(result) == 1
+    assert result[0].block_type == BlockType.HEADING
+    print("PASS: extract_blocks_classifies_multiline_numeric_heading")
+
+
+def test_blocks_to_chunks_multiline_heading_section_title():
+    """Multiline heading '1\\nINTRODUCTION' should have section_title='INTRODUCTION' (not '1\\nINTRODUCTION')."""
+    blocks = [
+        {
+            "type": 0,
+            "lines": [
+                {"spans": [{"text": "1"}]},
+                {"spans": [{"text": "INTRODUCTION"}]},
+            ],
+        },
+    ]
+    extracted = extract_blocks_from_page(2, blocks)
+    chunks = blocks_to_chunks(
+        extracted,
+        doc_id="test",
+        source="test.pdf",
+        source_path="test.pdf",
+        source_type="file",
+        title="Test",
+        source_version="v1",
+        content_hash="abc",
+        last_ingested_at="2024-01-01",
+    )
+    heading_chunk = next((m for t, m in chunks if "INTRODUCTION" in t and m.block_type == "heading"), None)
+    assert heading_chunk is not None, "Heading chunk not found"
+    assert heading_chunk.section_title == "INTRODUCTION", (
+        f"Expected section_title='INTRODUCTION', got {heading_chunk.section_title!r}"
+    )
+    print("PASS: test_blocks_to_chunks_multiline_heading_section_title")
+
+
+def test_blocks_to_chunks_page1_english_title_and_inferred_abstract():
+    blocks = [
+        {"type": 0, "lines": [{"spans": [{"text": "A Survey of Personalization: From RAG to Agent"}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": "XIAOPENG LI, City University of Hong Kong"}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": "Personalization has become an essential capability in modern AI systems, enabling customized interactions that align with individual user preferences and contexts."}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": "Recent research has increasingly concentrated on Retrieval-Augmented Generation frameworks and their evolution into more advanced agent architectures."}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": "Additional Key Words and Phrases: Large Language Model, Retrieval-Augmented Generation"}]}]},
+    ]
+    extracted = extract_blocks_from_page(1, blocks)
+    chunks = blocks_to_chunks(
+        extracted,
+        doc_id="test",
+        source="test.pdf",
+        source_path="test.pdf",
+        source_type="file",
+        title="Test",
+        source_version="v1",
+        content_hash="abc",
+        last_ingested_at="2024-01-01",
+    )
+
+    title_chunk = next((m for t, m in chunks if "A Survey of Personalization" in t), None)
+    assert title_chunk is not None and title_chunk.block_type == "heading"
+
+    author_chunk = next((m for t, m in chunks if "XIAOPENG LI" in t), None)
+    assert author_chunk is not None and author_chunk.block_type == "paragraph"
+
+    abstract_chunk = next((m for t, m in chunks if "Personalization has become" in t), None)
+    assert abstract_chunk is not None
+    assert abstract_chunk.block_type == "paragraph"
+    assert abstract_chunk.section_title == "Abstract"
+    print("PASS: blocks_to_chunks_page1_english_title_and_inferred_abstract")
+
+
+def test_blocks_to_chunks_chinese_abstract_marker_inherits_section():
+    blocks = [
+        {"type": 0, "lines": [{"spans": [{"text": "摘 要：近年来，边缘智能发展迅速。"}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": "边缘协同推理可以减少云边通信开销并提升响应速度。"}]}]},
+    ]
+    extracted = extract_blocks_from_page(1, blocks)
+    chunks = blocks_to_chunks(
+        extracted,
+        doc_id="test",
+        source="test.pdf",
+        source_path="test.pdf",
+        source_type="file",
+        title="Test",
+        source_version="v1",
+        content_hash="abc",
+        last_ingested_at="2024-01-01",
+    )
+
+    heading_chunk = next((m for t, m in chunks if "摘" in t and m.block_type == "heading"), None)
+    body_chunk = next((m for t, m in chunks if "边缘协同推理" in t), None)
+    assert heading_chunk is not None
+    assert body_chunk is not None
+    assert body_chunk.section_title in {"摘 要", "摘要"}
+    print("PASS: blocks_to_chunks_chinese_abstract_marker_inherits_section")
+
+
 def test_blocks_to_chunks_front_matter_split():
     """Front matter heading block: marker→heading chunk, body→paragraph chunk with correct section_title."""
     # Block 0: Chinese title (first block on page 1, no ending punct → HEADING via Chinese title detection)
@@ -541,6 +672,11 @@ def run_all():
         test_split_front_matter_heading_chinese,
         test_split_front_matter_heading_no_split_short_body,
         test_split_front_matter_heading_no_split_no_marker,
+        test_extract_blocks_classifies_caption_variants_and_plain_reference,
+        test_extract_blocks_classifies_pipe_style_heading,
+        test_extract_blocks_classifies_multiline_numeric_heading,
+        test_blocks_to_chunks_page1_english_title_and_inferred_abstract,
+        test_blocks_to_chunks_chinese_abstract_marker_inherits_section,
         test_blocks_to_chunks_front_matter_split,
     ]
     passed = 0

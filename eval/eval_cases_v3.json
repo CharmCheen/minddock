@@ -1,0 +1,182 @@
+[
+  {
+    "id": "title_ch",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "这篇论文的标题是什么？",
+    "expected_page": 1,
+    "expected_section_title": "",
+    "expected_keywords": ["边缘智能", "协同推理", "综述"],
+    "expected_block_type": "heading",
+    "notes": "标题查询，允许 page 1 heading 获得明显加权。"
+  },
+  {
+    "id": "author_email",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "作者单位和联系邮箱是什么？",
+    "expected_page": 1,
+    "expected_section_title": "",
+    "expected_keywords": ["北京科技大学", "wangrui", "@ustb.edu.cn"],
+    "expected_block_type": "paragraph",
+    "notes": "front matter 查询，避免被标题或图表吸走。"
+  },
+  {
+    "id": "abstract_en",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "Abstract 讲了什么？",
+    "expected_page": 1,
+    "expected_section_title": "Abstract",
+    "expected_keywords": ["edge intelligence", "collaborative inference"],
+    "expected_block_type": "paragraph",
+    "notes": "英文摘要正文优先，不应只命中 Abstract heading。"
+  },
+  {
+    "id": "abstract_cn",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "中文摘要主要讲了什么？",
+    "expected_page": 1,
+    "expected_section_title": "摘 要",
+    "expected_keywords": ["边缘智能", "实时性", "隐私安全"],
+    "expected_block_type": "paragraph",
+    "notes": "摘要查询，page 1 与 section_title 应获得加权。"
+  },
+  {
+    "id": "keywords_cn",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "论文的关键词有哪些？",
+    "expected_page": 1,
+    "expected_section_title": "关键词 边缘计算；边缘智能；机器学习；边缘协同推理；动态场景",
+    "expected_keywords": ["边缘计算", "边缘智能", "机器学习"],
+    "expected_block_type": "heading",
+    "notes": "关键词/front matter 查询。"
+  },
+  {
+    "id": "recv_date",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "这篇论文的收稿日期和修回日期是什么？",
+    "expected_page": 1,
+    "expected_section_title": "关键词 边缘计算；边缘智能；机器学习；边缘协同推理；动态场景",
+    "expected_keywords": ["收稿日期", "修回日期", "2021", "2022"],
+    "expected_block_type": "heading",
+    "notes": "front matter 定位，用于测试 soft_v3 对 page 1 heading 的细分能力。"
+  },
+  {
+    "id": "funding",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "基金项目是什么？",
+    "expected_page": 1,
+    "expected_section_title": "关键词 边缘计算；边缘智能；机器学习；边缘协同推理；动态场景",
+    "expected_keywords": ["基金项目", "国家自然科学基金"],
+    "expected_block_type": "heading",
+    "notes": "front matter 查询，测试正文段落与 page 1 杂项 heading 的区分。"
+  },
+  {
+    "id": "sec_1_1",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "1.1 节标题和主要内容是什么？",
+    "expected_page": 2,
+    "expected_section_title": "边缘协同智能发展",
+    "expected_keywords": ["边缘协同智能", "发展"],
+    "expected_block_type": "heading",
+    "notes": "section 编号定位。"
+  },
+  {
+    "id": "sec_1_2",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "第1.2节主要讲了什么过程？",
+    "expected_page": 3,
+    "expected_section_title": "边缘协同推理的整体过程",
+    "expected_keywords": ["协同推理", "整体过程"],
+    "expected_block_type": "heading",
+    "notes": "section_query，要求 heading / section_title 匹配明显加权。"
+  },
+  {
+    "id": "sec_1_3",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "1.3 节说明本文与已有综述相比有什么贡献？",
+    "expected_page": 4,
+    "expected_section_title": "与已有综述研究的比较以及本文的贡献",
+    "expected_keywords": ["贡献", "综述", "比较"],
+    "expected_block_type": "heading",
+    "notes": "section 编号 + 概念词混合查询。"
+  },
+  {
+    "id": "model_cut",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "2.1.1 模型切割方法有哪些？",
+    "expected_page": 4,
+    "expected_section_title": "模型切割",
+    "expected_keywords": ["模型切割", "纵切", "横切"],
+    "expected_block_type": "heading",
+    "notes": "section 编号精确定位。"
+  },
+  {
+    "id": "compression",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "模型压缩方法有哪些？",
+    "expected_page": 6,
+    "expected_section_title": "模型压缩",
+    "expected_keywords": ["模型压缩", "量化", "剪枝"],
+    "expected_block_type": "heading",
+    "notes": "概念 / 方法查询，正文 heading 应优于总标题。"
+  },
+  {
+    "id": "fig1",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "图1 反映了什么？",
+    "expected_page": 2,
+    "expected_section_title": "关键词进行检索，得到的关于边缘智能的文献数量",
+    "expected_keywords": ["图 1", "边缘智能发展趋势"],
+    "expected_block_type": "caption",
+    "notes": "figure_query，caption 应优先于正文段落。"
+  },
+  {
+    "id": "fig2",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "图 2 反映了什么内容？",
+    "expected_page": 3,
+    "expected_section_title": "边缘协同推理的整体过程",
+    "expected_keywords": ["图 2", "协同推理关键技术"],
+    "expected_block_type": "caption",
+    "notes": "figure 编号精确定位。"
+  },
+  {
+    "id": "table1",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "表1 比较了哪些模型切割方法？",
+    "expected_page": 5,
+    "expected_section_title": "模型切割",
+    "expected_keywords": ["表 1", "模型切割方法比较", "纵切", "横切"],
+    "expected_block_type": "caption",
+    "notes": "table_query，图类 caption 不应获得同等高权重。"
+  },
+  {
+    "id": "table2",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "表2 比较了哪些不同架构？",
+    "expected_page": 11,
+    "expected_section_title": "整体架构",
+    "expected_keywords": ["表 2", "不同架构的比较"],
+    "expected_block_type": "caption",
+    "notes": "测试 hybrid 对后页表格编号的稳定性。"
+  },
+  {
+    "id": "def_edge_intel",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "边缘智能的定义是什么？",
+    "expected_page": 1,
+    "expected_section_title": "关键词 边缘计算；边缘智能；机器学习；边缘协同推理；动态场景",
+    "expected_keywords": ["边缘智能", "实时性差", "隐私安全"],
+    "expected_block_type": "paragraph",
+    "notes": "concept_query，正文 paragraph 应优于论文总标题。"
+  },
+  {
+    "id": "overall_arch",
+    "pdf": "knowledge_base/05_crad_10.7544_issn1000-1239.202110867.pdf",
+    "query": "2.2 节整体架构是怎样的？",
+    "expected_page": 8,
+    "expected_section_title": "整体架构",
+    "expected_keywords": ["整体架构", "云", "边缘"],
+    "expected_block_type": "heading",
+    "notes": "section_query，测试中后部 heading 定位。"
+  }
+]

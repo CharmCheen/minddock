@@ -21,7 +21,7 @@ def _read_api_key(profile: RuntimeProfile) -> str:
     return os.getenv(profile.api_key_env, "").strip()
 
 
-def _build_langchain_chat_model(profile: RuntimeProfile):
+def _build_langchain_chat_model(profile: RuntimeProfile, *, base_url: str | None = None):
     api_key = _read_api_key(profile)
     if not api_key:
         return None
@@ -30,9 +30,11 @@ def _build_langchain_chat_model(profile: RuntimeProfile):
 
     temperature = float(profile.default_generation_params.get("temperature", 0))
     timeout = float(profile.default_generation_params.get("timeout_seconds", 30.0))
+    # base_url resolved by caller from os.environ override or profile default
+    resolved_base_url = base_url or profile.base_url or ""
     return ChatOpenAI(
         api_key=api_key,
-        base_url=profile.base_url,
+        base_url=resolved_base_url,
         model=profile.model_name,
         timeout=timeout,
         temperature=temperature,
@@ -43,8 +45,11 @@ def _build_langchain_runtime(profile: RuntimeProfile) -> GenerationRuntime:
     if not profile.model_name.strip():
         raise RuntimeProfileInvalidConfigError(detail=f"Runtime profile '{profile.profile_id}' is missing model_name.")
 
+    # Allow live base_url override via env var (set by user via settings UI)
+    base_url = os.environ.get("LLM_RUNTIME_BASE_URL") or profile.base_url
+
     mock = MockLLM()
-    llm = _build_langchain_chat_model(profile)
+    llm = _build_langchain_chat_model(profile, base_url=base_url)
     api_key = _read_api_key(profile)
     if llm is None:
         return LangChainAdapter(
@@ -58,7 +63,7 @@ def _build_langchain_runtime(profile: RuntimeProfile) -> GenerationRuntime:
     provider = FallbackLLM(
         primary=OpenAICompatibleLLM(
             api_key=api_key,
-            base_url=profile.base_url or "",
+            base_url=base_url or "",
             model=profile.model_name,
             timeout_seconds=float(profile.default_generation_params.get("timeout_seconds", 30.0)),
         ),

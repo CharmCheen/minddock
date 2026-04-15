@@ -39,6 +39,8 @@ from app.api.schemas import (
     ReingestSourceResponse,
     RunEventListResponse,
     RunSummaryResponse,
+    RuntimeConfigResponse,
+    RuntimeConfigUpdateRequest,
     RuntimeProfileListResponse,
     SearchRequest,
     SearchResponse,
@@ -335,6 +337,54 @@ def list_runtime_profiles() -> RuntimeProfileListResponse:
     logger.debug("Runtime profile list endpoint called")
     result = frontend_facade.list_runtime_profiles()
     return present_runtime_profile_list_response(result)
+
+
+@router.get(
+    "/frontend/runtime-config",
+    response_model=RuntimeConfigResponse,
+    summary="Get the active user-configured runtime",
+)
+def get_runtime_config() -> RuntimeConfigResponse:
+    from app.runtime.active_config import get_active_config
+    config = get_active_config()
+    return RuntimeConfigResponse.from_config(config)
+
+
+@router.put(
+    "/frontend/runtime-config",
+    response_model=RuntimeConfigResponse,
+    summary="Update the active user-configured runtime",
+)
+def update_runtime_config(body: RuntimeConfigUpdateRequest) -> RuntimeConfigResponse:
+    import os
+    from app.runtime.active_config import ActiveRuntimeConfig, get_active_config, save_active_config
+    from app.runtime.profiles import get_runtime_profile_registry
+
+    config = ActiveRuntimeConfig(
+        provider=body.provider,
+        base_url=body.base_url,
+        api_key=body.api_key,
+        model=body.model,
+        enabled=body.enabled,
+    )
+    save_active_config(config)
+
+    # Bootstrap the new credentials into the process environment so the registry uses them
+    if config.enabled:
+        if config.api_key:
+            os.environ["LLM_API_KEY"] = config.api_key
+        else:
+            os.environ.pop("LLM_API_KEY", None)
+        if config.base_url:
+            os.environ["LLM_RUNTIME_BASE_URL"] = config.base_url
+    else:
+        os.environ.pop("LLM_API_KEY", None)
+        os.environ.pop("LLM_RUNTIME_BASE_URL", None)
+
+    # Invalidate the cached profile registry so the next request re-reads env
+    get_runtime_profile_registry.cache_clear()
+
+    return RuntimeConfigResponse.from_config(config)
 
 
 @router.get("/frontend/skills", response_model=SkillListResponse, summary="List frontend-discoverable skills")

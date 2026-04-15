@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { AgentPanel } from '../../agent/components/agent-panel';
 import { SourceList } from './source-list';
 import { AppHeader } from '../../../app/components/app-header';
+import { SettingsView } from '../../../features/settings/settings-view';
 
 export const SplitWorkspace: React.FC = () => {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
-      <AppHeader />
+      <AppHeader onSettingsClick={() => setSettingsOpen(true)} />
       <PanelGroup direction="horizontal" style={{ flex: 1, width: '100vw', margin: 0, padding: 0 }}>
       <Panel defaultSize={35} minSize={20}>
         <SourceList />
@@ -17,6 +20,8 @@ export const SplitWorkspace: React.FC = () => {
         <AgentPanel />
       </Panel>
     </PanelGroup>
+
+    {settingsOpen && <SettingsView onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 };

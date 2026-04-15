@@ -1675,6 +1675,69 @@ class RuntimeProfileListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Active Runtime Config (Phase 1: OpenAI-compatible)
+# ---------------------------------------------------------------------------
+
+
+class RuntimeConfigResponse(BaseModel):
+    """Response body for the active runtime configuration.
+
+    The api_key is masked — never returned as plaintext.
+    """
+
+    provider: str = Field(description="Provider kind, always 'openai_compatible' in Phase 1")
+    base_url: str = Field(description="Base URL for the API endpoint")
+    model: str = Field(description="Model name identifier")
+    api_key_masked: bool = Field(description="True if an API key is configured (but the key itself is never returned)")
+    enabled: bool = Field(description="True if the user-configured runtime is active")
+
+    @classmethod
+    def from_config(cls, config: "ActiveRuntimeConfig") -> "RuntimeConfigResponse":
+        return cls(
+            provider=config.provider,
+            base_url=config.base_url,
+            model=config.model,
+            api_key_masked=bool(config.api_key),
+            enabled=config.enabled,
+        )
+
+
+class RuntimeConfigUpdateRequest(BaseModel):
+    """Request body for updating the active runtime configuration."""
+
+    provider: str = Field(default="openai_compatible", description="Provider kind")
+    base_url: str = Field(description="Base URL for the API endpoint")
+    api_key: str = Field(description="API key (will be stored and used for requests)")
+    model: str = Field(description="Model name identifier")
+    enabled: bool = Field(default=True, description="Enable this configuration")
+
+    @field_validator("base_url")
+    @classmethod
+    def base_url_must_be_valid(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            # Empty allowed here; cross-field check in model_validator below
+            return v
+        if not stripped.startswith(("http://", "https://")):
+            raise ValueError("base_url must start with http:// or https://")
+        return stripped
+
+    @model_validator(mode="after")
+    def base_url_required_when_enabled(self) -> "RuntimeConfigUpdateRequest":
+        if self.enabled and not self.base_url.strip():
+            raise ValueError("base_url cannot be empty when the configuration is enabled")
+        return self
+
+    @field_validator("model")
+    @classmethod
+    def model_must_be_non_empty(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("model cannot be empty")
+        return stripped
+
+
+# ---------------------------------------------------------------------------
 # Error
 # ---------------------------------------------------------------------------
 

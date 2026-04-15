@@ -118,3 +118,19 @@ export interface ErrorResponse {
   detail: string;
   category?: string;
 }
+
+export interface RuntimeConfigResponse {
+  provider: string;
+  base_url: string;
+  model: string;
+  api_key_masked: boolean;
+  enabled: boolean;
+}
+
+export interface RuntimeConfigUpdateRequest {
+  provider: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+  enabled: boolean;
+}

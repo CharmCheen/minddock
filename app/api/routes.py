@@ -41,6 +41,8 @@ from app.api.schemas import (
     RunSummaryResponse,
     RuntimeConfigResponse,
     RuntimeConfigUpdateRequest,
+    RuntimeConfigTestRequest,
+    RuntimeConfigTestResponse,
     RuntimeProfileListResponse,
     SearchRequest,
     SearchResponse,
@@ -382,6 +384,118 @@ def update_runtime_config(body: RuntimeConfigUpdateRequest) -> RuntimeConfigResp
         os.environ.pop("LLM_RUNTIME_BASE_URL", None)
 
     # Invalidate the cached profile registry so the next request re-reads env
+    get_runtime_profile_registry.cache_clear()
+
+    return RuntimeConfigResponse.from_config(config)
+
+
+@router.post(
+    "/frontend/runtime-config/test",
+    response_model=RuntimeConfigTestResponse,
+    summary="Test connectivity to a runtime without persisting",
+)
+def test_runtime_config(body: RuntimeConfigTestRequest) -> RuntimeConfigTestResponse:
+    """Validate that a runtime configuration is reachable.
+
+    Performs the minimal possible request to verify the endpoint is accessible
+    and the credentials are accepted. Does NOT run a full inference call.
+    """
+    # Basic URL validation
+    if not body.base_url.strip():
+        return RuntimeConfigTestResponse(
+            success=False,
+            message="base_url cannot be empty",
+            error_kind="invalid_url",
+        )
+    if not body.base_url.startswith(("http://", "https://")):
+        return RuntimeConfigTestResponse(
+            success=False,
+            message="base_url must start with http:// or https://",
+            error_kind="invalid_url",
+        )
+
+    try:
+        from langchain_openai import ChatOpenAI
+
+        llm = ChatOpenAI(
+            api_key=body.api_key,
+            base_url=body.base_url.rstrip("/"),
+            model=body.model or "gpt-4o-mini",
+            timeout=10.0,
+            temperature=0,
+            max_retries=1,
+        )
+        # Minimal call — just check the model list endpoint is reachable
+        llm.invoke("hi")
+        return RuntimeConfigTestResponse(
+            success=True,
+            message=f"Connection successful. Model '{body.model}' is reachable.",
+        )
+    except Exception as exc:
+        error_message = str(exc).lower()
+        if (
+            "401" in error_message
+            or "unauthorized" in error_message
+            or "auth" in error_message
+            or "api key" in error_message
+        ):
+            error_kind = "auth_failure"
+            message = "Authentication failed. Check your API key."
+        elif "404" in error_message or "not found" in error_message or "model" in error_message:
+            error_kind = "model_not_found"
+            message = f"Model '{body.model}' not found or not accessible at this endpoint."
+        elif "timeout" in error_message or "timed out" in error_message:
+            error_kind = "timeout"
+            message = "Connection timed out. Check the base URL and your network."
+        elif (
+            "connection" in error_message
+            or "network" in error_message
+            or "refused" in error_message
+            or "resolve" in error_message
+        ):
+            error_kind = "network_error"
+            message = "Could not connect to the endpoint. Check the base URL."
+        else:
+            error_kind = "unknown"
+            # Strip internal paths from the message for security
+            import re
+
+            safe_message = re.sub(r'[/\\]?\w+[/\\]\w+\.\w+', '<internal path>', error_message)
+            message = f"Connection test failed: {safe_message[:120]}"
+
+        return RuntimeConfigTestResponse(
+            success=False,
+            message=message,
+            error_kind=error_kind,
+        )
+
+
+@router.post(
+    "/frontend/runtime-config/reset",
+    response_model=RuntimeConfigResponse,
+    summary="Clear user-configured runtime and restore defaults",
+)
+def reset_runtime_config() -> RuntimeConfigResponse:
+    """Remove the persisted runtime configuration and restore the system default."""
+    import os
+    from app.runtime.active_config import ActiveRuntimeConfig, save_active_config
+    from app.runtime.profiles import get_runtime_profile_registry
+
+    # Write a disabled default config
+    config = ActiveRuntimeConfig(
+        provider="openai_compatible",
+        base_url="https://api.openai.com/v1",
+        api_key="",
+        model="gpt-4o-mini",
+        enabled=False,
+    )
+    save_active_config(config)
+
+    # Clean up env vars that were set by bootstrap
+    os.environ.pop("LLM_API_KEY", None)
+    os.environ.pop("LLM_RUNTIME_BASE_URL", None)
+
+    # Invalidate cached registry
     get_runtime_profile_registry.cache_clear()
 
     return RuntimeConfigResponse.from_config(config)

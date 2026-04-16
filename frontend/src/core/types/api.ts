@@ -134,3 +134,16 @@ export interface RuntimeConfigUpdateRequest {
   model: string;
   enabled: boolean;
 }
+
+export interface RuntimeConfigTestRequest {
+  provider: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+}
+
+export interface RuntimeConfigTestResponse {
+  success: boolean;
+  message: string;
+  error_kind: string | null;
+}

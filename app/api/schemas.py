@@ -1737,6 +1737,26 @@ class RuntimeConfigUpdateRequest(BaseModel):
         return stripped
 
 
+class RuntimeConfigTestRequest(BaseModel):
+    """Request body for testing the runtime connection without persisting."""
+
+    provider: str = Field(default="openai_compatible", description="Provider kind")
+    base_url: str = Field(description="Base URL for the API endpoint")
+    api_key: str = Field(description="API key to test")
+    model: str = Field(description="Model name identifier")
+
+
+class RuntimeConfigTestResponse(BaseModel):
+    """Response body for a runtime connection test."""
+
+    success: bool = Field(description="True if the connection test passed")
+    message: str = Field(description="Human-readable result message")
+    error_kind: str | None = Field(
+        default=None,
+        description="Structured error kind if failed: 'invalid_url', 'auth_failure', 'model_not_found', 'timeout', 'network_error', 'unknown'",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Error
 # ---------------------------------------------------------------------------

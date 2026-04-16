@@ -9,6 +9,7 @@ from app.api.routes import router as api_router
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
+from app.runtime.active_config import bootstrap_env_from_active_config
 
 settings = get_settings()
 setup_logging(settings.log_level, settings.log_dir, settings.app_name)
@@ -18,6 +19,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Log startup details using the supported FastAPI lifespan hook."""
+
+    # Bootstrap user-configured runtime credentials into environment
+    bootstrap_env_from_active_config()
 
     logger.info(
         "Service starting",

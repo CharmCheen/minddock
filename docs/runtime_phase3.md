@@ -133,15 +133,41 @@ Startup:
     → reads data/active_runtime.json (if exists)
     → sets LLM_RUNTIME_BASE_URL if enabled
     → does NOT read api_key from file (security)
+    → does NOT read model from file (model comes from env override at runtime)
 
 Runtime (per request):
-  registry checks os.environ["LLM_API_KEY"]  ← this is the actual key
-  registry checks os.environ["LLM_RUNTIME_BASE_URL"]  ← this is the override
+  registry checks os.environ["LLM_API_KEY"]           ← api_key from save session
+  registry checks os.environ["LLM_RUNTIME_BASE_URL"]   ← base_url override from save
+  registry checks os.environ["LLM_RUNTIME_MODEL"]      ← model override from save
+  Fallback to profile defaults (from settings) if env vars not set
 ```
 
-The `api_key` in `os.environ` is set by:
+The env vars are set by:
 - `PUT /frontend/runtime-config` (save) — session-only, not persisted
 - Shell environment (pre-existing `LLM_API_KEY` env var)
+
+All three (`api_key`, `base_url`, `model`) are set session-only via env vars and cleared on reset.
+
+---
+
+## Execution Path — How Config Actually Affects Runtime
+
+When a user saves a custom runtime via Settings UI, the effect propagates as follows:
+
+1. `PUT /frontend/runtime-config` → `save_active_config(provider, base_url, api_key, model, enabled)`
+2. `save_active_config` writes `api_key_source` marker to `data/active_runtime.json`
+3. `save_active_config` sets in `os.environ`:
+   - `LLM_API_KEY` = the provided API key
+   - `LLM_RUNTIME_BASE_URL` = the provided base URL
+   - `LLM_RUNTIME_MODEL` = the provided model name
+4. `get_runtime_profile_registry.cache_clear()` invalidates the profile cache
+5. On next execution request, `_build_langchain_runtime()` reads:
+   - `os.environ["LLM_API_KEY"]` → used as the LLM API key
+   - `os.environ["LLM_RUNTIME_BASE_URL"]` → overrides profile's base_url
+   - `os.environ["LLM_RUNTIME_MODEL"]` → overrides profile's model_name
+6. Both `ChatOpenAI` (via LangChain adapter) and `OpenAICompatibleLLM` receive the overridden model
+
+Reset (`POST /frontend/runtime-config/reset`) clears all three env vars, causing execution to fall back to system defaults.
 
 ---
 
@@ -151,15 +177,18 @@ The `api_key` in `os.environ` is set by:
 # Run Phase 3 security and observability tests
 D:/conda_envs/minddock/python.exe -m pytest tests/integration/test_runtime_config_api.py -v
 
-# Expected: 26 passed
+# Expected: 29 passed
 ```
 
 Key test coverage:
 - `test_api_key_never_persisted_to_disk` — critical security invariant
 - `test_config_source_active_config_env_when_enabled_with_key_in_env` — observability
 - `test_reset_clears_disk_config` — reset wipes api_key_source
-- `test_save_with_key_sets_env_var` — save sets env, not file
-- `test_save_disabled_clears_env` — disabled save clears env
+- `test_save_with_key_sets_env_var` — save sets LLM_API_KEY, LLM_RUNTIME_BASE_URL, LLM_RUNTIME_MODEL env vars
+- `test_save_disabled_clears_env` — disabled save clears all three env vars
+- `test_reset_clears_runtime_model_env` — reset clears LLM_RUNTIME_MODEL
+- `test_registry_uses_runtime_model_env_var` — registry reads LLM_RUNTIME_MODEL at runtime
+- `test_registry_falls_back_to_profile_model_when_no_env_override` — fallback when no override
 
 ---
 
@@ -177,9 +206,11 @@ Key test coverage:
 
 | File | Change |
 |---|---|
-| `app/runtime/active_config.py` | New `api_key_source` field, `save_active_config` refactored, `get_effective_runtime_status()` added |
+| `app/runtime/active_config.py` | `api_key_source` field, `LLM_RUNTIME_MODEL` env var support, `get_effective_runtime_status()` added |
+| `app/runtime/registry.py` | `LLM_RUNTIME_MODEL` env var override in `_build_langchain_runtime`, `model_name` parameter added to `_build_langchain_chat_model` |
 | `app/api/routes.py` | Use new `save_active_config` signature, pass `config_source` to response |
 | `app/api/schemas.py` | `RuntimeConfigResponse` gains `config_source` field |
 | `frontend/src/core/types/api.ts` | TypeScript type updated |
 | `frontend/src/features/settings/settings-view.tsx` | Display `config_source` in banner |
-| `tests/integration/test_runtime_config_api.py` | Rewritten for Phase 3 invariants; 26 tests |
+| `tests/integration/test_runtime_config_api.py` | Phase 3 invariants + model override + env var tests; 29 tests |
+| `docs/runtime_phase3.md` | Updated with model override flow and execution path |

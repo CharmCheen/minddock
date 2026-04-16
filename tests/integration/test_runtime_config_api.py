@@ -243,7 +243,7 @@ class TestUpdateRuntimeConfig:
         assert "sk-super-secret" not in body
 
     def test_save_with_key_sets_env_var(self, client, temp_config_file):
-        """When saving with an api_key, it must be set in os.environ."""
+        """When saving with an api_key, env vars LLM_API_KEY, LLM_RUNTIME_BASE_URL, LLM_RUNTIME_MODEL are set."""
         client.put(
             "/frontend/runtime-config",
             json={
@@ -255,10 +255,14 @@ class TestUpdateRuntimeConfig:
             },
         )
         assert os.environ.get("LLM_API_KEY") == "sk-env-key"
+        assert os.environ.get("LLM_RUNTIME_BASE_URL") == "https://api.example.com/v1"
+        assert os.environ.get("LLM_RUNTIME_MODEL") == "gpt-4o"
 
     def test_save_disabled_clears_env(self, client, temp_config_file, monkeypatch):
-        """When saving with enabled=False, env vars are cleared."""
+        """When saving with enabled=False, all env vars are cleared."""
         monkeypatch.setenv("LLM_API_KEY", "sk-pre-existing")
+        monkeypatch.setenv("LLM_RUNTIME_BASE_URL", "https://old.example.com/v1")
+        monkeypatch.setenv("LLM_RUNTIME_MODEL", "gpt-3.5")
         client.put(
             "/frontend/runtime-config",
             json={
@@ -270,6 +274,8 @@ class TestUpdateRuntimeConfig:
             },
         )
         assert "LLM_API_KEY" not in os.environ
+        assert "LLM_RUNTIME_BASE_URL" not in os.environ
+        assert "LLM_RUNTIME_MODEL" not in os.environ
 
 
 class TestTestRuntimeConfig:
@@ -398,3 +404,115 @@ class TestResetRuntimeConfig:
         """After reset, config_source should be 'active_config_disabled'."""
         response = client.post("/frontend/runtime-config/reset")
         assert response.json()["config_source"] == "active_config_disabled"
+
+    def test_reset_clears_runtime_model_env(self, client, temp_config_file, monkeypatch):
+        """Reset must clear LLM_RUNTIME_MODEL from the environment."""
+        monkeypatch.setenv("LLM_RUNTIME_MODEL", "gpt-4o")
+        response = client.post("/frontend/runtime-config/reset")
+        assert response.status_code == 200
+        assert "LLM_RUNTIME_MODEL" not in os.environ
+
+
+class TestRuntimeModelOverride:
+    """Tests verifying LLM_RUNTIME_MODEL env var is used at runtime."""
+
+    def test_registry_uses_runtime_model_env_var(self, monkeypatch, tmp_path):
+        """When LLM_RUNTIME_MODEL is set, the runtime must use it instead of profile.model_name."""
+        from unittest.mock import patch, MagicMock
+
+        # Isolate config file to temp path
+        config_path = tmp_path / "active_runtime.json"
+        monkeypatch.setattr("app.runtime.active_config.CONFIG_FILE", config_path)
+
+        # Clear the registry cache so we get a fresh runtime with current env
+        from app.runtime.registry import get_runtime_registry
+        from app.runtime.profiles import get_runtime_profile_registry
+        get_runtime_registry.cache_clear()
+        get_runtime_profile_registry.cache_clear()
+
+        from app.runtime.registry import RuntimeProfile
+
+        profile = RuntimeProfile(
+            profile_id="test_profile",
+            display_name="Test",
+            adapter_kind="langchain",
+            provider_kind="openai_compatible",
+            model_name="profile-default-model",
+            base_url="https://profile.example.com/v1",
+            api_key_env="LLM_API_KEY",
+            default_generation_params={"temperature": 0},
+            tags=("test",),
+            enabled=True,
+            priority=100,
+        )
+
+        # Set the override env vars
+        monkeypatch.setenv("LLM_RUNTIME_MODEL", "custom-model-from-env")
+        monkeypatch.setenv("LLM_API_KEY", "sk-test-key-for-llm")
+
+        mock_llm_instance = MagicMock()
+        mock_model_passed = []
+
+        def capture_model(api_key=None, base_url=None, model=None, timeout=None, temperature=None):
+            mock_model_passed.append(model)
+            return mock_llm_instance
+
+        with patch("langchain_openai.ChatOpenAI", side_effect=capture_model) as mock_chat_openai:
+            reg = get_runtime_registry()
+            runtime = reg.create("langchain", profile)
+
+        assert mock_model_passed[0] == "custom-model-from-env", (
+            f"Expected model 'custom-model-from-env' but got '{mock_model_passed[0]}'. "
+            "LLM_RUNTIME_MODEL env var override is not being applied."
+        )
+
+        # Cleanup
+        get_runtime_registry.cache_clear()
+        get_runtime_profile_registry.cache_clear()
+
+    def test_registry_falls_back_to_profile_model_when_no_env_override(self, monkeypatch, tmp_path):
+        """When LLM_RUNTIME_MODEL is NOT set, profile.model_name is used."""
+        from unittest.mock import patch, MagicMock
+
+        from app.runtime.registry import get_runtime_registry
+        from app.runtime.profiles import get_runtime_profile_registry
+        get_runtime_registry.cache_clear()
+        get_runtime_profile_registry.cache_clear()
+
+        from app.runtime.registry import RuntimeProfile
+
+        profile = RuntimeProfile(
+            profile_id="test_profile2",
+            display_name="Test2",
+            adapter_kind="langchain",
+            provider_kind="openai_compatible",
+            model_name="profile-native-model",
+            base_url="https://profile.example.com/v1",
+            api_key_env="LLM_API_KEY",
+            default_generation_params={"temperature": 0},
+            tags=("test",),
+            enabled=True,
+            priority=100,
+        )
+
+        # Ensure no env override
+        monkeypatch.delenv("LLM_RUNTIME_MODEL", raising=False)
+        monkeypatch.setenv("LLM_API_KEY", "sk-test-key")
+
+        mock_llm_instance = MagicMock()
+        mock_model_passed = []
+
+        def capture_model(api_key=None, base_url=None, model=None, timeout=None, temperature=None):
+            mock_model_passed.append(model)
+            return mock_llm_instance
+
+        with patch("langchain_openai.ChatOpenAI", side_effect=capture_model) as mock_chat_openai:
+            reg = get_runtime_registry()
+            runtime = reg.create("langchain", profile)
+
+        assert mock_model_passed[0] == "profile-native-model"
+
+        # Cleanup
+        get_runtime_registry.cache_clear()
+        get_runtime_profile_registry.cache_clear()
+        monkeypatch.delenv("LLM_API_KEY", raising=False)

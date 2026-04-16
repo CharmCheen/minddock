@@ -116,9 +116,16 @@ def save_active_config(
             os.environ.pop("LLM_API_KEY", None)
         if base_url:
             os.environ["LLM_RUNTIME_BASE_URL"] = base_url
+        else:
+            os.environ.pop("LLM_RUNTIME_BASE_URL", None)
+        if model:
+            os.environ["LLM_RUNTIME_MODEL"] = model
+        else:
+            os.environ.pop("LLM_RUNTIME_MODEL", None)
     else:
         os.environ.pop("LLM_API_KEY", None)
         os.environ.pop("LLM_RUNTIME_BASE_URL", None)
+        os.environ.pop("LLM_RUNTIME_MODEL", None)
 
     return config
 

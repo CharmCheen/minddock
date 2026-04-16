@@ -125,6 +125,7 @@ export interface RuntimeConfigResponse {
   model: string;
   api_key_masked: boolean;
   enabled: boolean;
+  config_source: string;
 }
 
 export interface RuntimeConfigUpdateRequest {

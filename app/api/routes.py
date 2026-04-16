@@ -347,9 +347,9 @@ def list_runtime_profiles() -> RuntimeProfileListResponse:
     summary="Get the active user-configured runtime",
 )
 def get_runtime_config() -> RuntimeConfigResponse:
-    from app.runtime.active_config import get_active_config
+    from app.runtime.active_config import get_active_config, get_effective_runtime_status
     config = get_active_config()
-    return RuntimeConfigResponse.from_config(config)
+    return RuntimeConfigResponse.from_config(config, get_effective_runtime_status())
 
 
 @router.put(
@@ -358,35 +358,24 @@ def get_runtime_config() -> RuntimeConfigResponse:
     summary="Update the active user-configured runtime",
 )
 def update_runtime_config(body: RuntimeConfigUpdateRequest) -> RuntimeConfigResponse:
-    import os
-    from app.runtime.active_config import ActiveRuntimeConfig, get_active_config, save_active_config
+    from app.runtime.active_config import (
+        get_effective_runtime_status,
+        save_active_config,
+    )
     from app.runtime.profiles import get_runtime_profile_registry
 
-    config = ActiveRuntimeConfig(
+    config = save_active_config(
         provider=body.provider,
         base_url=body.base_url,
         api_key=body.api_key,
         model=body.model,
         enabled=body.enabled,
     )
-    save_active_config(config)
-
-    # Bootstrap the new credentials into the process environment so the registry uses them
-    if config.enabled:
-        if config.api_key:
-            os.environ["LLM_API_KEY"] = config.api_key
-        else:
-            os.environ.pop("LLM_API_KEY", None)
-        if config.base_url:
-            os.environ["LLM_RUNTIME_BASE_URL"] = config.base_url
-    else:
-        os.environ.pop("LLM_API_KEY", None)
-        os.environ.pop("LLM_RUNTIME_BASE_URL", None)
 
     # Invalidate the cached profile registry so the next request re-reads env
     get_runtime_profile_registry.cache_clear()
 
-    return RuntimeConfigResponse.from_config(config)
+    return RuntimeConfigResponse.from_config(config, get_effective_runtime_status())
 
 
 @router.post(
@@ -477,28 +466,25 @@ def test_runtime_config(body: RuntimeConfigTestRequest) -> RuntimeConfigTestResp
 )
 def reset_runtime_config() -> RuntimeConfigResponse:
     """Remove the persisted runtime configuration and restore the system default."""
-    import os
-    from app.runtime.active_config import ActiveRuntimeConfig, save_active_config
+    from app.runtime.active_config import (
+        get_effective_runtime_status,
+        save_active_config,
+    )
     from app.runtime.profiles import get_runtime_profile_registry
 
-    # Write a disabled default config
-    config = ActiveRuntimeConfig(
+    # Write a disabled default config (api_key never written to disk)
+    config = save_active_config(
         provider="openai_compatible",
         base_url="https://api.openai.com/v1",
         api_key="",
         model="gpt-4o-mini",
         enabled=False,
     )
-    save_active_config(config)
-
-    # Clean up env vars that were set by bootstrap
-    os.environ.pop("LLM_API_KEY", None)
-    os.environ.pop("LLM_RUNTIME_BASE_URL", None)
 
     # Invalidate cached registry
     get_runtime_profile_registry.cache_clear()
 
-    return RuntimeConfigResponse.from_config(config)
+    return RuntimeConfigResponse.from_config(config, get_effective_runtime_status())
 
 
 @router.get("/frontend/skills", response_model=SkillListResponse, summary="List frontend-discoverable skills")

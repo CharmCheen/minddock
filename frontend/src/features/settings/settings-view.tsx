@@ -79,6 +79,16 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   const activeBaseUrl = config?.base_url ?? 'https://api.openai.com/v1';
   const activeModel = config?.model ?? 'gpt-4o-mini';
   const activeHasKey = config?.api_key_masked ?? false;
+  const activeConfigSource = config?.config_source ?? 'unknown';
+
+  // Human-readable config source label
+  const configSourceLabel: Record<string, string> = {
+    active_config_env: 'Custom runtime (key from session)',
+    active_config_disabled: 'Custom runtime disabled',
+    env_override: 'Default runtime (key from environment)',
+    default: 'Default runtime (no config)',
+  };
+  const configSourceDisplay = configSourceLabel[activeConfigSource] ?? activeConfigSource;
 
   const testResultIcon = testResult ? (testResult.success ? '✓' : '✗') : null;
   const testResultBg = testResult ? (testResult.success ? '#14532d' : '#7f1d1d') : 'transparent';
@@ -163,7 +173,11 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 </div>
                 <div>
                   <span style={{ color: '#64748b' }}>API Key: </span>
-                  <span>{activeHasKey ? '•••••••• (stored)' : 'Not configured'}</span>
+                  <span>{activeHasKey ? '•••••••• (session)' : 'Not configured'}</span>
+                </div>
+                <div>
+                  <span style={{ color: '#64748b' }}>Source: </span>
+                  <span style={{ fontSize: '12px' }}>{configSourceDisplay}</span>
                 </div>
               </div>
             </div>

@@ -1682,7 +1682,8 @@ class RuntimeProfileListResponse(BaseModel):
 class RuntimeConfigResponse(BaseModel):
     """Response body for the active runtime configuration.
 
-    The api_key is masked — never returned as plaintext.
+    The api_key is masked — never returned as plaintext (Phase 1+).
+    config_source tells you where the runtime credentials are actually coming from (Phase 3).
     """
 
     provider: str = Field(description="Provider kind, always 'openai_compatible' in Phase 1")
@@ -1690,15 +1691,25 @@ class RuntimeConfigResponse(BaseModel):
     model: str = Field(description="Model name identifier")
     api_key_masked: bool = Field(description="True if an API key is configured (but the key itself is never returned)")
     enabled: bool = Field(description="True if the user-configured runtime is active")
+    config_source: str = Field(
+        description=(
+            "Where the active runtime credentials are coming from: "
+            "'active_config_env' = custom runtime with key in env; "
+            "'active_config_disabled' = custom runtime disabled, using default; "
+            "'env_override' = no active config but LLM_API_KEY is set in shell env; "
+            "'default' = no config, using system defaults"
+        )
+    )
 
     @classmethod
-    def from_config(cls, config: "ActiveRuntimeConfig") -> "RuntimeConfigResponse":
+    def from_config(cls, config: "ActiveRuntimeConfig", config_source: str = "default") -> "RuntimeConfigResponse":
         return cls(
             provider=config.provider,
             base_url=config.base_url,
             model=config.model,
-            api_key_masked=bool(config.api_key),
+            api_key_masked=config.api_key_source == "env",
             enabled=config.enabled,
+            config_source=config_source,
         )
 
 

@@ -16,7 +16,7 @@ Last updated: 2026-04-16
 ### Backend Core
 - FastAPI service startup (`GET /`, `GET /health`)
 - Local file ingest for `.md`, `.txt`, `.pdf` (Chroma persistence)
-- URL/HTML ingest (`POST /ingest`)
+- URL/HTML ingest (`POST /ingest`) with og:title/og:description/og:image/canonical/domain metadata extraction
 - Grounded `/search`, `/chat`, `/summarize`, `/compare` endpoints
 - Shared retrieval pipeline (retrieve → rerank → compress)
 - Citation-aware response generation
@@ -48,6 +48,7 @@ Last updated: 2026-04-16
 - Artifact rendering: `text`, `mermaid`, `structured_json`, `skill_result`
 - Progress phase display: `resolving_runtime | retrieving | generating | finalizing`
 - Settings UI: runtime config save / test / reset
+- URL ingest UI: "+ Add URL" button in Document Workspace header; dialog submits to `POST /ingest { urls }`, refreshes source list on success
 
 ## Not Default Priorities (retained, not actively developed)
 

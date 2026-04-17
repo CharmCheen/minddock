@@ -11,7 +11,7 @@ export const SourceService = {
     const { data } = await apiClient.get<SourceCatalogWrapperResponse>('/sources');
     return data.items || [];
   },
-  
+
   async getSource(docId: string): Promise<SourceCatalogResponse> {
     const { data } = await apiClient.get<SourceCatalogResponse>(`/sources/${docId}`);
     return data;
@@ -24,5 +24,9 @@ export const SourceService = {
   async getSourceChunks(docId: string): Promise<SourceChunkResponse[]> {
     const { data } = await apiClient.get<SourceChunkWrapperResponse>(`/sources/${docId}/chunks`);
     return data.chunks || [];
+  },
+
+  async ingestUrls(urls: string[]): Promise<void> {
+    await apiClient.post('/ingest', { urls, rebuild: false });
   }
 };

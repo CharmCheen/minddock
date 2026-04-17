@@ -29,6 +29,7 @@ BASELINE_FILES = [
     TESTS_DIR / "unit" / "test_demo.py",
     TESTS_DIR / "unit" / "test_evaluation.py",
     TESTS_DIR / "unit" / "test_run_control.py",
+    TESTS_DIR / "integration" / "test_system_pipeline.py",
 ]
 
 # Integration tests — run stable subset by deselecting known environment-dependent test

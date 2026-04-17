@@ -13,7 +13,7 @@ The latest architecture work also adds:
 Implemented core capabilities:
 
 - local file ingest for `.md`, `.txt`, `.pdf`
-- URL / HTML page ingest with configurable network behavior
+- URL / HTML page ingest with og:title / og:description / og:image / canonical / domain metadata extraction; og:title preferred over `<title>` tag
 - persistent Chroma vector storage
 - `/search`, `/chat`, `/summarize`, `/compare`, `/ingest`, `/health`
 - source catalog / lifecycle endpoints for list, detail, chunk inspect, delete, and reingest
@@ -307,7 +307,7 @@ python -m pytest tests/unit/test_retrieval_models.py tests/unit/test_search_serv
 
 ## Known Limits
 
-- URL extraction is still a minimal HTML-body parser
+- URL metadata extraction requires a fetchable, HTML-rendered page; JavaScript-rendered pages and paywalled content are not supported
 - filter semantics are controlled and intentionally limited, not a full query language
 - vector-store post-filtering may fetch extra candidates when enhanced filters are used
 - Chroma rebuild behavior on Windows is mitigated but not fully under application control

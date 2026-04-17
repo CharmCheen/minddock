@@ -335,3 +335,10 @@ class ArtifactMapper:
             if isinstance(artifact, SearchResultsArtifact):
                 return artifact
         return None
+
+    @staticmethod
+    def first_compare_artifact(artifacts: tuple[BaseArtifact, ...]) -> StructuredJsonArtifact | None:
+        for artifact in artifacts:
+            if isinstance(artifact, StructuredJsonArtifact) and artifact.schema_name == "compare.v1":
+                return artifact
+        return None

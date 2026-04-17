@@ -768,6 +768,9 @@ class SourceCatalogItem(BaseModel):
     requested_url: str | None = None
     final_url: str | None = None
     source_state: SourceStateItem | None = None
+    # URL source enrichment
+    domain: str | None = None  # URL sources: netloc; file sources: None
+    description: str | None = None  # URL sources: og_description; file sources: None
 
     @classmethod
     def from_entry(cls, entry: SourceCatalogEntry) -> "SourceCatalogItem":
@@ -782,6 +785,8 @@ class SourceCatalogItem(BaseModel):
             requested_url=entry.requested_url,
             final_url=entry.final_url,
             source_state=SourceStateItem.from_state(entry.state),
+            domain=entry.domain,
+            description=entry.description,
         )
 
 

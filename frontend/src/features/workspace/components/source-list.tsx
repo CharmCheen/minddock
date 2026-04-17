@@ -218,8 +218,17 @@ export const SourceList: React.FC = () => {
                 <div style={{ fontSize: '14px', fontWeight: '500', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {src.title || src.doc_id}
                 </div>
-                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
-                  <span>{src.category}</span>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                  <span>{src.category === 'url' && src.domain
+                    ? <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        background: '#dbeafe', color: '#1d4ed8',
+                        borderRadius: '4px', padding: '1px 6px', fontSize: '11px', fontWeight: '500',
+                      }}>
+                        🔗 {src.domain}
+                      </span>
+                    : src.category}
+                  </span>
                   <span>{src.ingest_status || 'unknown'}</span>
                 </div>
               </div>

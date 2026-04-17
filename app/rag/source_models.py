@@ -90,6 +90,9 @@ class SourceCatalogEntry:
     requested_url: str | None = None
     final_url: str | None = None
     state: SourceState | None = None
+    # Enrichment fields — populated from chunk metadata where available
+    domain: str | None = None  # URL sources: netloc (e.g. "arxiv.org"); file sources: None
+    description: str | None = None  # URL sources: og_description; file sources: None
 
 
 @dataclass(frozen=True)

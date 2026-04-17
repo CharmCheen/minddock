@@ -93,6 +93,8 @@ export interface SourceCatalogResponse {
   category: string;
   ingest_status: string | null;
   uploaded_at: string;
+  domain?: string | null;
+  description?: string | null;
 }
 
 export interface SourceChunkResponse {

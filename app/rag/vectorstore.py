@@ -439,6 +439,8 @@ def _build_source_detail(rows: list[dict[str, object]]) -> SourceDetail:
     pages = tuple(sorted({int(row.get("page")) for row in rows if str(row.get("page") or "").strip().isdigit()}))
     requested_url = _first_non_empty(rows, "requested_url")
     final_url = _first_non_empty(rows, "final_url")
+    domain = _first_non_empty(rows, "domain")
+    description = _first_non_empty(rows, "og_description")
     representative_metadata = {
         key: value
         for key, value in representative.items()
@@ -464,6 +466,8 @@ def _build_source_detail(rows: list[dict[str, object]]) -> SourceDetail:
                 chunk_count=len(rows),
                 ingest_status=_first_non_empty(rows, "ingest_status") or "ready",
             ),
+            domain=domain,
+            description=description,
         ),
         representative_metadata=representative_metadata,
     )

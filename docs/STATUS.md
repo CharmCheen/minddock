@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-16
+Last updated: 2026-04-17
 
 ## Branch Layout
 
@@ -17,6 +17,8 @@ Last updated: 2026-04-16
 - FastAPI service startup (`GET /`, `GET /health`)
 - Local file ingest for `.md`, `.txt`, `.pdf` (Chroma persistence)
 - URL/HTML ingest (`POST /ingest`) with og:title/og:description/og:image/canonical/domain metadata extraction
+- Shared source loader registry (`SourceLoaderRegistry`): `FileSourceLoader` (file) and `URLSourceLoader` (url) share the same `SourceLoader` interface; after `load()` both feed into the same `_build_chunk_documents() → embed → Chroma upsert` pipeline
+- **Multi-source ingestion**: file and URL sources are equivalent citizens in the vector store and participate in unified retrieval/citation without any source-type-specific code paths
 - Grounded `/search`, `/chat`, `/summarize`, `/compare` endpoints
 - Shared retrieval pipeline (retrieve → rerank → compress)
 - Citation-aware response generation
@@ -63,7 +65,7 @@ These are known and accepted but not the current focus:
 
 ## Known Limits
 
-- URL parsing is intentionally minimal
+- URL fetch extracts og:title/og:description/og:image/canonical/domain metadata; og:title is preferred over `<title>` tag
 - Chroma rebuild on Windows is mitigated but not guaranteed under every long-lived process state
 - Exact-match metadata filtering is limited compared with richer query languages
 - Reranker/compressor remain lightweight heuristics

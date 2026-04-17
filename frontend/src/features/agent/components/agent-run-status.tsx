@@ -53,32 +53,35 @@ export const AgentRunStatus: React.FC = () => {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        background: status === 'running' ? '#f8fafc' : status === 'failed' ? '#fef2f2' : status === 'completed' ? '#f0fdf4' : '#f8fafc'
+        background: status === 'running' ? '#eff6ff' : status === 'failed' ? '#fef2f2' : status === 'completed' ? '#f0fdf4' : '#f8fafc',
+        borderLeft: `3px solid ${status === 'running' ? '#3b82f6' : status === 'completed' ? '#10b981' : status === 'failed' ? '#ef4444' : '#94a3b8'}`,
+        transition: 'background 0.2s ease'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <span style={{ fontSize: '14px' }}>{getStatusIcon()}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{
-              fontWeight: '600',
+              fontWeight: '700',
               color: getStatusColor(),
               textTransform: 'uppercase',
               fontSize: '11px',
-              letterSpacing: '0.03em'
+              letterSpacing: '0.04em',
+              fontFamily: 'system-ui, sans-serif',
             }}>
-              {status}
+              {status === 'running' ? '⏳ Running' : status === 'completed' ? '✅ Completed' : status === 'failed' ? '❌ Failed' : status}
             </span>
             {status === 'running' && progressText && (
-              <span style={{ color: '#64748b', marginLeft: '4px' }}>{progressText}</span>
+              <span style={{ color: '#64748b', fontSize: '12px', paddingLeft: '8px', borderLeft: '1px solid #e2e8f0' }}>{progressText}</span>
             )}
             {status === 'failed' && error && (
-              <span style={{ color: '#ef4444', marginLeft: '4px' }}>{error}</span>
+              <span style={{ color: '#ef4444', fontSize: '12px', paddingLeft: '8px', borderLeft: '1px solid #fee2e2' }}>{error}</span>
             )}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {runId && (
-            <span style={{ color: '#94a3b8' }}>
-              Run: <span style={{ fontFamily: 'monospace' }}>{runId.substring(0, 8)}</span>
+            <span style={{ color: '#94a3b8', fontSize: '11px', fontFamily: 'monospace', background: '#f8fafc', padding: '2px 8px', borderRadius: '4px' }}>
+              Run: {runId.substring(0, 8)}
             </span>
           )}
           {events.length > 0 && (
@@ -97,7 +100,7 @@ export const AgentRunStatus: React.FC = () => {
               onMouseOver={(e) => e.currentTarget.style.background = '#f1f5f9'}
               onMouseOut={(e) => e.currentTarget.style.background = 'none'}
             >
-              {showDetails ? '▲ Hide Details' : '▼ Show Details'}
+              {showDetails ? '▲ Hide Events' : '▼ Show Events'}
             </button>
           )}
         </div>

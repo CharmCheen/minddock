@@ -55,11 +55,30 @@ export const SourceDetailPanel: React.FC = () => {
 
   if (!selectedDocId || !selectedDocDetail) {
     return (
-      <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', background: '#f8fafc', flexDirection: 'column' }}>
-        <div style={{ padding: '32px', textAlign: 'center', background: '#fff', borderRadius: '12px', border: '1px dashed #cbd5e1', maxWidth: '300px' }}>
-          <div style={{ color: '#94a3b8', fontSize: '32px', marginBottom: '16px' }}>📄</div>
-          <div style={{ fontSize: '15px', fontWeight: '600', marginBottom: '8px', color: '#334155' }}>No Document Selected</div>
-          <div style={{ fontSize: '13px', color: '#64748b', lineHeight: '1.5' }}>Choose a source from the list on the left to view its details and contents.</div>
+      <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', background: '#f8fafc', flexDirection: 'column', padding: '24px' }}>
+        <div style={{
+          padding: '40px 32px', textAlign: 'center',
+          background: '#fff', borderRadius: '16px',
+          border: '1px solid #e2e8f0',
+          maxWidth: '320px', width: '100%',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+        }}>
+          <div style={{
+            width: '56px', height: '56px', borderRadius: '14px',
+            background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 20px auto', fontSize: '28px'
+          }}>
+            📋
+          </div>
+          <div style={{ fontSize: '15px', fontWeight: '600', marginBottom: '8px', color: '#1e293b' }}>No Source Selected</div>
+          <div style={{ fontSize: '13px', color: '#64748b', lineHeight: '1.6' }}>
+            Select a source from the left panel to preview its content and metadata.
+          </div>
+          <div style={{ marginTop: '20px', padding: '12px 16px', background: '#f8fafc', borderRadius: '10px', fontSize: '12px', color: '#64748b', textAlign: 'left' }}>
+            <div style={{ fontWeight: '600', marginBottom: '6px', color: '#475569' }}>💡 Tip</div>
+            Use <strong>+ Add URL</strong> to ingest web pages as knowledge sources.
+          </div>
         </div>
       </div>
     );
@@ -76,22 +95,51 @@ export const SourceDetailPanel: React.FC = () => {
           width: '40px',
           height: '40px',
           borderRadius: '10px',
-          background: '#f0fdf4',
-          color: '#10b981',
+          background: selectedDocDetail.category === 'url' ? '#dbeafe' : '#f0fdf4',
+          color: selectedDocDetail.category === 'url' ? '#1d4ed8' : '#10b981',
           fontSize: '20px',
           flexShrink: 0
         }}>
-          📄
+          {selectedDocDetail.category === 'url' ? '🔗' : '📄'}
         </div>
         <div style={{ flex: 1 }}>
           <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#0f172a', fontWeight: '600' }}>{selectedDocDetail.title || selectedDocId}</h3>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>Document ID: {selectedDocId.split('-')[0]}...</div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Source type badge */}
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '3px',
+              background: selectedDocDetail.category === 'url' ? '#dbeafe' : '#f1f5f9',
+              color: selectedDocDetail.category === 'url' ? '#1d4ed8' : '#475569',
+              borderRadius: '5px', padding: '1px 7px', fontSize: '11px', fontWeight: '600',
+            }}>
+              {selectedDocDetail.category === 'url' ? '🌐 URL' : '📄 File'}
+            </span>
+            {selectedDocDetail.domain && (
+              <span style={{ fontSize: '12px', color: '#64748b' }}>{selectedDocDetail.domain}</span>
+            )}
+          </div>
         </div>
       </div>
-      <div style={{ fontSize: '13px', color: '#64748b', display: 'flex', gap: '16px', flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9', paddingBottom: '16px', marginBottom: '16px' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{color:'#94a3b8'}}>🏷️</span> {selectedDocDetail.category}</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{color:'#94a3b8'}}>📅</span> {new Date(selectedDocDetail.uploaded_at).toLocaleDateString()}</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{color:'#94a3b8'}}>📦</span> {selectedDocChunks.length} chunks</span>
+      {/* Metadata strip */}
+      <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', gap: '16px', flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px', marginBottom: '16px' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span style={{color:'#94a3b8', fontSize:'11px'}}>📅</span>
+          {new Date(selectedDocDetail.uploaded_at).toLocaleDateString()}
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span style={{color:'#94a3b8', fontSize:'11px'}}>📦</span>
+          {selectedDocChunks.length} chunks
+        </span>
+        {selectedDocDetail.ingest_status && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center',
+            background: selectedDocDetail.ingest_status === 'ready' ? '#dcfce7' : '#fef9c3',
+            color: selectedDocDetail.ingest_status === 'ready' ? '#15803d' : '#a16207',
+            borderRadius: '5px', padding: '1px 7px', fontSize: '11px', fontWeight: '500',
+          }}>
+            {selectedDocDetail.ingest_status === 'ready' ? '● ready' : '○ ' + selectedDocDetail.ingest_status}
+          </span>
+        )}
       </div>
       
       

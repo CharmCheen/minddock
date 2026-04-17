@@ -40,7 +40,7 @@ class SearchService:
         try:
             started = time.perf_counter()
             hits = self.retrieve(query=query, top_k=top_k, filters=filters)
-            search_hits = [SearchHitRecord(chunk=hit, citation=build_citation(hit)) for hit in hits]
+            search_hits = [SearchHitRecord(chunk=hit, citation=build_citation(hit, query)) for hit in hits]
             elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
 
             logger.info(

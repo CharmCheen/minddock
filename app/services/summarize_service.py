@@ -79,7 +79,7 @@ class SummarizeService:
                     hits=workflow_hits,
                     grounded_hits=grounded_hits,
                     context=build_context(grounded_hits),
-                    citations=[build_citation(h) for h in grounded_hits],
+                    citations=[build_citation(h, None) for h in grounded_hits],
                     grouped_hits=[],
                 )
             else:
@@ -143,8 +143,8 @@ class SummarizeService:
             compressed_hits = self.compressor.compress(query=topic, hits=reranked_hits)
             compress_ms = round((time.perf_counter() - compress_started) * 1000, 2)
             context = build_context(compressed_hits)
-            citations = [build_citation(hit) for hit in compressed_hits]
-            evidence = [build_evidence(hit) for hit in compressed_hits]
+            citations = [build_citation(hit, topic) for hit in compressed_hits]
+            evidence = [build_evidence(hit, topic) for hit in compressed_hits]
             grounding = assess_grounding(retrieved_hits=workflow_state.hits, evidence=evidence)
             grouped_hits = self._group_hits_by_doc(compressed_hits)
 
@@ -218,7 +218,7 @@ class SummarizeService:
             DocumentEvidenceGroup(
                 doc_id=doc_id,
                 hits=doc_hits,
-                citation=build_citation(doc_hits[0]),
+                citation=build_citation(doc_hits[0], None),
                 context=build_context(doc_hits),
             )
             for doc_id, doc_hits in grouped.items()

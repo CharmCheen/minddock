@@ -68,6 +68,12 @@ class CitationRecord:
     section: str | None = None
     location: str | None = None
     ref: str | None = None
+    # Fine-grained citation support
+    block_id: str | None = None               # Specific block within the chunk
+    highlighted_sentence: str | None = None    # Exact matching sentence text
+    position_start: int | None = None          # Character offset start within chunk
+    position_end: int | None = None            # Character offset end within chunk
+    section_path: str | None = None            # Hierarchical section path like "1.2.3"
 
     def to_api_dict(self) -> dict[str, str | int | None]:
         return {
@@ -81,6 +87,11 @@ class CitationRecord:
             "section": self.section,
             "location": self.location,
             "ref": self.ref,
+            "block_id": self.block_id,
+            "highlighted_sentence": self.highlighted_sentence,
+            "position_start": self.position_start,
+            "position_end": self.position_end,
+            "section_path": self.section_path,
         }
 
 
@@ -124,6 +135,11 @@ class EvidenceObject:
     source_version: str | None = None
     content_hash: str | None = None
     freshness: EvidenceFreshness = EvidenceFreshness.FRESH
+    # Fine-grained citation support
+    block_id: str | None = None               # Specific block within the chunk
+    highlighted_sentence: str | None = None    # Exact matching sentence text
+    position_start: int | None = None          # Character offset start within chunk
+    position_end: int | None = None            # Character offset end within chunk
 
     def to_api_dict(self) -> dict[str, object]:
         return {
@@ -137,6 +153,10 @@ class EvidenceObject:
             "source_version": self.source_version,
             "content_hash": self.content_hash,
             "freshness": self.freshness.value,
+            "block_id": self.block_id,
+            "highlighted_sentence": self.highlighted_sentence,
+            "position_start": self.position_start,
+            "position_end": self.position_end,
         }
 
 

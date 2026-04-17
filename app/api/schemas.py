@@ -179,6 +179,12 @@ class CitationItem(BaseModel):
     section: str | None = None
     location: str | None = None
     ref: str | None = None
+    # Fine-grained citation support
+    block_id: str | None = None
+    highlighted_sentence: str | None = None
+    position_start: int | None = None
+    position_end: int | None = None
+    section_path: str | None = None
 
     @classmethod
     def from_record(cls, record: CitationRecord | Mapping[str, object]) -> "CitationItem":
@@ -200,19 +206,29 @@ class EvidenceItem(BaseModel):
     source_version: str | None = None
     content_hash: str | None = None
     freshness: Literal["fresh", "stale_possible", "invalidated"] = "fresh"
+    # Fine-grained citation support
+    block_id: str | None = None
+    highlighted_sentence: str | None = None
+    position_start: int | None = None
+    position_end: int | None = None
 
     @classmethod
     def from_record(cls, record: EvidenceObject | Mapping[str, object] | CitationRecord) -> "EvidenceItem":
         if isinstance(record, EvidenceObject):
             return cls(**record.to_api_dict())
         if isinstance(record, CitationRecord):
+            api_dict = record.to_api_dict()
             return cls(
-                doc_id=record.doc_id,
-                chunk_id=record.chunk_id,
-                source=record.source,
-                snippet=record.snippet,
-                page=record.page,
-                anchor=record.anchor,
+                doc_id=api_dict["doc_id"],
+                chunk_id=api_dict["chunk_id"],
+                source=api_dict["source"],
+                snippet=api_dict["snippet"],
+                page=api_dict.get("page"),
+                anchor=api_dict.get("anchor"),
+                block_id=api_dict.get("block_id"),
+                highlighted_sentence=api_dict.get("highlighted_sentence"),
+                position_start=api_dict.get("position_start"),
+                position_end=api_dict.get("position_end"),
             )
         return cls(**dict(record))
 
@@ -771,6 +787,8 @@ class SourceCatalogItem(BaseModel):
     # URL source enrichment
     domain: str | None = None  # URL sources: netloc; file sources: None
     description: str | None = None  # URL sources: og_description; file sources: None
+    # Query-time participation state
+    participation_state: Literal["uploaded", "indexed", "participating", "excluded"] | None = None
 
     @classmethod
     def from_entry(cls, entry: SourceCatalogEntry) -> "SourceCatalogItem":
@@ -787,6 +805,7 @@ class SourceCatalogItem(BaseModel):
             source_state=SourceStateItem.from_state(entry.state),
             domain=entry.domain,
             description=entry.description,
+            participation_state=entry.participation_state.value if entry.participation_state else None,
         )
 
 
@@ -829,6 +848,7 @@ class SourceChunkPreviewItem(BaseModel):
     preview_text: str
     title: str
     section: str | None = None
+    section_path: str | None = None
     location: str | None = None
     ref: str | None = None
     page: int | None = None
@@ -843,6 +863,7 @@ class SourceChunkPreviewItem(BaseModel):
             preview_text=preview.preview_text,
             title=preview.title,
             section=preview.section,
+            section_path=preview.section_path,
             location=preview.location,
             ref=preview.ref,
             page=preview.page,
@@ -1410,13 +1431,18 @@ class UnifiedExecutionResponseBody(BaseModel):
     output_blocks: list[OutputBlockItem] = Field(default_factory=list)
     events: list[ExecutionEventResponseItem] | None = None
     citations: list[CitationItem]
+    participating_sources: list[SourceCatalogItem] = Field(default_factory=list)
     grounded_answer: GroundedAnswerItem | None = None
     compare_result: CompareResultItem | None = None
     metadata: UnifiedExecutionMetadataResponse
     execution_summary: ExecutionSummaryResponse
 
     @classmethod
-    def from_result(cls, result: UnifiedExecutionResponse) -> "UnifiedExecutionResponseBody":
+    def from_result(
+        cls,
+        result: UnifiedExecutionResponse,
+        participating_sources: list[SourceCatalogItem] | None = None,
+    ) -> "UnifiedExecutionResponseBody":
         retrieval_stats = None
         if result.metadata.retrieval_stats is not None:
             retrieval_stats = RetrievalStatsItem(
@@ -1425,6 +1451,7 @@ class UnifiedExecutionResponseBody(BaseModel):
                 reranked_hits=result.metadata.retrieval_stats.reranked_hits,
                 returned_hits=result.metadata.retrieval_stats.returned_hits,
             )
+        citations_items = [CitationItem.from_record(item) for item in result.citations]
         return cls(
             task_type=result.task_type.value,
             run_id=result.run_id,
@@ -1440,7 +1467,8 @@ class UnifiedExecutionResponseBody(BaseModel):
                 for block in result.output_blocks
             ],
             events=None if not result.events else [ExecutionEventResponseItem.from_event(event) for event in result.events],
-            citations=[CitationItem.from_record(item) for item in result.citations],
+            citations=citations_items,
+            participating_sources=[] if participating_sources is None else participating_sources,
             grounded_answer=None if result.grounded_answer is None else GroundedAnswerItem.from_record(result.grounded_answer),
             compare_result=None if result.compare_result is None else CompareResultItem.from_record(result.compare_result),
             metadata=UnifiedExecutionMetadataResponse(
@@ -1909,6 +1937,7 @@ def _event_payload_to_dict(event: ExecutionEvent) -> dict[str, Any]:
             "artifact_count": payload.artifact_count,
             "primary_artifact_kind": payload.primary_artifact_kind,
             "partial_failure": payload.partial_failure,
+            "participating_sources": [SourceCatalogItem.from_entry(item).model_dump() for item in payload.participating_sources],
         }
     if isinstance(payload, RunFailedPayload):
         return {
@@ -1945,6 +1974,7 @@ def _client_event_payload_to_dict(payload) -> dict[str, Any]:
             "artifact_count": payload.artifact_count,
             "primary_artifact_kind": payload.primary_artifact_kind,
             "partial_failure": payload.partial_failure,
+            "participating_sources": [SourceCatalogItem.from_entry(item).model_dump() for item in payload.participating_sources],
         }
     if isinstance(payload, ClientFailedPayload):
         return {

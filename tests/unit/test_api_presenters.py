@@ -1,5 +1,7 @@
 """Unit tests for API boundary presenters."""
 
+import app.api.presenters as presenters_module
+
 from app.api.presenters import (
     present_delete_source_response,
     present_chat_response,
@@ -31,6 +33,7 @@ from app.rag.source_models import (
     SourceDescriptor,
     SourceDetail,
     SourceInspectResult,
+    SourceParticipationState,
 )
 from app.services.service_models import (
     CatalogServiceResult,
@@ -239,6 +242,8 @@ def test_present_runtime_profile_list_response() -> None:
 
 
 def test_present_unified_execution_response_maps_artifacts() -> None:
+    original_loader = presenters_module.load_projected_sources
+    presenters_module.load_projected_sources = lambda participating_doc_ids: ()
     response = present_unified_execution_response(
         UnifiedExecutionResponse(
             task_type=TaskType.CHAT,
@@ -260,6 +265,7 @@ def test_present_unified_execution_response_maps_artifacts() -> None:
             ),
         )
     )
+    presenters_module.load_projected_sources = original_loader
 
     assert response.artifacts[0].kind == "text"
     assert response.artifacts[0].content["text"] == "answer"
@@ -301,6 +307,8 @@ def test_present_search_response_from_unified_uses_search_results_artifact() -> 
 
 
 def test_present_unified_execution_response_maps_events() -> None:
+    original_loader = presenters_module.load_projected_sources
+    presenters_module.load_projected_sources = lambda participating_doc_ids: ()
     collector = EventCollector(run_id="run-123", task_type="chat")
     collector.emit(
         kind=ExecutionEventKind.RUN_STARTED,
@@ -342,8 +350,64 @@ def test_present_unified_execution_response_maps_events() -> None:
             metadata=UseCaseMetadata(artifact_kinds_returned=("text",), artifact_count=1),
         )
     )
+    presenters_module.load_projected_sources = original_loader
 
     assert response.run_id == "run-123"
     assert response.events is not None
     assert response.events[1].kind == "artifact_emitted"
     assert response.events[1].payload["artifact"]["content"]["text"] == "answer"
+
+
+def test_present_unified_execution_response_projects_participating_sources() -> None:
+    original_loader = presenters_module.load_projected_sources
+    presenters_module.load_projected_sources = lambda participating_doc_ids: (
+        SourceCatalogEntry(
+            doc_id="d1",
+            source="kb/a.md",
+            source_type="file",
+            title="Doc A",
+            chunk_count=2,
+            participation_state=SourceParticipationState.PARTICIPATING,
+        ),
+        SourceCatalogEntry(
+            doc_id="d2",
+            source="kb/b.md",
+            source_type="file",
+            title="Doc B",
+            chunk_count=1,
+            participation_state=SourceParticipationState.INDEXED,
+        ),
+    )
+
+    response = present_unified_execution_response(
+        UnifiedExecutionResponse(
+            task_type=TaskType.CHAT,
+            artifacts=(),
+            citations=(
+                CitationRecord(doc_id="d1", chunk_id="c1", source="kb/a.md", snippet="alpha"),
+            ),
+            metadata=UseCaseMetadata(),
+        )
+    )
+    presenters_module.load_projected_sources = original_loader
+
+    assert [item.doc_id for item in response.participating_sources] == ["d1", "d2"]
+    assert response.participating_sources[0].participation_state == "participating"
+    assert response.participating_sources[1].participation_state == "indexed"
+
+
+def test_present_unified_execution_response_keeps_participating_sources_stable_without_citations() -> None:
+    original_loader = presenters_module.load_projected_sources
+    presenters_module.load_projected_sources = lambda participating_doc_ids: ()
+
+    response = present_unified_execution_response(
+        UnifiedExecutionResponse(
+            task_type=TaskType.CHAT,
+            artifacts=(),
+            citations=(),
+            metadata=UseCaseMetadata(),
+        )
+    )
+    presenters_module.load_projected_sources = original_loader
+
+    assert response.participating_sources == []

@@ -53,7 +53,7 @@ class RetrievalWorkflow:
         grounded_hits = state.get("grounded_hits", [])
         return {
             "context": build_context(grounded_hits),
-            "citations": [build_citation(hit) for hit in grounded_hits],
+            "citations": [build_citation(hit, state.get("query")) for hit in grounded_hits],
         }
 
     def group_by_document(self, state: RetrievalWorkflowState) -> RetrievalWorkflowState:
@@ -67,7 +67,7 @@ class RetrievalWorkflow:
                 DocumentEvidenceGroup(
                     doc_id=doc_id,
                     hits=hits,
-                    citation=build_citation(hits[0]),
+                    citation=build_citation(hits[0], state.get("query")),
                     context=build_context(hits),
                 )
             )

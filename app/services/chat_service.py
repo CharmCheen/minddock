@@ -132,8 +132,8 @@ class ChatService:
             )
             answer = runtime_response.text
             generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
-            citations = [build_citation(hit) for hit in compressed_hits]
-            evidence = [build_evidence(hit) for hit in compressed_hits]
+            citations = [build_citation(hit, query) for hit in compressed_hits]
+            evidence = [build_evidence(hit, query) for hit in compressed_hits]
             grounding = assess_grounding(retrieved_hits=hits, evidence=evidence)
 
             logger.info(

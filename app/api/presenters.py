@@ -20,6 +20,7 @@ from app.api.schemas import (
     SkillListResponse,
     SearchResponse,
     SourceCatalogResponse,
+    SourceCatalogItem,
     SourceChunkPageResponse,
     SourceDetailResponse,
     SummarizeResponse,
@@ -27,6 +28,7 @@ from app.api.schemas import (
 )
 from app.application.models import UnifiedExecutionResponse
 from app.application.run_control import ManagedRun
+from app.services.participation import extract_participating_doc_ids, load_projected_sources
 from app.services.service_models import (
     CatalogServiceResult,
     ChatServiceResult,
@@ -94,7 +96,12 @@ def present_reingest_source_response(result: ReingestSourceServiceResult) -> Rei
 
 
 def present_unified_execution_response(result: UnifiedExecutionResponse) -> UnifiedExecutionResponseBody:
-    return UnifiedExecutionResponseBody.from_result(result)
+    participating_doc_ids = extract_participating_doc_ids(result.citations)
+    participating_sources = [
+        SourceCatalogItem.from_entry(entry)
+        for entry in load_projected_sources(participating_doc_ids)
+    ]
+    return UnifiedExecutionResponseBody.from_result(result, participating_sources=participating_sources)
 
 
 def present_run_summary_response(result: ManagedRun) -> RunSummaryResponse:

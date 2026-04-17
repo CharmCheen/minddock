@@ -141,7 +141,7 @@ def _build_structured_chunks(
             "page": str(meta.page_start) if meta.page_start == meta.page_end
                     else f"{meta.page_start}-{meta.page_end}",
             "anchor": meta.table_id or "",
-            # New structured fields (forward-compatible)
+            # Existing structured fields
             "block_type": meta.block_type,
             "table_id": meta.table_id or "",
             "section_title": meta.section_title,
@@ -154,6 +154,17 @@ def _build_structured_chunks(
             "content_hash": meta.content_hash,
             "last_ingested_at": meta.last_ingested_at,
             "ingest_status": meta.ingest_status,
+            # Fine-grained citation support fields
+            # block_ids: comma-separated block IDs composing this chunk
+            "block_ids": ",".join(meta.block_ids) if meta.block_ids else "",
+            # section_path: hierarchical path like "1.2.3" for section hierarchy
+            "section_path": meta.section_path or "",
+            # semantic_type: derived semantic type (e.g., "abstract", "introduction")
+            "semantic_type": meta.semantic_type or "",
+            # parent_block_id: parent block ID for hierarchical relationships
+            "parent_block_id": meta.parent_block_id or "",
+            # child_block_ids: comma-separated child block IDs
+            "child_block_ids": ",".join(meta.child_block_ids) if meta.child_block_ids else "",
             **extra,
         }
         documents.append(Document(page_content=chunk_text, metadata=metadata))
@@ -213,6 +224,12 @@ def _build_chunk_documents(
             "content_hash": content_hash,
             "last_ingested_at": last_ingested_at,
             "ingest_status": "ready",
+            # Fine-grained citation support fields (text files use simple splitting, so these are mostly empty)
+            "block_ids": "",
+            "section_path": section or "",
+            "semantic_type": "",
+            "parent_block_id": "",
+            "child_block_ids": "",
             **extra,
         }
         documents.append(Document(page_content=chunk_text, metadata=metadata))

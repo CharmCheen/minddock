@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
 from app.application.artifacts import BaseArtifact
+from app.rag.source_models import SourceCatalogEntry
 from app.runtime.models import ResolvedRuntimeBinding
 from app.services.service_models import ServiceIssue
 
@@ -141,6 +142,7 @@ class RunCompletedPayload:
     artifact_count: int
     primary_artifact_kind: str | None = None
     partial_failure: bool = False
+    participating_sources: tuple[SourceCatalogEntry, ...] = ()
 
 
 @dataclass(frozen=True)

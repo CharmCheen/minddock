@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import StrEnum
 from pathlib import Path
 
 try:
@@ -76,6 +77,14 @@ class SourceState:
     ingest_status: str | None = None
 
 
+class SourceParticipationState(StrEnum):
+    """Participation state of a source in the current query context."""
+    UPLOADED = "uploaded"       # Uploaded but not yet indexed
+    INDEXED = "indexed"         # Indexed and available for retrieval
+    PARTICIPATING = "participating"  # Contributed to current answer
+    EXCLUDED = "excluded"      # Excluded from current query
+
+
 @dataclass(frozen=True)
 class SourceCatalogEntry:
     """Aggregated source-level view derived from stored chunk metadata."""
@@ -93,6 +102,8 @@ class SourceCatalogEntry:
     # Enrichment fields — populated from chunk metadata where available
     domain: str | None = None  # URL sources: netloc (e.g. "arxiv.org"); file sources: None
     description: str | None = None  # URL sources: og_description; file sources: None
+    # Query-time participation state (not persisted, set at runtime)
+    participation_state: SourceParticipationState | None = None
 
 
 @dataclass(frozen=True)
@@ -112,6 +123,7 @@ class SourceChunkPreview:
     preview_text: str
     title: str
     section: str | None = None
+    section_path: str | None = None  # hierarchical path like "1.2.3" for sections
     location: str | None = None
     ref: str | None = None
     page: int | None = None

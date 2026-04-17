@@ -671,6 +671,57 @@ def test_unified_execute_endpoint_can_return_events_when_requested(monkeypatch) 
     assert body["events"][2]["payload"]["artifact"]["kind"] == "text"
 
 
+def test_unified_execute_endpoint_projects_participating_sources(monkeypatch) -> None:
+    from app.api import routes
+    import app.api.presenters as presenters_module
+    from app.rag.source_models import SourceParticipationState
+
+    client = TestClient(app)
+
+    def fake_execute(request):
+        return UnifiedExecutionResponse(
+            task_type=TaskType.CHAT,
+            artifacts=(),
+            citations=(build_citation(_chunk()),),
+            metadata=UseCaseMetadata(),
+        )
+
+    monkeypatch.setattr(routes.frontend_facade, "execute", fake_execute)
+    monkeypatch.setattr(
+        presenters_module,
+        "load_projected_sources",
+        lambda participating_doc_ids: (
+            SourceCatalogEntry(
+                doc_id="d1",
+                source="kb/doc.md",
+                source_type="file",
+                title="Doc One",
+                chunk_count=1,
+                participation_state=SourceParticipationState.PARTICIPATING,
+            ),
+            SourceCatalogEntry(
+                doc_id="d2",
+                source="kb/other.md",
+                source_type="file",
+                title="Doc Two",
+                chunk_count=1,
+                participation_state=SourceParticipationState.INDEXED,
+            ),
+        ),
+    )
+
+    response = client.post(
+        "/frontend/execute",
+        json={"task_type": "chat", "user_input": "hello"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["doc_id"] for item in body["participating_sources"]] == ["d1", "d2"]
+    assert body["participating_sources"][0]["participation_state"] == "participating"
+    assert body["participating_sources"][1]["participation_state"] == "indexed"
+
+
 def test_unified_execute_stream_endpoint_returns_valid_sse(monkeypatch) -> None:
     from app.api import routes
     from app.application.events import (
@@ -762,6 +813,59 @@ def test_unified_execute_stream_endpoint_returns_valid_sse(monkeypatch) -> None:
     assert events[3]["data"]["payload"]["artifact"]["content"]["text"] == "hello"
     assert events[3]["data"]["payload"]["artifact"]["metadata"]["grounded_answer"]["support_status"] == "insufficient_evidence"
     assert events[3]["data"]["payload"]["artifact"]["metadata"]["grounded_answer"]["evidence"][0]["freshness"] == "fresh"
+
+
+def test_unified_execute_stream_completed_event_projects_participating_sources(monkeypatch) -> None:
+    from app.api import routes
+    from app.application.events import ExecutionRun, ExecutionRunStatus, RunCompletedPayload
+    from app.rag.source_models import SourceParticipationState
+
+    client = TestClient(app)
+
+    def fake_execute_run(request):
+        collector = EventCollector(run_id="run-123", task_type="chat")
+        collector.emit(
+            kind=ExecutionEventKind.RUN_COMPLETED,
+            payload=RunCompletedPayload(
+                artifact_count=1,
+                primary_artifact_kind="text",
+                participating_sources=(
+                    SourceCatalogEntry(
+                        doc_id="d1",
+                        source="kb/doc.md",
+                        source_type="file",
+                        title="Doc One",
+                        chunk_count=1,
+                        participation_state=SourceParticipationState.PARTICIPATING,
+                    ),
+                    SourceCatalogEntry(
+                        doc_id="d2",
+                        source="kb/other.md",
+                        source_type="file",
+                        title="Doc Two",
+                        chunk_count=1,
+                        participation_state=SourceParticipationState.INDEXED,
+                    ),
+                ),
+            ),
+        )
+        return ExecutionRun(
+            run_id="run-123",
+            request_summary=type("ReqSummaryObj", (), {})(),
+            status=ExecutionRunStatus.COMPLETED,
+            events=collector.events,
+        )
+
+    monkeypatch.setattr(routes.frontend_facade, "execute_run", fake_execute_run)
+
+    response = client.post("/frontend/execute/stream", json={"task_type": "chat", "user_input": "hello"})
+
+    assert response.status_code == 200
+    events = _parse_sse_body(response.text)
+    assert events[-1]["event"] == "completed"
+    assert events[-1]["data"]["payload"]["participating_sources"][0]["doc_id"] == "d1"
+    assert events[-1]["data"]["payload"]["participating_sources"][0]["participation_state"] == "participating"
+    assert events[-1]["data"]["payload"]["participating_sources"][1]["participation_state"] == "indexed"
 
 
 def test_unified_execute_stream_endpoint_injects_heartbeat_when_gap_exists(monkeypatch) -> None:

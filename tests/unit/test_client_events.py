@@ -21,6 +21,7 @@ from app.application.events import (
     StepCompletedPayload,
     StepStartedPayload,
 )
+from app.rag.source_models import SourceCatalogEntry, SourceParticipationState
 
 
 def _collector() -> EventCollector:
@@ -171,3 +172,39 @@ def test_projection_sequence_is_stable_for_public_stream() -> None:
     projected = EventProjector().project_many(collector.events, debug=False)
 
     assert [event.kind.value for event in projected] == ["run_started", "progress", "artifact", "completed"]
+
+
+def test_completed_event_serializes_participating_sources() -> None:
+    collector = _collector()
+    collector.emit(
+        kind=ExecutionEventKind.RUN_COMPLETED,
+        payload=RunCompletedPayload(
+            artifact_count=1,
+            primary_artifact_kind="text",
+            participating_sources=(
+                SourceCatalogEntry(
+                    doc_id="d1",
+                    source="kb/a.md",
+                    source_type="file",
+                    title="Doc A",
+                    chunk_count=2,
+                    participation_state=SourceParticipationState.PARTICIPATING,
+                ),
+                SourceCatalogEntry(
+                    doc_id="d2",
+                    source="kb/b.md",
+                    source_type="file",
+                    title="Doc B",
+                    chunk_count=1,
+                    participation_state=SourceParticipationState.INDEXED,
+                ),
+            ),
+        ),
+    )
+
+    projected = EventProjector().project_many(collector.events, debug=False)
+    outward = ClientEventResponseItem.from_client_event(projected[0])
+
+    assert outward.payload["participating_sources"][0]["doc_id"] == "d1"
+    assert outward.payload["participating_sources"][0]["participation_state"] == "participating"
+    assert outward.payload["participating_sources"][1]["participation_state"] == "indexed"

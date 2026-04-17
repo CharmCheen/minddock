@@ -19,6 +19,7 @@ from app.application.events import (
     StepStartedPayload,
     WarningEmittedPayload,
 )
+from app.rag.source_models import SourceCatalogEntry
 
 
 class ClientEventKind(StrEnum):
@@ -109,6 +110,7 @@ class ClientCompletedPayload:
     artifact_count: int
     primary_artifact_kind: str | None = None
     partial_failure: bool = False
+    participating_sources: tuple[SourceCatalogEntry, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -286,6 +288,7 @@ class EventProjector:
                     artifact_count=payload.artifact_count,
                     primary_artifact_kind=payload.primary_artifact_kind,
                     partial_failure=payload.partial_failure,
+                    participating_sources=payload.participating_sources,
                 ),
             )
 

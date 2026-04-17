@@ -25,12 +25,18 @@ from typing import Any
 class BlockType(str, Enum):
     """Semantic type of a text block extracted from a PDF page."""
 
-    HEADING = "heading"          # Section / sub-section title
-    PARAGRAPH = "paragraph"      # Body text
-    TABLE_LIKE = "table"         # Tabular / pseudo-tabular content
-    CAPTION = "caption"          # Figure / table caption text
-    LIST_ITEM = "list_item"      # Bullet / numbered list entry
-    OTHER = "other"              # Page number, footnote, header, etc.
+    # Document structure block types
+    TITLE = "title"           # Document title (extracted from page 1)
+    AUTHOR = "author"         # Author / affiliation lines
+    ABSTRACT = "abstract"    # Abstract section text
+    REFERENCE = "reference"   # Bibliography / references section
+    # Content block types
+    HEADING = "heading"      # Section / sub-section title
+    PARAGRAPH = "paragraph"  # Body text
+    TABLE_LIKE = "table"     # Tabular / pseudo-tabular content
+    CAPTION = "caption"      # Figure / table caption text
+    LIST_ITEM = "list_item"  # Bullet / numbered list entry
+    OTHER = "other"          # Page number, footnote, header, etc.
 
 
 @dataclass(frozen=True)
@@ -60,9 +66,9 @@ class ChunkMeta:
     source_path: str
     source_type: str
     title: str
-    block_type: str           # paragraph | heading | table | caption | list_item | other
+    block_type: str           # title | author | abstract | heading | paragraph | table | caption | list_item | reference | other
     section_title: str        # nearest heading above this chunk
-    table_id: str | None      # e.g. "琛?" if a table caption was detected
+    table_id: str | None      # e.g. "表1" if a table caption was detected
     page_start: int
     page_end: int
     order_in_doc: int
@@ -74,6 +80,12 @@ class ChunkMeta:
     content_hash: str
     last_ingested_at: str
     ingest_status: str = "ready"
+    # Fine-grained citation support
+    block_ids: tuple[str, ...] = ()           # IDs of blocks that compose this chunk
+    section_path: str | None = None            # Hierarchical path like "1.2.3" for sections
+    semantic_type: str | None = None           # Derived semantic type (e.g., "abstract", "introduction")
+    parent_block_id: str | None = None         # Parent block ID for hierarchical relationships
+    child_block_ids: tuple[str, ...] = ()      # Child block IDs for hierarchical relationships
 
 
 _CAPTION_NUM_RE = r"(?:\d+|[\u4e00-\u5341IVXivx]+)(?:[.\-–—_]\d+)*"

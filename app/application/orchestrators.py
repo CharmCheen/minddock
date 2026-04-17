@@ -53,6 +53,7 @@ from app.services.catalog_service import CatalogService
 from app.services.chat_service import ChatService
 from app.services.compare_service import CompareService
 from app.services.ingest_service import IngestService
+from app.services.participation import extract_participating_doc_ids, load_projected_sources
 from app.services.search_service import SearchService
 from app.services.service_models import (
     ChatServiceResult,
@@ -577,12 +578,17 @@ class FrontendFacade:
                 warnings=warnings,
                 issues=issues,
             )
+            participating_sources = load_projected_sources(
+                extract_participating_doc_ids(response.citations),
+                catalog_service=self.knowledge_base._catalog_service(),
+            )
             collector.emit(
                 kind=ExecutionEventKind.RUN_COMPLETED,
                 payload=RunCompletedPayload(
                     artifact_count=len(final_artifacts),
                     primary_artifact_kind=primary_artifact_kind,
                     partial_failure=metadata.partial_failure,
+                    participating_sources=participating_sources,
                 ),
             )
             final_events = collector.events

@@ -528,6 +528,7 @@ def _build_chunk_preview(
         preview_text=_preview_text(str(row.get("document") or "")),
         title=str(metadata.get("title") or ""),
         section=str(metadata.get("section") or "").strip() or None,
+        section_path=str(metadata.get("section_path") or "").strip() or None,
         location=str(metadata.get("location") or "").strip() or None,
         ref=str(metadata.get("ref") or "").strip() or None,
         page=int(str(metadata.get("page"))) if str(metadata.get("page") or "").strip().isdigit() else None,

@@ -211,11 +211,29 @@ class EvidenceItem(BaseModel):
     highlighted_sentence: str | None = None
     position_start: int | None = None
     position_end: int | None = None
+    section_path: str | None = None
 
     @classmethod
     def from_record(cls, record: EvidenceObject | Mapping[str, object] | CitationRecord) -> "EvidenceItem":
         if isinstance(record, EvidenceObject):
-            return cls(**record.to_api_dict())
+            api_dict = record.to_api_dict()
+            return cls(
+                doc_id=api_dict["doc_id"],
+                chunk_id=api_dict["chunk_id"],
+                source=api_dict["source"],
+                snippet=api_dict["snippet"],
+                page=api_dict.get("page"),
+                anchor=api_dict.get("anchor"),
+                score=api_dict.get("score"),
+                source_version=api_dict.get("source_version"),
+                content_hash=api_dict.get("content_hash"),
+                freshness=api_dict.get("freshness", "fresh"),
+                block_id=api_dict.get("block_id"),
+                highlighted_sentence=api_dict.get("highlighted_sentence"),
+                position_start=api_dict.get("position_start"),
+                position_end=api_dict.get("position_end"),
+                section_path=api_dict.get("section_path"),
+            )
         if isinstance(record, CitationRecord):
             api_dict = record.to_api_dict()
             return cls(
@@ -229,6 +247,7 @@ class EvidenceItem(BaseModel):
                 highlighted_sentence=api_dict.get("highlighted_sentence"),
                 position_start=api_dict.get("position_start"),
                 position_end=api_dict.get("position_end"),
+                section_path=api_dict.get("section_path"),
             )
         return cls(**dict(record))
 

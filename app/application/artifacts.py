@@ -107,19 +107,10 @@ class ArtifactBuilder:
             grounded_metadata = {"grounded_answer": result.grounded_answer.to_api_dict()}
             # Extract citations from evidence for frontend consumption
             if result.grounded_answer.evidence:
+                from app.api.schemas import EvidenceItem
                 citations = tuple(
-                    {
-                        "doc_id": e.doc_id,
-                        "chunk_id": e.chunk_id,
-                        "source": e.source,
-                        "snippet": e.snippet,
-                        "page": e.page,
-                        "anchor": e.anchor,
-                        "ref": e.chunk_id,
-                        "inline_ref": f"[{i + 1}]",
-                        "chunk_index": i,
-                    }
-                    for i, e in enumerate(result.grounded_answer.evidence)
+                    EvidenceItem.from_record(e).model_dump()
+                    for e in result.grounded_answer.evidence
                 )
         return (
             TextArtifact(
@@ -141,19 +132,10 @@ class ArtifactBuilder:
             grounded_metadata = {"grounded_answer": result.grounded_answer.to_api_dict()}
             # Extract citations from evidence for frontend consumption
             if result.grounded_answer.evidence:
+                from app.api.schemas import EvidenceItem
                 citations = tuple(
-                    {
-                        "doc_id": e.doc_id,
-                        "chunk_id": e.chunk_id,
-                        "source": e.source,
-                        "snippet": e.snippet,
-                        "page": e.page,
-                        "anchor": e.anchor,
-                        "ref": e.chunk_id,
-                        "inline_ref": f"[{i + 1}]",
-                        "chunk_index": i,
-                    }
-                    for i, e in enumerate(result.grounded_answer.evidence)
+                    EvidenceItem.from_record(e).model_dump()
+                    for e in result.grounded_answer.evidence
                 )
         artifacts: list[BaseArtifact] = [
             TextArtifact(
@@ -200,23 +182,17 @@ class ArtifactBuilder:
         seen_chunk_ids: set[str] = set()
         idx = 0
 
+        from app.api.schemas import EvidenceItem
         for point_list_attr in ["common_points", "differences", "conflicts"]:
             point_list = getattr(result.compare_result, point_list_attr, [])
             for point in point_list:
                 for evidence in list(point.left_evidence or []) + list(point.right_evidence or []):
                     if evidence.chunk_id not in seen_chunk_ids:
                         seen_chunk_ids.add(evidence.chunk_id)
-                        citations.append({
-                            "doc_id": evidence.doc_id,
-                            "chunk_id": evidence.chunk_id,
-                            "source": evidence.source,
-                            "snippet": evidence.snippet,
-                            "page": evidence.page,
-                            "anchor": evidence.anchor,
-                            "ref": evidence.chunk_id,
-                            "inline_ref": f"[{idx + 1}]",
-                            "chunk_index": idx,
-                        })
+                        citation_dict = EvidenceItem.from_record(evidence).model_dump()
+                        citation_dict["inline_ref"] = f"[{idx + 1}]"
+                        citation_dict["chunk_index"] = idx
+                        citations.append(citation_dict)
                         idx += 1
 
         return (

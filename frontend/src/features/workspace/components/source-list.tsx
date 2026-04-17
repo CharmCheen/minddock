@@ -96,6 +96,7 @@ export const SourceList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addUrlOpen, setAddUrlOpen] = useState(false);
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
   const { selectedDocId, setSelectedDoc } = useWorkspaceStore();
 
@@ -112,6 +113,19 @@ export const SourceList: React.FC = () => {
         setError(msg);
         setLoading(false);
       });
+  };
+
+  const handleRefresh = async (docId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRefreshingId(docId);
+    try {
+      await SourceService.reingestSource(docId);
+      await loadSources();
+    } catch (err: unknown) {
+      // silently fail for refresh errors
+    } finally {
+      setRefreshingId(null);
+    }
   };
 
   useEffect(() => {
@@ -229,7 +243,24 @@ export const SourceList: React.FC = () => {
                       </span>
                     : src.category}
                   </span>
-                  <span>{src.ingest_status || 'unknown'}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>{src.ingest_status || 'unknown'}</span>
+                    {src.category === 'url' && (
+                      <button
+                        onClick={(e) => handleRefresh(src.doc_id, e)}
+                        disabled={refreshingId === src.doc_id}
+                        title="Refresh URL source"
+                        style={{
+                          background: 'none', border: 'none', cursor: refreshingId === src.doc_id ? 'not-allowed' : 'pointer',
+                          padding: '2px 4px', borderRadius: '4px', color: refreshingId === src.doc_id ? '#94a3b8' : '#3b82f6',
+                          fontSize: '14px', lineHeight: 1,
+                          display: 'flex', alignItems: 'center',
+                        }}
+                      >
+                        {refreshingId === src.doc_id ? '⏳' : '🔄'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}

@@ -28,5 +28,9 @@ export const SourceService = {
 
   async ingestUrls(urls: string[]): Promise<void> {
     await apiClient.post('/ingest', { urls, rebuild: false });
+  },
+
+  async reingestSource(docId: string): Promise<void> {
+    await apiClient.post(`/sources/${docId}/reingest`);
   }
 };

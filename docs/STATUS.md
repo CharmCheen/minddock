@@ -1,59 +1,97 @@
 # Project Status
 
-Last updated: 2026-04-02
+Last updated: 2026-04-16
 
-## Current Stage
+## Branch Layout
 
-MindDock has completed the first three integration stages and is now in stage 4: system engineering and usability hardening.
+| Branch | Purpose | Status |
+|--------|---------|--------|
+| `feat/langchain-integration` | Main development branch | Active |
+| `feat/front-matter-rerank-v5` | Experimental retrieval/pipeline exploration | Retained, not default |
 
-The backend is no longer only a runnable MVP. The current focus is:
+**Working assumption:** `feat/langchain-integration` is the authoritative mainline. Experimental branches are not merged into mainline without explicit review.
 
-- reducing double paths and runtime ambiguity
-- making ingest and incremental maintenance safer
-- improving API error semantics
-- strengthening integration tests and engineering documentation
+## Confirmed Working — Mainline as of 2026-04-16
 
-## Confirmed Working
+### Backend Core
+- FastAPI service startup (`GET /`, `GET /health`)
+- Local file ingest for `.md`, `.txt`, `.pdf` (Chroma persistence)
+- URL/HTML ingest (`POST /ingest`)
+- Grounded `/search`, `/chat`, `/summarize`, `/compare` endpoints
+- Shared retrieval pipeline (retrieve → rerank → compress)
+- Citation-aware response generation
+- Mermaid and structured JSON output
+- Incremental maintenance (create / modify / delete / move)
+- No-key local fallback mode
 
-- FastAPI service startup
-- `GET /`
-- `GET /health`
-- local file ingest for `.md`, `.txt`, `.pdf`
-- URL / HTML ingest through `POST /ingest` or `python -m app.demo ingest --url ...`
-- Chroma persistence
-- grounded `/search`, `/chat`, `/summarize`
-- shared citations for search/chat/summarize
-- watcher-based incremental create / modify / delete / move maintenance
-- LangChain-first service/runtime path
-- no-key fallback local mode
-- heuristic rerank / compression
-- basic summarize and map-reduce summarize
-- Mermaid structured output
+### Unified Execution API (frontend-facing)
+- `POST /frontend/execute` — single-shot unified execution with full response
+- `POST /frontend/execute/stream` — SSE projected event stream
+- `GET /frontend/runs/{run_id}/events` — run replay
+- `GET /frontend/skills` — skill catalog listing
+- `GET /frontend/skills/{skill_id}` — skill schema detail
+- All routes return structured error shapes (422 for validation, 500 for internal)
 
-## Stage 4 Improvements Completed
+### Runtime Configuration (Phase 1–3, complete)
+- User-configurable OpenAI-compatible runtime via Settings UI
+- `api_key` never written to disk (`api_key_source: "env" | "none"` marker only)
+- `LLM_API_KEY`, `LLM_RUNTIME_BASE_URL`, `LLM_RUNTIME_MODEL` env vars set on save
+- `config_source` field in responses: `active_config_env | active_config_disabled | env_override | default`
+- Model override correctly propagates to `ChatOpenAI` and `OpenAICompatibleLLM` at runtime
+- Bootstrap from saved config on server restart (key must be re-entered)
 
-- clarified the formal LLM design into primary LangChain runtime plus explicit compatibility/fallback path
-- kept the no-key local path while reducing ambiguity about which path is preferred
-- added minimal URL ingest with HTML text extraction and URL-preserving metadata
-- changed batch ingest to isolate per-source failures instead of failing the whole run on the first bad input
-- changed repeated ingest and incremental update to replace stale chunk IDs reliably
-- reduced Windows rebuild failures by releasing cached vector-store state and retrying directory cleanup
-- added shared validation-error JSON responses
-- aligned `source`, `section`, `source_type` filter handling across search/chat/summarize
-- added integration tests for end-to-end ingest/search/chat/summarize, URL ingest, repeat ingest consistency, watcher moves, and provider fallback
+### Frontend
+- React + TypeScript + Vite SPA
+- Split-pane workspace: left document pane, right agent pane
+- SSE consumption via `fetch` + `ReadableStream` (not EventSource POST)
+- Zustand store (`useAgentStore`) drives all UI state
+- Artifact rendering: `text`, `mermaid`, `structured_json`, `skill_result`
+- Progress phase display: `resolving_runtime | retrieving | generating | finalizing`
+- Settings UI: runtime config save / test / reset
 
-## Remaining Known Limits
+## Not Default Priorities (retained, not actively developed)
 
-- URL parsing is intentionally minimal and will miss some complex sites
-- Chroma rebuild on Windows is mitigated, not guaranteed under every long-lived process state
-- exact-match metadata filtering is still limited compared with richer query languages
-- reranker/compressor remain lightweight heuristics
-- no CI workflow yet
+These are known and accepted but not the current focus:
 
-## Current Priorities
+- **Multi-provider runtime**: Only OpenAI-compatible runtime is configurable. Multiple named providers / profiles are not in scope.
+- **Secret manager integration**: `api_key` persistence across restarts is not implemented. Env-first session-only approach is intentional.
+- **Skill system**: Functional but marked experimental (`SkillPolicyMode.DISABLED` default). `bullet_normalize` and `echo` skills are registered; skill result artifacts are in the artifact stream.
+- **Front matter structured chunking** (`feat/front-matter-rerank-v5`): Experimental pipeline exploration, not merged to mainline.
+- **PDF viewer / citation highlight / Mermaid real rendering**: Not in scope unless explicitly requested.
+- **Tauri desktop**: Planned but not active.
 
-1. improve URL extraction quality with a stronger replaceable parser
-2. keep expanding high-value integration coverage around rebuild, file locks, and corrupted PDFs
-3. improve retrieval quality beyond the current heuristic post-processing
-4. decide whether to expand the LangGraph workflow beyond retrieval/context preparation
-5. add CI and environment-stable regression checks
+## Known Limits
+
+- URL parsing is intentionally minimal
+- Chroma rebuild on Windows is mitigated but not guaranteed under every long-lived process state
+- Exact-match metadata filtering is limited compared with richer query languages
+- Reranker/compressor remain lightweight heuristics
+- Skill system is experimental; `invalid_skill_input` returns 422 but error shape is minimal
+- `ingest_status` is `string | null`, not a formal enum
+- Frontend has minimal test coverage (1 Playwright smoke test suite, 2 test cases as of 2026-04-16)
+- No CI workflow yet
+
+## Suggested Next Priorities (in recommended order)
+
+1. **Main capability / demo loop hardening** — Strengthen the core chat + retrieval + artifact display loop; add more Playwright coverage for the `/frontend/execute/stream` path
+2. **Agent / workflow usability** — Improve response quality, citation accuracy, and retrieval precision
+3. **Engineering hardening** — CI setup, broader integration test coverage, documentation cleanup
+
+## Quick Verification Commands
+
+```bash
+# Backend: skill API tests
+conda run -n minddock python -m pytest tests/integration/test_skill_api_routes.py -v
+
+# Backend: runtime config tests
+conda run -n minddock python -m pytest tests/integration/test_runtime_config_api.py -v
+
+# Backend: run a focused smoke (any 2+ passing means core routes work)
+conda run -n minddock python -m pytest tests/integration/ -k "execute" --tb=no -q
+
+# Frontend: TypeScript check
+cd frontend && npx tsc --noEmit
+
+# Frontend: Playwright smoke tests (requires dev server on port 3000)
+cd frontend && npx playwright test tests/execute-stream.spec.ts --reporter=line
+```

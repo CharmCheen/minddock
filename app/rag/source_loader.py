@@ -98,14 +98,21 @@ class URLSourceLoader(SourceLoader):
 
     def load(self, descriptor: SourceDescriptor) -> SourceLoadResult:
         content = fetch_url_content(descriptor.source)
-        metadata = {
+        metadata: dict[str, str] = {
             "url": content.final_url,
             "requested_url": content.requested_url,
             "final_url": content.final_url,
+            "domain": content.domain or "",
             "status_code": str(content.status_code),
             "fetched_at": content.fetched_at,
             "ssl_verified": "true" if content.ssl_verified else "false",
         }
+        if content.og_description:
+            metadata["og_description"] = content.og_description
+        if content.og_image:
+            metadata["og_image"] = content.og_image
+        if content.canonical_url:
+            metadata["canonical_url"] = content.canonical_url
         return SourceLoadResult(
             descriptor=SourceDescriptor(
                 source=content.final_url,

@@ -133,3 +133,70 @@ def test_fetch_url_content_rejects_non_html(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="non-HTML content"):
         fetch_url_content("https://example.com/file.json")
+
+
+def test_html_parser_extracts_og_tags(monkeypatch) -> None:
+    """OG title, description, image, and canonical are extracted."""
+    parser = _MainTextHTMLParser()
+    parser.feed(
+        """
+        <html>
+          <head>
+            <title>HTML Title</title>
+            <meta property="og:title" content="OG Title Is Better" />
+            <meta property="og:description" content="This is the article description." />
+            <meta property="og:image" content="https://example.com/og-img.jpg" />
+            <link rel="canonical" href="https://example.com/canonical-page" />
+          </head>
+          <body>
+            <main><p>Some useful body text for chunking purposes.</p></main>
+          </body>
+        </html>
+        """
+    )
+
+    assert parser.og_title == "OG Title Is Better"
+    assert parser.og_description == "This is the article description."
+    assert parser.og_image == "https://example.com/og-img.jpg"
+    assert parser.canonical_url == "https://example.com/canonical-page"
+    assert "Some useful body text" in parser.get_text()
+
+
+def test_fetch_url_content_prefers_og_title_over_html_title(monkeypatch) -> None:
+    """og:title takes precedence over <title> tag."""
+    captured_settings = {}
+
+    class Response:
+        status_code = 200
+        text = (
+            "<html><head>"
+            "<title>HTML Title</title>"
+            "<meta property='og:title' content='OG Preferred Title' />"
+            "</head><body><main><p>Readable content for chunking here.</p></main></body></html>"
+        )
+        headers = {"content-type": "text/html"}
+        url = "https://blog.example.com/article"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "app.rag.url_loader.get_settings",
+        lambda: SimpleNamespace(
+            url_fetch_user_agent="MindDockTest/1.0",
+            url_fetch_timeout_seconds=5.0,
+            url_fetch_retry_count=0,
+            url_fetch_retry_backoff_seconds=0.0,
+            url_fetch_verify_ssl=True,
+            url_fetch_allow_insecure_fallback=False,
+        ),
+    )
+    monkeypatch.setattr("app.rag.url_loader.httpx.get", lambda *args, **kwargs: Response())
+
+    content = fetch_url_content("https://blog.example.com/article")
+
+    assert content.title == "OG Preferred Title"
+    assert content.og_title == "OG Preferred Title"
+    assert content.domain == "blog.example.com"
+    assert content.og_description is None  # not in this HTML
+    assert content.canonical_url is None

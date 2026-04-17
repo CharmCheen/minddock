@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 import httpx
 
@@ -45,6 +46,11 @@ class URLContent:
     status_code: int
     fetched_at: str
     ssl_verified: bool
+    domain: str | None = None
+    og_title: str | None = None
+    og_description: str | None = None
+    og_image: str | None = None
+    canonical_url: str | None = None
 
 
 class _MainTextHTMLParser(HTMLParser):
@@ -60,12 +66,40 @@ class _MainTextHTMLParser(HTMLParser):
         self._skip_depth = 0
         self._prefer_depth = 0
         self._body_depth = 0
+        # OG / meta fields
+        self.og_title: str | None = None
+        self.og_description: str | None = None
+        self.og_image: str | None = None
+        self.canonical_url: str | None = None
+        self._in_meta = False
+        self._meta_property = ""
+        self._meta_content = ""
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         lower_tag = tag.lower()
         self._tag_stack.append(lower_tag)
         attr_map = {key.lower(): (value or "") for key, value in attrs}
         attr_text = " ".join(attr_map.values()).lower()
+
+        # Extract OG meta tags
+        if lower_tag == "meta":
+            prop = attr_map.get("property", "") or attr_map.get("name", "")
+            content = attr_map.get("content", "")
+            if prop == "og:title" and content:
+                self.og_title = content.strip()
+            elif prop == "og:description" and content:
+                self.og_description = content.strip()
+            elif prop == "og:image" and content:
+                self.og_image = content.strip()
+            return
+
+        # Extract canonical link tag
+        if lower_tag == "link":
+            rel = attr_map.get("rel", "")
+            href = attr_map.get("href", "")
+            if rel == "canonical" and href:
+                self.canonical_url = href.strip()
+            return
 
         if lower_tag in _SKIP_TAGS:
             self._skip_depth += 1
@@ -191,27 +225,41 @@ def _fetch_once(url: str, headers: dict[str, str], verify_ssl: bool) -> URLConte
     parser = _MainTextHTMLParser()
     parser.feed(response.text)
     text = parser.get_text()
-    title = parser.title or str(response.url)
+    final_url = str(response.url)
 
-    if not text:
-        raise RuntimeError(f"URL `{url}` did not yield readable text")
+    # Prefer og:title, fall back to <title>, then URL-derived name
+    if parser.og_title:
+        title = parser.og_title.strip()
+    elif parser.title:
+        title = parser.title
+    else:
+        title = _title_from_url(final_url)
+
+    domain = urlparse(final_url).netloc
 
     logger.info(
-        "Fetched URL content: requested_url=%s final_url=%s status_code=%s chars=%d ssl_verified=%s",
+        "Fetched URL content: requested_url=%s final_url=%s status_code=%s chars=%d domain=%s og_title=%s og_desc=%s",
         url,
-        response.url,
+        final_url,
         response.status_code,
         len(text),
-        verify_ssl,
+        domain,
+        bool(parser.og_title),
+        bool(parser.og_description),
     )
     return URLContent(
         requested_url=url,
-        final_url=str(response.url),
+        final_url=final_url,
         title=title,
         text=text,
         status_code=response.status_code,
         fetched_at=utc_now_iso(),
         ssl_verified=verify_ssl,
+        domain=domain,
+        og_title=parser.og_title,
+        og_description=parser.og_description,
+        og_image=parser.og_image,
+        canonical_url=parser.canonical_url,
     )
 
 

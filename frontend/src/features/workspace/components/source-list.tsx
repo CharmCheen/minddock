@@ -98,7 +98,9 @@ export const SourceList: React.FC = () => {
   const [addUrlOpen, setAddUrlOpen] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
-  const { selectedDocId, setSelectedDoc } = useWorkspaceStore();
+  const { selectedDocId, setSelectedDoc, runtimeParticipationByDocId } = useWorkspaceStore();
+
+  const displayedSources = applyParticipationOverlay(sources, runtimeParticipationByDocId);
 
   const loadSources = () => {
     setLoading(true);
@@ -241,7 +243,7 @@ export const SourceList: React.FC = () => {
                 </button>
               </div>
             )}
-            {sources.map(src => (
+            {displayedSources.map(src => (
               <div
                 key={src.doc_id}
                 onClick={() => setSelectedDoc(src.doc_id, src)}
@@ -309,6 +311,24 @@ export const SourceList: React.FC = () => {
                     }}>
                       {src.ingest_status === 'ready' ? '● ready' : '○ ' + (src.ingest_status || 'unknown')}
                     </span>
+                    {/* Participation state badge */}
+                    {src.participation_state && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center',
+                        background: src.participation_state === 'participating' ? '#dbeafe' :
+                                   src.participation_state === 'indexed' ? '#dcfce7' :
+                                   src.participation_state === 'excluded' ? '#fee2e2' : '#f1f5f9',
+                        color: src.participation_state === 'participating' ? '#1d4ed8' :
+                              src.participation_state === 'indexed' ? '#15803d' :
+                              src.participation_state === 'excluded' ? '#dc2626' : '#64748b',
+                        borderRadius: '5px', padding: '1px 6px', fontSize: '11px', fontWeight: '500',
+                      }}>
+                        {src.participation_state === 'participating' ? '◉ ' + src.participation_state :
+                         src.participation_state === 'indexed' ? '● ' + src.participation_state :
+                         src.participation_state === 'excluded' ? '✕ ' + src.participation_state :
+                         src.participation_state}
+                      </span>
+                    )}
                   </div>
                   {/* Refresh button for URL sources */}
                   {src.category === 'url' && (
@@ -341,3 +361,19 @@ export const SourceList: React.FC = () => {
     </div>
   );
 };
+
+export function applyParticipationOverlay(
+  sources: SourceCatalogResponse[],
+  overlay: Record<string, SourceCatalogResponse['participation_state']>,
+): SourceCatalogResponse[] {
+  return sources.map((source) => {
+    const nextParticipationState = overlay[source.doc_id];
+    if (nextParticipationState === undefined) {
+      return source;
+    }
+    return {
+      ...source,
+      participation_state: nextParticipationState,
+    };
+  });
+}

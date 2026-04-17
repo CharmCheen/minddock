@@ -3,13 +3,14 @@ import { useWorkspaceStore } from '../store';
 import { SourceService } from '../../../lib/api/services/sources';
 
 export const SourceDetailPanel: React.FC = () => {
-  const { 
-    selectedDocId, 
-    selectedDocDetail, 
-    selectedDocChunks, 
-    highlightedChunkId, 
-    loadingChunks, 
-    setDocChunks, 
+  const {
+    selectedDocId,
+    selectedDocDetail,
+    selectedDocChunks,
+    highlightedChunkId,
+    highlightedSentence,
+    loadingChunks,
+    setDocChunks,
     setLoadingChunks,
     setHighlightedChunkId
   } = useWorkspaceStore();
@@ -45,13 +46,13 @@ export const SourceDetailPanel: React.FC = () => {
     return () => { mounted = false; };
   }, [selectedDocId]);
 
-  // Effect to handle scroll when highlighedChunkId changes after chunks are loaded
+  // Effect to handle scroll when highlightedChunkId changes after chunks are loaded
   useEffect(() => {
     if (highlightedChunkId && !loadingChunks) {
       const el = document.getElementById(`chunk-${highlightedChunkId}`) || document.getElementById(`chunk-idx-${highlightedChunkId}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [highlightedChunkId, loadingChunks]);
+  }, [highlightedChunkId, highlightedSentence, loadingChunks]);
 
   if (!selectedDocId || !selectedDocDetail) {
     return (
@@ -165,8 +166,39 @@ export const SourceDetailPanel: React.FC = () => {
         
         {selectedDocChunks.map((chunk) => {
           const isHighlighted = highlightedChunkId === chunk.chunk_id || highlightedChunkId === String(chunk.chunk_index);
+          // Render chunk text with highlighted sentence + context window
+          const renderChunkText = () => {
+            const text = chunk.preview_text;
+            if (!isHighlighted || !highlightedSentence) {
+              return text;
+            }
+            const lowerText = text.toLowerCase();
+            const lowerSentence = highlightedSentence.toLowerCase();
+            const idx = lowerText.indexOf(lowerSentence);
+            if (idx === -1) {
+              return text;
+            }
+            // Character-level context window around the match
+            const CONTEXT_CHARS = 120;
+            const start = Math.max(0, idx - CONTEXT_CHARS);
+            const end = Math.min(text.length, idx + highlightedSentence.length + CONTEXT_CHARS);
+            const prefix = start > 0 ? '…' : '';
+            const suffix = end < text.length ? '…' : '';
+            const before = text.slice(start, idx);
+            const match = text.slice(idx, idx + highlightedSentence.length);
+            const after = text.slice(idx + highlightedSentence.length, end);
+            return (
+              <span style={{ fontSize: '13px', color: '#334155', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                {prefix}<span style={{ color: '#94a3b8' }}>{before}</span>
+                <mark style={{ background: '#fef08a', padding: '1px 2px', borderRadius: '2px', fontWeight: '500' }}>
+                  {match}
+                </mark>
+                <span style={{ color: '#94a3b8' }}>{after}</span>{suffix}
+              </span>
+            );
+          };
           return (
-            <div 
+            <div
               key={chunk.chunk_id}
               id={`chunk-idx-${chunk.chunk_index}`}
               onClick={() => setHighlightedChunkId(chunk.chunk_id)}
@@ -194,13 +226,27 @@ export const SourceDetailPanel: React.FC = () => {
                 }
               }}
             >
-              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontWeight: '600' }}>Chunk #{chunk.chunk_index}</span>
-                {chunk.page && <span>Page: {chunk.page}</span>}
+              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span style={{ fontWeight: '600' }}>Chunk {chunk.chunk_index}</span>
+                  {chunk.section_path ? (
+                    <span style={{ color: '#3b82f6', fontWeight: '500' }}>📑 {chunk.section_path}</span>
+                  ) : chunk.section ? (
+                    <span style={{ color: '#3b82f6', fontWeight: '500' }}>📑 {chunk.section}</span>
+                  ) : null}
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {chunk.location && !chunk.location.includes('page') && <span>📍 {chunk.location}</span>}
+                  {chunk.page && <span>📄 {chunk.page}</span>}
+                </div>
               </div>
-              <div style={{ fontSize: '13px', color: '#334155', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
-                {chunk.preview_text}
-              </div>
+              {isHighlighted ? (
+                renderChunkText()
+              ) : (
+                <div style={{ fontSize: '13px', color: '#334155', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                  {chunk.preview_text}
+                </div>
+              )}
             </div>
           );
         })}

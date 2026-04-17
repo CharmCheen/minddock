@@ -31,6 +31,12 @@ export interface CitationItem {
   inline_ref?: string | null;
   chunk_index?: number;
   page_num?: number | null;
+  // Fine-grained citation support
+  block_id?: string | null;
+  highlighted_sentence?: string | null;
+  position_start?: number | null;
+  position_end?: number | null;
+  section_path?: string | null;
 }
 
 export interface ClientRunStartedPayload {
@@ -51,6 +57,7 @@ export interface ClientCompletedPayload {
   artifact_count: number;
   primary_artifact_kind: string | null;
   partial_failure: boolean;
+  participating_sources?: ParticipatingSourceItem[];
 }
 
 export interface ClientFailedPayload {
@@ -70,6 +77,11 @@ export interface ClientEvent {
   run_id?: string;
 }
 
+export interface ParticipatingSourceItem {
+  doc_id: string;
+  participation_state?: 'uploaded' | 'indexed' | 'participating' | 'excluded' | null;
+}
+
 export interface ArtifactResponseItem {
   artifact_id: string;
   kind: ArtifactKind;
@@ -87,6 +99,10 @@ export interface UnifiedExecutionRequestBody {
   citation_policy: string;
 }
 
+export interface UnifiedExecutionResponseBody {
+  participating_sources?: ParticipatingSourceItem[];
+}
+
 export interface SourceCatalogResponse {
   doc_id: string;
   title: string;
@@ -95,6 +111,7 @@ export interface SourceCatalogResponse {
   uploaded_at: string;
   domain?: string | null;
   description?: string | null;
+  participation_state?: 'uploaded' | 'indexed' | 'participating' | 'excluded' | null;
 }
 
 export interface SourceChunkResponse {
@@ -104,6 +121,8 @@ export interface SourceChunkResponse {
   preview_text: string;
   page?: number;
   location?: string;
+  section?: string | null;
+  section_path?: string | null;
   metadata?: Record<string, unknown>;
 }
 

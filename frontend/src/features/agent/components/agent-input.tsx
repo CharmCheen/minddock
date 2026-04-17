@@ -2,20 +2,23 @@ import React, { useState } from 'react';
 import { useAgentStore } from '../store';
 import { ExamplePrompts } from './example-prompts';
 import { ExecutionService } from '../../../lib/api/services/execution';
-import { ClientArtifactPayload, ClientEvent } from '../../../core/types/api';
+import { ClientArtifactPayload, ClientCompletedPayload, ClientEvent } from '../../../core/types/api';
+import { useWorkspaceStore } from '../../workspace/store';
 
 export const AgentInput: React.FC<{
   controller: AbortController | null;
   setController: (ctrl: AbortController | null) => void;
 }> = ({ controller, setController }) => {
   const [query, setQuery] = useState('');
-  const { status, taskType, setTaskType, artifacts, startRun, appendEvent, appendArtifact, finishRun, failRun, reset } = useAgentStore();
+  const { status, taskType, setTaskType, artifacts, startRun, appendEvent, appendArtifact, finishRun, failRun, reset, setAnswerMode, setContributingSources } = useAgentStore();
+  const { setParticipationOverlay, clearParticipationOverlay } = useWorkspaceStore();
 
   const handleStart = () => {
     if (!query.trim()) return;
-    
+
     reset();
-    
+    clearParticipationOverlay();
+
     const ctrl = ExecutionService.executeStream(
       { query, task_type: taskType },
       {
@@ -30,8 +33,20 @@ export const AgentInput: React.FC<{
             const payload = event.data as ClientArtifactPayload;
             if (payload && payload.artifact) {
               appendArtifact(payload.artifact);
+              // Update answerMode and contributingSources based on citations
+              const citations = payload.artifact.citations;
+              if (citations && citations.length > 0) {
+                setAnswerMode('knowledge_plus_inference');
+                const uniqueDocIds = [...new Set(citations.map(c => c.doc_id))];
+                setContributingSources(uniqueDocIds);
+              } else {
+                setAnswerMode('knowledge_base_only');
+                setContributingSources([]);
+              }
             }
           } else if (event.event === 'completed') {
+            const payload = event.data as ClientCompletedPayload;
+            setParticipationOverlay(payload?.participating_sources ?? []);
             finishRun();
           } else if (event.event === 'failed') {
             const data = event.data as any;

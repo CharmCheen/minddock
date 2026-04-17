@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CitationItem } from '../../../core/types/api';
 import { useWorkspaceStore } from '../../workspace/store';
+import { SourceService } from '../../../lib/api/services/sources';
 
 export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citations }) => {
   const { setSelectedDoc, setHighlightedChunkId } = useWorkspaceStore();
@@ -8,23 +9,29 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
 
   if (!citations || citations.length === 0) return null;
 
-  const handleCitationClick = (citation: CitationItem, index: number) => {
+  const handleCitationClick = async (citation: CitationItem, index: number) => {
     setClickedIndex(index);
     setTimeout(() => setClickedIndex(null), 300);
-    setSelectedDoc(citation.doc_id, {
-      doc_id: citation.doc_id,
-      title: citation.inline_ref || citation.doc_id,
-      category: 'reference',
-      ingest_status: 'ready',
-      uploaded_at: new Date().toISOString()
-    });
 
-    setTimeout(() => {
-      const chunkIndex = citation.chunk_id
-        ? citation.chunk_id.split(':').pop() ?? null
-        : String(citation.chunk_index ?? null);
-      setHighlightedChunkId(chunkIndex);
-    }, 0);
+    // Set highlight state synchronously before source switch
+    // so the detail panel can scroll to it after chunks load
+    const chunkId = citation.chunk_id || String(citation.chunk_index ?? null);
+    setHighlightedChunkId(chunkId, citation.highlighted_sentence ?? null);
+
+    // Load real source metadata instead of synthetic object
+    try {
+      const source = await SourceService.getSource(citation.doc_id);
+      setSelectedDoc(citation.doc_id, source);
+    } catch {
+      // Fallback to minimal info if API fails
+      setSelectedDoc(citation.doc_id, {
+        doc_id: citation.doc_id,
+        title: citation.title || citation.doc_id,
+        category: 'reference',
+        ingest_status: 'ready',
+        uploaded_at: new Date().toISOString()
+      });
+    }
   };
 
   return (
@@ -124,8 +131,8 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
               </div>
             </div>
 
-            {/* Snippet */}
-            {c.snippet && (
+            {/* Snippet — prefer highlighted_sentence (precise match), fall back to snippet */}
+            {(c.highlighted_sentence || c.snippet) && (
               <div style={{
                 fontSize: '13px',
                 color: '#475569',
@@ -133,28 +140,33 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
                 background: '#f8fafc',
                 padding: '10px 12px',
                 borderRadius: '6px',
-                borderLeft: '3px solid #cbd5e1',
+                borderLeft: '3px solid #3b82f6',
                 fontStyle: 'italic'
               }}>
-                "{c.snippet}"
+                "{c.highlighted_sentence || c.snippet}"
               </div>
             )}
 
             {/* Footer: Location info */}
-            <div style={{ display: 'flex', gap: '12px', fontSize: '11px', color: '#94a3b8' }}>
+            <div style={{ display: 'flex', gap: '12px', fontSize: '11px', color: '#94a3b8', flexWrap: 'wrap' }}>
               {c.page_num && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  📄 Page {c.page_num}
+                  📄 {c.page_num}
                 </span>
               )}
-              {c.chunk_index !== undefined && (
+              {c.location && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  📍 Chunk {c.chunk_index + 1}
+                  📍 {c.location}
                 </span>
               )}
-              {c.section && (
+              {(c.section_path || c.section) && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  📑 {c.section}
+                  📑 {c.section_path || c.section}
+                </span>
+              )}
+              {c.highlighted_sentence && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#3b82f6' }}>
+                  ✓ 已精确匹配
                 </span>
               )}
             </div>

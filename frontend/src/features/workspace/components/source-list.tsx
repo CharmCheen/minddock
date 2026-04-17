@@ -194,16 +194,51 @@ export const SourceList: React.FC = () => {
             )}
             {error && (
               <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-                <div style={{ color: '#ef4444', fontSize: '24px', marginBottom: '8px' }}>⚠️</div>
-                <div style={{ color: '#ef4444', fontSize: '14px', fontWeight: '500' }}>Failed to load sources</div>
-                <div style={{ color: '#f87171', fontSize: '12px', marginTop: '4px' }}>{error}</div>
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: '44px', height: '44px', borderRadius: '50%',
+                  background: '#fef2f2', marginBottom: '12px', fontSize: '22px'
+                }}>
+                  ⚠️
+                </div>
+                <div style={{ color: '#ef4444', fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>Failed to Load Sources</div>
+                <div style={{ color: '#f87171', fontSize: '12px', marginBottom: '16px', lineHeight: '1.5' }}>{error}</div>
+                <button
+                  onClick={loadSources}
+                  style={{
+                    padding: '6px 14px', borderRadius: '8px', border: '1px solid #e2e8f0',
+                    background: '#fff', color: '#64748b', fontSize: '12px', cursor: 'pointer',
+                  }}
+                >
+                  Try Again
+                </button>
               </div>
             )}
             {!loading && !error && sources.length === 0 && (
               <div style={{ padding: '32px 16px', textAlign: 'center' }}>
-                <div style={{ color: '#cbd5e1', fontSize: '32px', marginBottom: '12px' }}>🗂️</div>
-                <div style={{ color: '#475569', fontSize: '14px', fontWeight: '500' }}>No Sources Found</div>
-                <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>Upload documents to build your knowledge base.</div>
+                <div style={{
+                  width: '52px', height: '52px', borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 16px auto', fontSize: '26px'
+                }}>
+                  🗂️
+                </div>
+                <div style={{ color: '#475569', fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>No Sources Yet</div>
+                <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '20px', lineHeight: '1.5' }}>
+                  Add documents or URLs to start building your knowledge base.
+                </div>
+                <button
+                  onClick={() => setAddUrlOpen(true)}
+                  style={{
+                    padding: '8px 16px', borderRadius: '8px', border: 'none',
+                    background: '#3b82f6', color: '#fff', fontSize: '13px',
+                    cursor: 'pointer', fontWeight: '500',
+                    boxShadow: '0 2px 6px rgba(59, 130, 246, 0.25)',
+                  }}
+                >
+                  + Add URL
+                </button>
               </div>
             )}
             {sources.map(src => (
@@ -229,38 +264,69 @@ export const SourceList: React.FC = () => {
                   transition: 'background 0.15s ease'
                 }}
               >
-                <div style={{ fontSize: '14px', fontWeight: '500', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {src.title || src.doc_id}
-                </div>
-                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
-                  <span>{src.category === 'url' && src.domain
-                    ? <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '4px',
-                        background: '#dbeafe', color: '#1d4ed8',
-                        borderRadius: '4px', padding: '1px 6px', fontSize: '11px', fontWeight: '500',
-                      }}>
-                        🔗 {src.domain}
-                      </span>
-                    : src.category}
+                {/* Row: icon + title */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  {/* Source-type icon */}
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: '22px', height: '22px', borderRadius: '5px', flexShrink: 0,
+                    background: src.category === 'url' ? '#dbeafe' : '#f0fdf4',
+                    fontSize: '12px',
+                  }}>
+                    {src.category === 'url' ? '🔗' : '📄'}
                   </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>{src.ingest_status || 'unknown'}</span>
-                    {src.category === 'url' && (
-                      <button
-                        onClick={(e) => handleRefresh(src.doc_id, e)}
-                        disabled={refreshingId === src.doc_id}
-                        title="Refresh URL source"
-                        style={{
-                          background: 'none', border: 'none', cursor: refreshingId === src.doc_id ? 'not-allowed' : 'pointer',
-                          padding: '2px 4px', borderRadius: '4px', color: refreshingId === src.doc_id ? '#94a3b8' : '#3b82f6',
-                          fontSize: '14px', lineHeight: 1,
-                          display: 'flex', alignItems: 'center',
-                        }}
-                      >
-                        {refreshingId === src.doc_id ? '⏳' : '🔄'}
-                      </button>
+                  <span style={{ fontSize: '14px', fontWeight: '500', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                    {src.title || src.doc_id}
+                  </span>
+                </div>
+                {/* Row: badges + status + action */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                  {/* Source-type and domain badge */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                    {src.category === 'url' && src.domain ? (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '3px',
+                        background: '#dbeafe', color: '#1d4ed8',
+                        borderRadius: '5px', padding: '1px 6px', fontSize: '11px', fontWeight: '500',
+                      }}>
+                        🌐 {src.domain}
+                      </span>
+                    ) : (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center',
+                        background: '#f1f5f9', color: '#475569',
+                        borderRadius: '5px', padding: '1px 6px', fontSize: '11px', fontWeight: '500',
+                      }}>
+                        📄 {src.category}
+                      </span>
                     )}
+                    {/* Status badge */}
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center',
+                      background: src.ingest_status === 'ready' ? '#dcfce7' : '#fef9c3',
+                      color: src.ingest_status === 'ready' ? '#15803d' : '#a16207',
+                      borderRadius: '5px', padding: '1px 6px', fontSize: '11px', fontWeight: '500',
+                    }}>
+                      {src.ingest_status === 'ready' ? '● ready' : '○ ' + (src.ingest_status || 'unknown')}
+                    </span>
                   </div>
+                  {/* Refresh button for URL sources */}
+                  {src.category === 'url' && (
+                    <button
+                      onClick={(e) => handleRefresh(src.doc_id, e)}
+                      disabled={refreshingId === src.doc_id}
+                      title="Refresh URL source"
+                      style={{
+                        background: 'none', border: 'none',
+                        cursor: refreshingId === src.doc_id ? 'not-allowed' : 'pointer',
+                        padding: '2px 4px', borderRadius: '4px',
+                        color: refreshingId === src.doc_id ? '#94a3b8' : '#3b82f6',
+                        fontSize: '14px', lineHeight: 1, display: 'flex', alignItems: 'center',
+                      }}
+                    >
+                      {refreshingId === src.doc_id ? '⏳' : '🔄'}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

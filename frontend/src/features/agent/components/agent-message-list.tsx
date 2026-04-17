@@ -130,37 +130,113 @@ export const AgentMessageList: React.FC = () => {
               </span>
             </div>
 
-            {/* Artifacts */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {artifacts.map((art, idx) => (
-                <RawArtifactViewer key={idx} artifact={art} />
-              ))}
-            </div>
-
-            {/* Thinking / Running Indicator */}
-            {status === 'running' && (
+            {/* Thinking Indicator — shown immediately when running with no artifacts yet */}
+            {status === 'running' && artifacts.length === 0 && (
               <div style={{
-                marginTop: artifacts.length > 0 ? '20px' : '0',
-                padding: '20px',
-                background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-                border: '1px solid #e2e8f0',
-                borderRadius: '12px',
+                padding: '24px',
+                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #f0f9ff 100%)',
+                border: '1px solid #7dd3fc',
+                borderRadius: '14px',
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
-                gap: '16px'
+                gap: '16px',
+                boxShadow: '0 4px 16px rgba(14, 165, 233, 0.12)'
               }}>
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: '36px',
-                  height: '36px',
+                  width: '52px',
+                  height: '52px',
+                  background: 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)',
+                  borderRadius: '50%',
+                  color: '#fff',
+                  boxShadow: '0 6px 20px rgba(14, 165, 233, 0.35)'
+                }}>
+                  <svg viewBox="0 0 24 24" width="26" height="26" style={{ animation: 'spin 1.4s linear infinite' }}>
+                    <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z"/>
+                  </svg>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '16px', fontWeight: '700', color: '#0c4a6e', letterSpacing: '0.02em' }}>
+                    正在思考
+                  </span>
+                  <span style={{ fontSize: '13px', color: '#0284c7' }}>
+                    AI 正在分析您的问题并准备回答
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Phase Progress Stepper — shown when running and phase info is available */}
+            {status === 'running' && currentPhaseText && (
+              <div style={{
+                padding: '16px 20px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '32px',
+                  height: '32px',
                   background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
                   borderRadius: '50%',
                   color: '#fff',
-                  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+                  flexShrink: 0
                 }}>
-                  <svg viewBox="0 0 24 24" width="18" height="18" style={{ animation: 'spin 1.2s linear infinite' }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" style={{ animation: 'spin 1.2s linear infinite' }}>
+                    <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z"/>
+                  </svg>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>
+                    {currentPhaseText}
+                  </span>
+                  <span style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>请稍候</span>
+                </div>
+              </div>
+            )}
+
+            {/* Artifacts */}
+            {artifacts.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {artifacts.map((art, idx) => (
+                  <RawArtifactViewer key={idx} artifact={art} />
+                ))}
+              </div>
+            )}
+
+            {/* Thinking / Running Indicator — shown after artifacts while still running */}
+            {status === 'running' && artifacts.length > 0 && (
+              <div style={{
+                marginTop: '20px',
+                padding: '16px',
+                background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '32px',
+                  height: '32px',
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
+                  borderRadius: '50%',
+                  color: '#fff',
+                  flexShrink: 0
+                }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" style={{ animation: 'spin 1.2s linear infinite' }}>
                     <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z"/>
                   </svg>
                 </div>
@@ -168,7 +244,7 @@ export const AgentMessageList: React.FC = () => {
                   <span style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>
                     {currentPhaseText ?? 'Processing...'}
                   </span>
-                  <span style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>Please wait while AI prepares your data</span>
+                  <span style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>Please wait while AI prepares your data</span>
                 </div>
               </div>
             )}

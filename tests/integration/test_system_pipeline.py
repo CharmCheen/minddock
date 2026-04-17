@@ -447,3 +447,76 @@ def test_end_to_end_local_ingest_and_compare_insufficient_evidence(tmp_path: Pat
 
     assert compare_result.compare_result.support_status == SupportStatus.INSUFFICIENT_EVIDENCE
     assert compare_result.metadata.insufficient_evidence is True
+
+
+def test_url_reingest_preserves_source_detail_and_domain(tmp_path: Path, monkeypatch) -> None:
+    """URL source reingest preserves source_type=url, domain, and description in catalog."""
+    kb_dir = tmp_path / "knowledge_base"
+    kb_dir.mkdir()
+
+    store = InMemoryVectorStore()
+    settings = build_settings(tmp_path)
+    ingest_service = IngestService(settings=settings, embedder=FakeEmbedder(), collection=store)
+    catalog_service = CatalogService(settings=settings, collection=store, ingest_service=ingest_service)
+    search_service = SearchService(vectorstore=store)
+
+    url = "https://example.com/articles/vector-db-guide"
+    monkeypatch.setattr(
+        "app.rag.source_loader.fetch_url_content",
+        lambda _: URLContent(
+            requested_url=url,
+            final_url=url,
+            title="Vector DB Guide",
+            text="Vector databases enable fast approximate nearest neighbor search for embeddings.",
+            status_code=200,
+            fetched_at="2026-04-10T00:00:00+00:00",
+            ssl_verified=True,
+            domain="example.com",
+            og_description="A comprehensive guide to vector database concepts and usage.",
+        ),
+    )
+
+    # A. URL ingest → source catalog shows source_type=url, domain, description
+    ingest_result = ingest_service.ingest(urls=[url])
+    listing = catalog_service.list_sources()
+
+    assert ingest_result.documents == 1, "URL source should be ingested successfully"
+    assert ingest_result.failed_sources == [], "No failures expected"
+    url_entry = next((e for e in listing.entries if e.source == url), None)
+    assert url_entry is not None, "URL source should appear in catalog"
+    assert url_entry.source_type == "url", "source_type must be 'url'"
+    assert url_entry.domain == "example.com", "domain should be extracted from URL"
+    assert url_entry.description == "A comprehensive guide to vector database concepts and usage.", \
+        "description should come from og_description"
+
+    # B. URL source is retrievable via search
+    hits = search_service.search(
+        query="vector embeddings nearest neighbor",
+        top_k=5,
+        filters=RetrievalFilters(source_types=("url",)),
+    )
+    assert hits.to_api_dict()["hits"][0]["source"] == url, "URL source should be top hit for relevant query"
+
+    # C. URL reingest → source detail and key metadata still correct
+    reingest_result = catalog_service.reingest_source(source=url)
+    assert reingest_result.found is True, "reingest should find the URL source"
+    assert reingest_result.source_result is not None and reingest_result.source_result.ok is True, \
+        "reingest should succeed"
+    assert reingest_result.source_result.descriptor.source_type == "url", \
+        "reingest result should preserve source_type=url"
+
+    detail = catalog_service.get_source_detail(source=url)
+    assert detail.found is True and detail.detail is not None, "source detail should still be readable after reingest"
+    assert detail.detail.entry.source_type == "url", "detail should preserve source_type=url"
+    assert detail.detail.entry.domain == "example.com", "detail should preserve domain"
+    assert detail.detail.entry.description == "A comprehensive guide to vector database concepts and usage.", \
+        "detail should preserve description"
+
+    # D. Source still searchable after reingest (proves chunks not corrupted)
+    hits_after = search_service.search(
+        query="vector approximate search",
+        top_k=5,
+        filters=RetrievalFilters(source_types=("url",)),
+    )
+    assert hits_after.to_api_dict()["hits"][0]["source"] == url, \
+        "URL source should still be searchable after reingest"

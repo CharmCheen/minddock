@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useAgentStore } from '../store';
 import { RawArtifactViewer } from './raw-artifact-viewer';
 
@@ -6,16 +6,18 @@ export const AgentMessageList: React.FC = () => {
   const { currentUserQuery, artifacts, status, taskType, events } = useAgentStore();
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Derive current phase text from events reactively — recomputes whenever events change
-  const currentPhaseText = useMemo(() => {
-    const currentProgress = [...events].reverse().find(e => e.event === 'progress');
-    const p = (currentProgress?.data as any)?.phase as string | undefined;
-    if (!p) return 'Processing...';
-    if (p.includes('retrieve') || p.includes('search')) return 'Searching documents...';
-    if (p.includes('generate') || p.includes('synthesize')) return 'Generating response...';
-    if (p.includes('compare') || p.includes('summarize')) return 'Comparing results...';
-    return 'Processing...';
-  }, [events]);
+  // phase -> human-readable Chinese label
+  const PHASE_LABELS: Record<string, string> = {
+    preparing: '准备中',
+    resolving_runtime: '正在解析运行时',
+    retrieving: '正在检索资料',
+    generating: '正在生成结果',
+    finalizing: '正在整理输出',
+  };
+
+  const currentProgress = [...events].reverse().find(e => e.event === 'progress');
+  const rawPhase = (currentProgress?.data as any)?.phase as string | undefined;
+  const currentPhaseText = rawPhase ? (PHASE_LABELS[rawPhase] ?? rawPhase) : null;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -164,7 +166,7 @@ export const AgentMessageList: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <span style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>
-                    {currentPhaseText}
+                    {currentPhaseText ?? 'Processing...'}
                   </span>
                   <span style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>Please wait while AI prepares your data</span>
                 </div>

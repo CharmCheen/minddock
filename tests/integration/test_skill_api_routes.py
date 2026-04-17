@@ -52,7 +52,7 @@ def test_invalid_skill_input_returns_structured_error(monkeypatch) -> None:
 
     client = TestClient(app)
 
-    def fake_run_chat_with_runtime(*, request, runtime):
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
         return ChatServiceResult(answer="chat response", citations=[], metadata=UseCaseMetadata(retrieved_count=1))
 
     monkeypatch.setattr(routes.frontend_facade.chat, "run_chat_with_runtime", fake_run_chat_with_runtime)
@@ -80,7 +80,7 @@ def test_explicit_skill_request_flows_into_final_response_stream_and_run_replay(
     client = TestClient(app)
     routes.frontend_facade.run_registry._runs.clear()
 
-    def fake_run_chat_with_runtime(*, request, runtime):
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
         return ChatServiceResult(answer="chat response", citations=[], metadata=UseCaseMetadata(retrieved_count=1))
 
     monkeypatch.setattr(routes.frontend_facade.chat, "run_chat_with_runtime", fake_run_chat_with_runtime)

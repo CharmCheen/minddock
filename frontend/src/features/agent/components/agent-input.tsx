@@ -24,6 +24,8 @@ export const AgentInput: React.FC<{
           if (event.event === 'run_started') {
             // run_id is at top level of ClientEventResponseItem, not in payload
             startRun(event.run_id!, query);
+          } else if (event.event === 'progress') {
+            // Phase info is stored via appendEvent above; AgentRunStatus reads it for display
           } else if (event.event === 'artifact') {
             const payload = event.data as ClientArtifactPayload;
             if (payload && payload.artifact) {

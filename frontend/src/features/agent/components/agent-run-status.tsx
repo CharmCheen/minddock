@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import { useAgentStore } from '../store';
 
+// phase -> human-readable Chinese label (mirrors agent-message-list.tsx PHASE_LABELS)
+const PHASE_LABELS: Record<string, string> = {
+  preparing: '准备中',
+  resolving_runtime: '正在解析运行时',
+  retrieving: '正在检索资料',
+  generating: '正在生成结果',
+  finalizing: '正在整理输出',
+};
+
 export const AgentRunStatus: React.FC = () => {
   const { status, events, error, runId } = useAgentStore();
   const [showDetails, setShowDetails] = useState(false);
@@ -10,7 +19,7 @@ export const AgentRunStatus: React.FC = () => {
   const currentProgress = [...events].reverse().find(e => e.event === 'progress');
   const progressData = currentProgress?.data as any;
   const progressText = progressData?.phase
-    ? `${progressData.phase}: ${progressData.message}`
+    ? `${PHASE_LABELS[progressData.phase] ?? progressData.phase}: ${progressData.message}`
     : '';
 
   const getStatusColor = () => {
@@ -127,7 +136,7 @@ export const AgentRunStatus: React.FC = () => {
                 <span style={{ color: '#3b82f6', fontWeight: '500' }}>{evt.event}</span>
                 {evt.event === 'progress' && (
                   <span style={{ color: '#64748b', marginLeft: '8px' }}>
-                    {(evt.data as any)?.phase} - {(evt.data as any)?.message}
+                    {PHASE_LABELS[(evt.data as any)?.phase] ?? (evt.data as any)?.phase} - {(evt.data as any)?.message}
                   </span>
                 )}
               </div>

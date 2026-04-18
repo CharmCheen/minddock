@@ -1,5 +1,28 @@
 import { ArtifactResponseItem, CitationItem } from '../../../core/types/api';
+import { useEffect } from 'react';
 import { CitationList } from './citation-list';
+
+// Mermaid diagram renderer — loads mermaid from CDN on demand
+const MermaidRenderer: React.FC<{ code: string; chartId: string }> = ({ code, chartId }) => {
+  useEffect(() => {
+    if (!code) return;
+    const render = () => {
+      const el = document.getElementById(chartId);
+      if (!el || el.dataset.processed) return;
+      window.mermaid?.run({ nodes: [el] });
+      el.dataset.processed = 'true';
+    };
+    if (!window.mermaid) {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+      script.onload = () => { window.mermaid?.initialize({ startOnLoad: false }); render(); };
+      document.head.appendChild(script);
+    } else {
+      render();
+    }
+  }, [code, chartId]);
+  return <div className="mermaid" id={chartId}>{code}</div>;
+};
 
 // Helper to normalize evidence items to CitationItem format
 function normalizeToCitationItem(item: any): CitationItem {
@@ -73,6 +96,8 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
   }
 
   if (kind === 'mermaid') {
+    const code = String(content.mermaid_code || '');
+    const chartId = `mermaid-${code.slice(0, 32).replace(/[^a-zA-Z0-9]/g, '')}`;
     return (
       <div style={{
         background: '#fff',
@@ -81,7 +106,6 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
         padding: '20px 24px',
         boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
       }}>
-        {/* Artifact Type Badge */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
           <span style={{
             fontSize: '11px',
@@ -103,16 +127,7 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
           padding: '16px 20px',
           overflowX: 'auto'
         }}>
-          <pre style={{
-            fontSize: '13px',
-            overflowX: 'auto',
-            whiteSpace: 'pre-wrap',
-            color: '#1e293b',
-            fontFamily: 'monospace',
-            margin: 0
-          }}>
-            {String(content.mermaid_code || '')}
-          </pre>
+        <MermaidRenderer code={code} chartId={chartId} />
         </div>
         {citations && citations.length > 0 && <CitationList citations={citations} />}
       </div>

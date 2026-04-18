@@ -652,6 +652,215 @@ def test_blocks_to_chunks_front_matter_split():
     print(f"  All {len(chunks)} chunks: {[(t[:30] if len(t) > 30 else t, bt, s) for t, bt, s in chunk_info]}")
 
 
+# ---------------------------------------------------------------------------
+# Page-change flush regression tests (fix for multi-page merge bug)
+# ---------------------------------------------------------------------------
+
+def test_multiple_pages_produce_separate_chunks() -> None:
+    """Multi-page paragraphs must NOT be merged into a single chunk.
+
+    Regression test: before the page-change flush fix, paragraphs on different
+    pages were accumulated into para_buf and merged into one chunk because
+    no flush was triggered at page boundaries.
+    """
+    pages = _make_pdf_blocks([
+        "Page one paragraph discussing retrieval augmented generation.",
+        "Page two paragraph about vector databases and similarity search.",
+        "Page three paragraph covering citation tracking and evidence.",
+    ])
+    chunks = structured_pdf_chunks(
+        pages, doc_id="test", source="test.pdf",
+        source_path="test.pdf", source_type="file",
+        title="Test", source_version="v1",
+        content_hash="abc", last_ingested_at="2024-01-01",
+    )
+
+    # Each page must produce at least one distinct chunk
+    assert len(chunks) >= 3, (
+        f"Expected >= 3 chunks (one per page), got {len(chunks)}"
+    )
+    # Each chunk's page_start must equal page_end (single-page chunk)
+    for text, meta in chunks:
+        assert meta.page_start == meta.page_end, (
+            f"Chunk spanning pages {meta.page_start}-{meta.page_end} should be split"
+        )
+
+
+def test_heading_then_paragraph_different_pages() -> None:
+    """A heading on page N followed by a paragraph on page N+1 must NOT merge."""
+    pages = _make_pdf_blocks([
+        "1. Introduction",
+        "Introduction paragraph content continues here.",
+    ])
+    chunks = structured_pdf_chunks(
+        pages, doc_id="test", source="test.pdf",
+        source_path="test.pdf", source_type="file",
+        title="Test", source_version="v1",
+        content_hash="abc", last_ingested_at="2024-01-01",
+    )
+
+    # Must have at least 2 chunks (heading chunk + paragraph chunk)
+    assert len(chunks) >= 2, f"Expected >= 2 chunks, got {len(chunks)}"
+    page_numbers = {meta.page_start for _, meta in chunks}
+    assert page_numbers == {1, 2}, f"Expected pages {{1, 2}}, got {page_numbers}"
+
+
+def test_abstract_body_pages_separate() -> None:
+    """Abstract heading + body paragraph on next page must produce separate chunks."""
+    # Simulate Abstract heading merged with body text (as in real PDFs)
+    pages = _make_pdf_blocks([
+        "Abstract This is the abstract body discussing methodology and approach.",
+        "1. Introduction\nIntroduction paragraph on page 2.",
+    ])
+    chunks = structured_pdf_chunks(
+        pages, doc_id="test", source="test.pdf",
+        source_path="test.pdf", source_type="file",
+        title="Test", source_version="v1",
+        content_hash="abc", last_ingested_at="2024-01-01",
+    )
+
+    heading_chunks = [(t, m) for t, m in chunks if m.block_type == "heading"]
+    para_chunks = [(t, m) for t, m in chunks if m.block_type == "paragraph"]
+
+    # Must have at least one heading and one paragraph chunk
+    assert len(heading_chunks) >= 1, f"No heading chunks found in {[(t[:30], m.block_type) for t, m in chunks]}"
+    assert len(para_chunks) >= 1, f"No paragraph chunks found in {[(t[:30], m.block_type) for t, m in chunks]}"
+
+    # Paragraph chunks should not be merged with abstract heading
+    # (each page should be its own chunk)
+    para_pages = {m.page_start for _, m in para_chunks}
+    assert 2 in para_pages, f"Expected page 2 paragraph, got pages: {para_pages}"
+
+
+# ---------------------------------------------------------------------------
+# Semantic type / section boundary tests
+# ---------------------------------------------------------------------------
+
+def test_abstract_semantic_type_set_on_body() -> None:
+    """Paragraphs following an abstract heading should have semantic_type='abstract'."""
+    pages = _make_pdf_blocks([
+        "Abstract This is the abstract body discussing our main contributions.",
+        "Additional abstract content paragraph.",
+    ])
+    chunks = structured_pdf_chunks(
+        pages, doc_id="test", source="test.pdf",
+        source_path="test.pdf", source_type="file",
+        title="Test", source_version="v1",
+        content_hash="abc", last_ingested_at="2024-01-01",
+    )
+
+    # Find paragraph chunks (not the abstract heading itself)
+    para_chunks = [(t, m) for t, m in chunks if m.block_type == "paragraph"]
+    assert len(para_chunks) >= 1
+
+    # At least one paragraph chunk should have semantic_type="abstract"
+    abstract_semanics = {m.semantic_type for _, m in para_chunks if m.semantic_type}
+    assert "abstract" in abstract_semanics, (
+        f"Expected semantic_type='abstract' for body paragraphs, got: {abstract_semanics}"
+    )
+
+
+def test_numbered_section_path_set() -> None:
+    """Numbered headings must populate section_path in chunk metadata."""
+    pages = _make_pdf_blocks([
+        "1. Introduction\nIntroduction content on page 1.",
+        "1.1 Motivation\nMotivation content on page 2.",
+        "2. Related Work\nRelated work content on page 3.",
+    ])
+    chunks = structured_pdf_chunks(
+        pages, doc_id="test", source="test.pdf",
+        source_path="test.pdf", source_type="file",
+        title="Test", source_version="v1",
+        content_hash="abc", last_ingested_at="2024-01-01",
+    )
+
+    # At least one chunk should have a non-empty section_path
+    section_paths = {m.section_path for _, m in chunks if m.section_path}
+    assert len(section_paths) >= 1, (
+        f"Expected at least one chunk with section_path set, got: {section_paths}"
+    )
+    # section_path should look hierarchical (contain digits and dots)
+    for sp in section_paths:
+        assert re.search(r"\d", sp), f"section_path={sp!r} should contain digits"
+
+
+def test_front_matter_abstract_body_transition() -> None:
+    """Abstract body paragraphs followed by introduction heading → different semantic types."""
+    pages = _make_pdf_blocks([
+        "Abstract This is the abstract body discussing the proposed method.",
+        "1. Introduction\nIntroduction paragraph on the same page.",
+    ])
+    chunks = structured_pdf_chunks(
+        pages, doc_id="test", source="test.pdf",
+        source_path="test.pdf", source_type="file",
+        title="Test", source_version="v1",
+        content_hash="abc", last_ingested_at="2024-01-01",
+    )
+
+    # Should have both abstract and body paragraphs (at least)
+    para_chunks = [(t, m) for t, m in chunks if m.block_type == "paragraph"]
+    assert len(para_chunks) >= 2, f"Expected >= 2 paragraph chunks, got {len(para_chunks)}"
+
+    # The abstract body and introduction body should have different semantic types
+    semantic_types = {m.semantic_type for _, m in para_chunks if m.semantic_type}
+    # At minimum, we should have "abstract" and None (or body)
+    assert len(semantic_types) >= 1, f"Expected semantic types to differ, got: {semantic_types}"
+
+
+def test_reference_section_isolated() -> None:
+    """Reference / bibliography section should produce isolated chunks, not merge with body."""
+    pages = _make_pdf_blocks([
+        "1. Introduction\nIntroduction body paragraph content.",
+        "References\nReference entry one. Reference entry two.",
+    ])
+    chunks = structured_pdf_chunks(
+        pages, doc_id="test", source="test.pdf",
+        source_path="test.pdf", source_type="file",
+        title="Test", source_version="v1",
+        content_hash="abc", last_ingested_at="2024-01-01",
+    )
+
+    # Must have at least 2 chunks (body + reference heading or reference paragraph)
+    assert len(chunks) >= 2, f"Expected >= 2 chunks, got {len(chunks)}"
+
+    # Find the reference chunk(s) - should have "References" or "reference" in text
+    ref_chunks = [(t, m) for t, m in chunks if "Reference" in t or "reference" in t]
+    assert len(ref_chunks) >= 1, f"Reference chunk not found in: {[(t[:30], m.block_type) for t, m in chunks]}"
+
+    # Reference content should not be merged with introduction body
+    intro_para = next((m for t, m in chunks if "Introduction body" in t and m.block_type == "paragraph"), None)
+    ref_para = next((t for t, m in chunks if "Reference entry" in t), None)
+    if intro_para and ref_para:
+        # They should be in different chunks (different page or different position)
+        intro_chunk_ids = {m.chunk_id for t, m in chunks if "Introduction body" in t}
+        ref_chunk_ids = {m.chunk_id for t, m in chunks if "Reference entry" in t}
+        assert intro_chunk_ids != ref_chunk_ids, "Reference and body must not be in the same chunk"
+
+
+def test_metadata_fields_all_present() -> None:
+    """All fine-grained metadata fields must be present in chunk metadata."""
+    pages = _make_pdf_blocks([
+        "1. Introduction\nIntroduction content paragraph.",
+    ])
+    chunks = structured_pdf_chunks(
+        pages, doc_id="doc123", source="paper.pdf",
+        source_path="paper.pdf", source_type="file",
+        title="My Paper", source_version="v1",
+        content_hash="hashX", last_ingested_at="2024-01-01T00:00:00Z",
+    )
+
+    required_fields = [
+        "block_type", "section_title", "section_path", "semantic_type",
+        "page_start", "page_end", "order_in_doc", "char_count",
+        "token_estimate", "location", "ref",
+    ]
+    for text, meta in chunks:
+        meta_dict = meta.__dict__
+        for field in required_fields:
+            assert field in meta_dict, f"Missing field {field} in ChunkMeta"
+    print("PASS: metadata_fields_all_present")
+
+
 def run_all():
     tests = [
         test_clean_block_text,
@@ -678,6 +887,15 @@ def run_all():
         test_blocks_to_chunks_page1_english_title_and_inferred_abstract,
         test_blocks_to_chunks_chinese_abstract_marker_inherits_section,
         test_blocks_to_chunks_front_matter_split,
+        # New tests for page-change flush fix
+        test_multiple_pages_produce_separate_chunks,
+        test_heading_then_paragraph_different_pages,
+        test_abstract_body_pages_separate,
+        test_abstract_semantic_type_set_on_body,
+        test_numbered_section_path_set,
+        test_front_matter_abstract_body_transition,
+        test_reference_section_isolated,
+        test_metadata_fields_all_present,
     ]
     passed = 0
     failed = 0

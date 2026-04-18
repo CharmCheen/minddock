@@ -317,16 +317,12 @@ def _classify_block(
             if _caption_kind(first_line):
                 return BlockType.CAPTION, 0
             # Check for numbered list patterns BEFORE treating as heading
-            # "1. 鍐呭" could be a list item OR a heading, prefer list
-            if re.match(r"^\s*[\d锛愶紤锛掞紦锛旓紩锛栵紬锛橈紮]+\.[\s銆€]", first_line):
+            # "1. item" is LIST_ITEM only if content after number is short (< 10 chars).
+            # Longer content like "1. Introduction" is a heading, not a list item.
+            li_match = re.match(r"^\s*[\d锛愶紤锛掞紦锛旓紩锛栵紬锛橈紮]+\.[\s銆€](.*)", first_line)
+            if li_match and len(li_match.group(1).strip()) < 10:
                 return BlockType.LIST_ITEM, 0
-            # Chinese numbered section "1. 鑳屾櫙" or "1.1.3 宸ヤ綔"
-            # Only match explicit numbered patterns, NOT arbitrary punctuation-bearing text
-            if (
-                re.match(r"^\s*[\d锛愶紤锛掞紦锛旓紩锛栵紬锛橈紮]+(\.[\d]+)+\s*[\u4e00-\u9fff]", first_line)
-                and len(raw_text) < MAX_HEADING_CHARS
-            ):
-                return BlockType.HEADING, 1
+
             return BlockType.HEADING, 1
 
     # ---- Section heading markers (Abstract / Keywords / 鎽樿) ----
@@ -548,10 +544,13 @@ def blocks_to_chunks(
     # ---- Helper: flush accumulated paragraph group ----
     para_buf: list[tuple[PDFBlock, str]] = []   # (block, cleaned_text)
     current_section = ""
+    current_section_path: str | None = None   # hierarchical path like "1/1.2"
+    current_semantic_type: str | None = None   # "abstract" for abstract-following paras
     current_table_id: str | None = None
     first_page = 0
     last_page = 0
     seen_page1_title = False
+    prev_page = cleaned[0].page if cleaned else 0
 
     def _estimate_tokens(text: str) -> int:
         # Simple Chinese-aware token estimate: chars / 1.5 for CJK, words split by space
@@ -572,14 +571,16 @@ def blocks_to_chunks(
         if tok <= int(CHUNK_MAX_TOKENS * 0.95):
             # Single chunk
             pages = [b.page for b, _ in para_buf]
-            _emit_chunk(combined, BlockType.PARAGRAPH, min(pages), max(pages), current_table_id)
+            _emit_chunk(combined, BlockType.PARAGRAPH, min(pages), max(pages), current_table_id,
+                        section_path=current_section_path, semantic_type=current_semantic_type)
         else:
             # Sliding window fallback - split by characters (approximate tokens)
             # Convert token size to approximate character size for Chinese
             char_size = int(CHUNK_MAX_TOKENS * 1.5)
             for sub in _sliding_window(combined, char_size, CHUNK_OVERLAP_TOKENS):
                 pages = _pages_for_text(sub, para_buf)
-                _emit_chunk(sub, BlockType.PARAGRAPH, min(pages), max(pages), current_table_id)
+                _emit_chunk(sub, BlockType.PARAGRAPH, min(pages), max(pages), current_table_id,
+                            section_path=current_section_path, semantic_type=current_semantic_type)
 
         para_buf.clear()
         current_table_id = None
@@ -590,9 +591,11 @@ def blocks_to_chunks(
         p_start: int,
         p_end: int,
         table_id: str | None,
+        section_path: str | None = None,
+        semantic_type: str | None = None,
     ) -> None:
         nonlocal chunks, order
-        nonlocal current_section, current_table_id, first_page, last_page, seen_page1_title
+        nonlocal current_section, current_section_path, current_semantic_type, current_table_id, first_page, last_page, seen_page1_title
         if not text.strip():
             return
         tok = _estimate_tokens(text)
@@ -620,6 +623,8 @@ def blocks_to_chunks(
             content_hash=content_hash,
             last_ingested_at=last_ingested_at,
             ingest_status="ready",
+            section_path=section_path if section_path is not None else current_section_path,
+            semantic_type=semantic_type if semantic_type is not None else current_semantic_type,
         )
         chunks.append((text, meta))
         if btype == BlockType.HEADING and p_start == 1 and _is_page1_title_like(text, page_num=1, block_index=0):
@@ -651,9 +656,15 @@ def blocks_to_chunks(
 
         # Update current section (heading tracking)
         if b.block_type == BlockType.HEADING:
+            # Flush accumulated paragraphs when heading appears on a new page —
+            # prevents multi-page headings from incorrectly merging with
+            # previous page content into a single chunk.
+            heading_page_change = b.page != prev_page
+            if heading_page_change and para_buf:
+                _flush_paragraphs()
             _flush_paragraphs()
 
-            # Front matter headings (Abstract / 鎽?瑕? often have the first sentence
+            # Front matter headings (Abstract / 摘要 often have the first sentence
             # merged into the same PDF block. Split them: emit heading marker as HEADING,
             # body content 鈫?paragraph buffer for natural accumulation with subsequent blocks.
             result = _split_front_matter_heading(b.text)
@@ -665,6 +676,8 @@ def blocks_to_chunks(
                 # Track this as the current section so subsequent body paragraphs
                 # (which will be added to para_buf below) inherit the section title
                 current_section = normalized_marker
+                # Mark subsequent paragraphs as abstract section
+                current_semantic_type = "abstract"
                 # Put body content into para_buf so it merges with following abstract paragraphs
                 buf_block = PDFBlock(
                     block_type=BlockType.PARAGRAPH,
@@ -674,11 +687,27 @@ def blocks_to_chunks(
                     heading_level=0,
                 )
                 para_buf.append((buf_block, body_text))
+                prev_page = b.page
                 i += 1
                 continue
 
             # Clean heading text for section title - strip markdown prefix and extra chars
             heading_text = b.text[:MAX_HEADING_CHARS].strip()
+            # Track hierarchical section path BEFORE stripping the number prefix
+            num_match = re.match(r"^([\d]+(?:\.[\d]+)*)\s+(.+)$", b.text.strip())
+            if num_match:
+                num_prefix = num_match.group(1)
+                level = num_prefix.count(".") + 1
+                # Build path components from the number prefix
+                parts = num_prefix.split(".")
+                path_parts = []
+                for idx, part in enumerate(parts):
+                    if idx == 0:
+                        path_parts.append(part)
+                    else:
+                        path_parts.append(f"{parts[idx-1]}.{part}")
+                current_section_path = "/".join(path_parts)
+
             # Remove common heading prefixes
             heading_text = re.sub(r"^#{1,6}\s+", "", heading_text)  # markdown #
             # Explicitly strip "digit+newline" prefix from multiline headings (e.g. "1\nINTRODUCTION")
@@ -686,15 +715,24 @@ def blocks_to_chunks(
             heading_text = re.sub(r"^[\d０１２３４５６７８９]+(\.[\d]+)*[．.、\s]+", "", heading_text)  # numbered headings
             heading_text = re.sub(r"^[銆怽[銆奭.+[銆慭]]\s*$", "", heading_text)  # bracketed titles
             current_section = heading_text.strip()
+            # Reset semantic type when exiting front matter (any non-abstract heading)
+            current_semantic_type = None
+
             if _is_page1_title_like(b.text, page_num=b.page, block_index=b.block_index):
                 seen_page1_title = True
-            # Emit heading as its own chunk if reasonably short
+
+            # Emit heading as its own chunk if reasonably short.
+            # If heading is on a new page and we flushed para_buf, do NOT add to para_buf
+            # (it was already emitted above); just advance.
             tok = _estimate_tokens(b.text)
             if tok <= CHUNK_MAX_TOKENS:
-                _emit_chunk(b.text, BlockType.HEADING, b.page, b.page, None)
+                if not (heading_page_change and para_buf):
+                    # Normal case: heading fits, emit it directly
+                    _emit_chunk(b.text, BlockType.HEADING, b.page, b.page, None)
             else:
-                # Heading too long 鈫?treat as paragraph
+                # Heading too long 鈫?treat as paragraph, add to para_buf
                 para_buf.append((b, b.text))
+            prev_page = b.page
             i += 1
             continue
 
@@ -704,6 +742,7 @@ def blocks_to_chunks(
             # Try to extract table number from surrounding caption blocks
             table_id = _extract_table_id_from_block(b)
             _emit_chunk(b.text, BlockType.TABLE_LIKE, b.page, b.page, table_id)
+            prev_page = b.page
             i += 1
             continue
 
@@ -739,6 +778,7 @@ def blocks_to_chunks(
             else:
                 # Standalone caption
                 _emit_chunk(b.text, BlockType.CAPTION, b.page, b.page, table_id)
+            prev_page = b.page
             i += 1
             continue
 
@@ -746,10 +786,17 @@ def blocks_to_chunks(
         if b.block_type == BlockType.LIST_ITEM:
             para_buf.append((b, b.text))
             i += 1
+            prev_page = b.page
             continue
 
         # PARAGRAPH (default)
         if b.block_type == BlockType.PARAGRAPH or b.block_type == BlockType.OTHER:
+            # Flush paragraph buffer when page changes — prevents multi-page paragraphs
+            # from being incorrectly merged into a single chunk.
+            page_change = b.page != prev_page
+            if page_change and para_buf:
+                _flush_paragraphs()
+
             # Chinese title detection: emit immediately as heading (no markdown marker in PDF).
             # Pure Chinese, no sentence-ending punctuation, first block on page 1.
             if para_buf == [] and b.page == 1:
@@ -769,6 +816,7 @@ def blocks_to_chunks(
                 )
                 if has_chinese and not has_ascii_letter and not has_end_punct and not is_short and not has_author_marker:
                     _emit_chunk(b.text, BlockType.HEADING, b.page, b.page, None)
+                    prev_page = b.page
                     i += 1
                     continue
 
@@ -802,6 +850,7 @@ def blocks_to_chunks(
                 _flush_paragraphs()
             if is_anchor_block:
                 _emit_chunk(b.text, BlockType.HEADING, b.page, b.page, None)
+                prev_page = b.page
                 i += 1
                 continue
             is_inferred_abstract_start = _looks_like_inferred_abstract_start(
@@ -816,6 +865,7 @@ def blocks_to_chunks(
             if is_inferred_abstract_start:
                 current_section = "Abstract"
             para_buf.append((b, b.text))
+            prev_page = b.page
             i += 1
             continue
 

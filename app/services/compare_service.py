@@ -413,7 +413,7 @@ class CompareService:
         if conflicts:
             support_status = SupportStatus.CONFLICTING_EVIDENCE
             refusal_reason = None
-        elif differences and not self._has_strong_group(left_group) or not self._has_strong_group(right_group):
+        elif differences and not (self._has_strong_group(left_group) and self._has_strong_group(right_group)):
             support_status = SupportStatus.PARTIALLY_SUPPORTED
             refusal_reason = None
         if not common_points and not differences and not conflicts:
@@ -451,11 +451,11 @@ class CompareService:
                             ref=getattr(evidence, 'ref', None),
                             original_text=evidence.snippet,
                             extra_metadata={
-                                'block_id': getattr(evidence, 'block_id', None),
-                                'section_path': getattr(evidence, 'section_path', None),
-                                'highlighted_sentence': getattr(evidence, 'highlighted_sentence', None),
-                                'position_start': getattr(evidence, 'position_start', None),
-                                'position_end': getattr(evidence, 'position_end', None),
+                                'block_id': evidence.block_id,
+                                'section_path': evidence.section_path,
+                                'highlighted_sentence': evidence.highlighted_sentence,
+                                'position_start': evidence.position_start,
+                                'position_end': evidence.position_end,
                             },
                         )
                     )

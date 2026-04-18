@@ -85,14 +85,20 @@ def _extract_highlighted_sentence(
         if not raw.strip():
             cursor += len(raw)
             continue
-        start = chunk_text.index(raw, cursor)
+        # Safely find raw in chunk_text starting from cursor
+        try:
+            start = chunk_text.index(raw, cursor)
+        except ValueError:
+            # Edge case: regex split produced a fragment not in original text
+            # Fall back to treating the whole chunk as one sentence
+            sentences = [(chunk_text.strip(), 0, len(chunk_text))]
+            break
         end = start + len(raw)
         sentences.append((raw.strip(), start, end))
         cursor = end
-
-    if not sentences:
-        # No sentence boundaries found — treat the whole text as one sentence
-        sentences = [(chunk_text.strip(), 0, len(chunk_text))]
+    else:
+        if not sentences:
+            sentences = [(chunk_text.strip(), 0, len(chunk_text))]
 
     if query is None:
         # No query provided — return first sentence as anchor
@@ -200,6 +206,7 @@ def build_evidence(hit: RetrievedChunk, query: str | None = None) -> EvidenceObj
         source_version=_metadata_text(hit, "source_version"),
         content_hash=_metadata_text(hit, "content_hash") or _metadata_text(hit, "hash"),
         block_id=block_id,
+        section_path=_metadata_text(hit, "section_path"),
         highlighted_sentence=highlighted_sentence,
         position_start=position_start,
         position_end=position_end,

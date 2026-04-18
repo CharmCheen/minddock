@@ -76,7 +76,7 @@ def _get_metadata_bias(hit: RetrievedChunk, query: str) -> float:
     """
     block_type = str(hit.extra_metadata.get("block_type", "")).lower()
     semantic_type = str(hit.extra_metadata.get("semantic_type", "")).lower()
-    section_title = hit.section.lower()  # case-insensitive matching
+    section_title = hit.section.lower() if hit.section else ""  # case-insensitive matching
 
     # Detect explicit intent in query — if present, disable the corresponding penalty
     has_author_intent = bool(_AUTHOR_INTENT_RE.search(query))

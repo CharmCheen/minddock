@@ -140,6 +140,7 @@ class EvidenceObject:
     highlighted_sentence: str | None = None    # Exact matching sentence text
     position_start: int | None = None          # Character offset start within chunk
     position_end: int | None = None            # Character offset end within chunk
+    section_path: str | None = None            # Hierarchical section path like "1.2.3"
 
     def to_api_dict(self) -> dict[str, object]:
         return {
@@ -157,6 +158,7 @@ class EvidenceObject:
             "highlighted_sentence": self.highlighted_sentence,
             "position_start": self.position_start,
             "position_end": self.position_end,
+            "section_path": self.section_path,
         }
 
 

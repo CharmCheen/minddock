@@ -1,6 +1,6 @@
 {
   "dataset_path": "eval\\benchmark\\sample_eval_set.jsonl",
-  "generated_at": "2026-04-07T12:40:03+00:00",
+  "generated_at": "2026-04-18T11:16:58+00:00",
   "cases": [
     {
       "id": "search_storage_chroma",
@@ -44,6 +44,50 @@
       ],
       "expected_citation_doc_ids": [],
       "notes": "Single-document retrieval from rag_pipeline.md Retrieval section.",
+      "top_k": 5
+    },
+    {
+      "id": "search_ingest_endpoint",
+      "task_type": "search",
+      "query": "Which endpoint triggers a batch ingestion of all documents in the knowledge base directory?",
+      "expected_doc_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+      ],
+      "expected_chunk_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4:3"
+      ],
+      "expected_citation_doc_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+      ],
+      "notes": "Single-document retrieval from api_usage.md Ingest Endpoint section.",
+      "top_k": 5
+    },
+    {
+      "id": "search_source_lifecycle",
+      "task_type": "search",
+      "query": "What operations are available for managing indexed sources?",
+      "expected_doc_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+      ],
+      "expected_chunk_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4:4"
+      ],
+      "expected_citation_doc_ids": [],
+      "notes": "Single-document retrieval from api_usage.md Source Lifecycle section.",
+      "top_k": 5
+    },
+    {
+      "id": "search_example_citations",
+      "task_type": "search",
+      "query": "What citation fields are included in MindDock responses?",
+      "expected_doc_ids": [
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d"
+      ],
+      "expected_chunk_ids": [
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:1"
+      ],
+      "expected_citation_doc_ids": [],
+      "notes": "Single-document retrieval from example.md Citations section.",
       "top_k": 5
     },
     {
@@ -137,20 +181,20 @@
       "top_k": 6
     },
     {
-      "id": "search_ingest_endpoint",
-      "task_type": "search",
-      "query": "Which endpoint triggers a batch ingestion of all documents in the knowledge base directory?",
+      "id": "compare_storage_approaches",
+      "task_type": "compare",
+      "query": "Compare example.md and rag_pipeline.md on how they describe the storage and indexing of document chunks.",
       "expected_doc_ids": [
-        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+        "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
       ],
-      "expected_chunk_ids": [
-        "5f791bd9a336667614fb50c3eee8d9cf82026fa4:3"
-      ],
+      "expected_chunk_ids": [],
       "expected_citation_doc_ids": [
-        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+        "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
       ],
-      "notes": "Single-document retrieval from api_usage.md Ingest Endpoint section.",
-      "top_k": 5
+      "notes": "Cross-document compare over example.md and rag_pipeline.md on storage details.",
+      "top_k": 6
     }
   ],
   "results": [
@@ -191,7 +235,7 @@
         ],
         "dangling_citation_keys": []
       },
-      "latency_ms": 160.08,
+      "latency_ms": 116.87,
       "insufficient_evidence": false,
       "response_preview": "",
       "warnings": [],
@@ -209,17 +253,17 @@
         "hit_at_5": true,
         "observed_doc_ids": [
           "b82bfe7e81999e992be9158e66e513f1963eb921",
-          "b82bfe7e81999e992be9158e66e513f1963eb921",
-          "d8ad79b42c7a9703550162be16f453f206459546",
           "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "b82bfe7e81999e992be9158e66e513f1963eb921"
         ],
         "observed_chunk_ids": [
           "b82bfe7e81999e992be9158e66e513f1963eb921:3",
-          "b82bfe7e81999e992be9158e66e513f1963eb921:1",
-          "d8ad79b42c7a9703550162be16f453f206459546:19",
-          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02:7",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:25"
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02:8",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:88",
+          "05e158c56fc65745a040dae664c868233063ead9:35",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:1"
         ]
       },
       "citation": {
@@ -229,13 +273,13 @@
         "citation_count": 5,
         "citation_doc_ids": [
           "b82bfe7e81999e992be9158e66e513f1963eb921",
-          "d8ad79b42c7a9703550162be16f453f206459546",
           "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "05e158c56fc65745a040dae664c868233063ead9"
         ],
         "dangling_citation_keys": []
       },
-      "latency_ms": 45.5,
+      "latency_ms": 15.05,
       "insufficient_evidence": false,
       "response_preview": "",
       "warnings": [],
@@ -254,16 +298,16 @@
         "observed_doc_ids": [
           "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
           "b82bfe7e81999e992be9158e66e513f1963eb921",
-          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d"
         ],
         "observed_chunk_ids": [
           "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:0",
           "b82bfe7e81999e992be9158e66e513f1963eb921:0",
-          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:0",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:18",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:16"
+          "05e158c56fc65745a040dae664c868233063ead9:45",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64:77",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:0"
         ]
       },
       "citation": {
@@ -274,18 +318,150 @@
         "citation_doc_ids": [
           "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
           "b82bfe7e81999e992be9158e66e513f1963eb921",
-          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d"
         ],
         "dangling_citation_keys": []
       },
-      "latency_ms": 45.66,
+      "latency_ms": 15.0,
       "insufficient_evidence": false,
       "response_preview": "",
       "warnings": [],
       "failure_reasons": [
         "retrieval_miss@5"
       ]
+    },
+    {
+      "case_id": "search_ingest_endpoint",
+      "task_type": "search",
+      "query": "Which endpoint triggers a batch ingestion of all documents in the knowledge base directory?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "observed_chunk_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:3",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:1",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:1",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:112",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:115"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 16.91,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "search_source_lifecycle",
+      "task_type": "search",
+      "query": "What operations are available for managing indexed sources?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5"
+        ],
+        "observed_chunk_ids": [
+          "05e158c56fc65745a040dae664c868233063ead9:42",
+          "05e158c56fc65745a040dae664c868233063ead9:51",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:24",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:21",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:22"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": null,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 15.94,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5"
+      ]
+    },
+    {
+      "case_id": "search_example_citations",
+      "task_type": "search",
+      "query": "What citation fields are included in MindDock responses?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+        ],
+        "observed_chunk_ids": [
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:1",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:0",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:0",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:0",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:2"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": null,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 14.42,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
     },
     {
       "case_id": "chat_citation_fields",
@@ -301,13 +477,13 @@
           "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
           "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
           "05e158c56fc65745a040dae664c868233063ead9",
-          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+          "05e158c56fc65745a040dae664c868233063ead9"
         ],
         "observed_chunk_ids": [
           "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:1",
           "5f791bd9a336667614fb50c3eee8d9cf82026fa4:2",
-          "05e158c56fc65745a040dae664c868233063ead9:21",
-          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:4"
+          "05e158c56fc65745a040dae664c868233063ead9:46",
+          "05e158c56fc65745a040dae664c868233063ead9:93"
         ]
       },
       "citation": {
@@ -318,14 +494,13 @@
         "citation_doc_ids": [
           "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
           "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
-          "05e158c56fc65745a040dae664c868233063ead9",
-          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+          "05e158c56fc65745a040dae664c868233063ead9"
         ],
         "dangling_citation_keys": []
       },
-      "latency_ms": 3357.82,
+      "latency_ms": 4192.81,
       "insufficient_evidence": false,
-      "response_preview": "<think>\nThe user is asking about what citation fields chat and summarize responses return.\n\nFrom the evidence provided:\n[example > Citations | 56b97ed9cc7de1...",
+      "response_preview": "<think>\nThe user is asking about what citation fields chat and summarize responses return.\n\nLooking at the evidence provided, the first piece is most relevan...",
       "warnings": [],
       "failure_reasons": []
     },
@@ -342,13 +517,13 @@
         "observed_doc_ids": [
           "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
           "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
-          "fe3a286169617d6d963b87f751efa5c00f422674",
+          "566eef43fe89666b83164181f8390fcc3a4f6524",
           "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
         ],
         "observed_chunk_ids": [
           "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:4",
           "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:0",
-          "fe3a286169617d6d963b87f751efa5c00f422674:2",
+          "566eef43fe89666b83164181f8390fcc3a4f6524:12",
           "5f791bd9a336667614fb50c3eee8d9cf82026fa4:2"
         ]
       },
@@ -359,14 +534,14 @@
         "citation_count": 4,
         "citation_doc_ids": [
           "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
-          "fe3a286169617d6d963b87f751efa5c00f422674",
+          "566eef43fe89666b83164181f8390fcc3a4f6524",
           "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
         ],
         "dangling_citation_keys": []
       },
-      "latency_ms": 10477.76,
+      "latency_ms": 3654.86,
       "insufficient_evidence": false,
-      "response_preview": "<think>\nThe user is asking about how MindDock processes data from ingestion to grounded answer generation. Let me analyze the evidence provided to construct ...",
+      "response_preview": "<think>The user is asking about how MindDock processes data from ingestion to grounded answer generation. Let me look at the evidence provided:\n\n1. From rag_...",
       "warnings": [],
       "failure_reasons": [
         "retrieval_miss@5",
@@ -385,15 +560,15 @@
         "hit_at_5": true,
         "observed_doc_ids": [
           "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
-          "7624bd969988f79d49a6064c0c79d451498bb1f5",
-          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
-          "05e158c56fc65745a040dae664c868233063ead9"
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "ebea242174757e8c733abf78745593064298964a",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5"
         ],
         "observed_chunk_ids": [
           "5f791bd9a336667614fb50c3eee8d9cf82026fa4:5",
-          "7624bd969988f79d49a6064c0c79d451498bb1f5:5",
-          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:1",
-          "05e158c56fc65745a040dae664c868233063ead9:21"
+          "05e158c56fc65745a040dae664c868233063ead9:35",
+          "ebea242174757e8c733abf78745593064298964a:73",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:54"
         ]
       },
       "citation": {
@@ -403,14 +578,15 @@
         "citation_count": 4,
         "citation_doc_ids": [
           "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
-          "7624bd969988f79d49a6064c0c79d451498bb1f5",
-          "05e158c56fc65745a040dae664c868233063ead9"
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "ebea242174757e8c733abf78745593064298964a",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5"
         ],
         "dangling_citation_keys": []
       },
-      "latency_ms": 4428.95,
+      "latency_ms": 4952.51,
       "insufficient_evidence": false,
-      "response_preview": "<think>\nThe user is asking which metadata filters are currently supported by search and chat endpoints.\n\nLooking at the evidence provided:\n\nFrom the first so...",
+      "response_preview": "<think>\nThe user is asking about which metadata filters are currently supported by search and chat endpoints.\n\nLooking at the evidence provided:\n\n[api_usage ...",
       "warnings": [],
       "failure_reasons": []
     },
@@ -450,9 +626,9 @@
         ],
         "dangling_citation_keys": []
       },
-      "latency_ms": 4793.48,
+      "latency_ms": 2633.75,
       "insufficient_evidence": false,
-      "response_preview": "<think>\nThe user is asking about MindDock's token rotation strategy for authentication.\n\nLet me examine the evidence provided:\n\n1. The Authentication section...",
+      "response_preview": "<think>The user is asking about MindDock's token rotation strategy for authentication.\n\nLooking at the provided evidence:\n1. The authentication section expli...",
       "warnings": [],
       "failure_reasons": [
         "retrieval_miss@5"
@@ -469,12 +645,12 @@
         "hit_at_3": false,
         "hit_at_5": false,
         "observed_doc_ids": [
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
-          "fe3a286169617d6d963b87f751efa5c00f422674"
+          "566eef43fe89666b83164181f8390fcc3a4f6524",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
         ],
         "observed_chunk_ids": [
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:0",
-          "fe3a286169617d6d963b87f751efa5c00f422674:1"
+          "566eef43fe89666b83164181f8390fcc3a4f6524:4",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:196"
         ]
       },
       "citation": {
@@ -483,12 +659,12 @@
         "overall_consistent": false,
         "citation_count": 2,
         "citation_doc_ids": [
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
-          "fe3a286169617d6d963b87f751efa5c00f422674"
+          "566eef43fe89666b83164181f8390fcc3a4f6524",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
         ],
         "dangling_citation_keys": []
       },
-      "latency_ms": 190.24,
+      "latency_ms": 332.2,
       "insufficient_evidence": false,
       "response_preview": "Comparison question: Compare architecture.md and rag_pipeline.md in how they describe retrieval and answer generation.\nCommon points:\n- Both sources contain ...",
       "warnings": [],
@@ -505,15 +681,15 @@
       "retrieval": {
         "match_basis": "doc",
         "hit_at_1": false,
-        "hit_at_3": true,
-        "hit_at_5": true,
+        "hit_at_3": false,
+        "hit_at_5": false,
         "observed_doc_ids": [
-          "b82bfe7e81999e992be9158e66e513f1963eb921",
-          "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "b82bfe7e81999e992be9158e66e513f1963eb921"
         ],
         "observed_chunk_ids": [
-          "b82bfe7e81999e992be9158e66e513f1963eb921:1",
-          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:2"
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:180",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:1"
         ]
       },
       "citation": {
@@ -522,114 +698,110 @@
         "overall_consistent": false,
         "citation_count": 2,
         "citation_doc_ids": [
-          "b82bfe7e81999e992be9158e66e513f1963eb921",
-          "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "b82bfe7e81999e992be9158e66e513f1963eb921"
         ],
         "dangling_citation_keys": []
       },
-      "latency_ms": 186.13,
+      "latency_ms": 369.26,
       "insufficient_evidence": false,
       "response_preview": "Comparison question: Compare example.md and api_usage.md on how they describe search and chat related interfaces.\nCommon points:\n- Both sources contain evide...",
       "warnings": [],
       "failure_reasons": [
+        "retrieval_miss@5",
         "citation_expected_source_miss"
       ]
     },
     {
-      "case_id": "search_ingest_endpoint",
-      "task_type": "search",
-      "query": "Which endpoint triggers a batch ingestion of all documents in the knowledge base directory?",
-      "top_k": 5,
+      "case_id": "compare_storage_approaches",
+      "task_type": "compare",
+      "query": "Compare example.md and rag_pipeline.md on how they describe the storage and indexing of document chunks.",
+      "top_k": 6,
       "retrieval": {
-        "match_basis": "chunk",
-        "hit_at_1": true,
-        "hit_at_3": true,
-        "hit_at_5": true,
+        "match_basis": "doc",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
         "observed_doc_ids": [
-          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
-          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
-          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
-          "b82bfe7e81999e992be9158e66e513f1963eb921",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "b82bfe7e81999e992be9158e66e513f1963eb921"
         ],
         "observed_chunk_ids": [
-          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:3",
-          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:1",
-          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:1",
-          "b82bfe7e81999e992be9158e66e513f1963eb921:2",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:17"
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:25",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:2"
         ]
       },
       "citation": {
         "structure_consistent": true,
-        "expected_source_consistent": true,
-        "overall_consistent": true,
-        "citation_count": 5,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 2,
         "citation_doc_ids": [
-          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
-          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
-          "b82bfe7e81999e992be9158e66e513f1963eb921",
-          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "b82bfe7e81999e992be9158e66e513f1963eb921"
         ],
         "dangling_citation_keys": []
       },
-      "latency_ms": 42.6,
+      "latency_ms": 343.99,
       "insufficient_evidence": false,
-      "response_preview": "",
+      "response_preview": "Comparison question: Compare example.md and rag_pipeline.md on how they describe the storage and indexing of document chunks.\nCommon points:\n- Both sources c...",
       "warnings": [],
-      "failure_reasons": []
+      "failure_reasons": [
+        "retrieval_miss@5",
+        "citation_expected_source_miss"
+      ]
     }
   ],
   "summary": {
-    "dataset_size": 10,
+    "dataset_size": 13,
     "task_counts": {
-      "search": 4,
+      "search": 6,
       "chat": 4,
-      "compare": 2
+      "compare": 3
     },
     "retrieval": {
-      "hit_at_1": 0.5,
-      "hit_at_3": 0.6,
-      "hit_at_5": 0.6
+      "hit_at_1": 0.4615,
+      "hit_at_3": 0.4615,
+      "hit_at_5": 0.4615
     },
     "citation": {
-      "overall_consistency_rate": 0.7,
+      "overall_consistency_rate": 0.6923,
       "structure_consistency_rate": 1.0,
-      "expected_source_consistency_rate": 0.5714,
-      "expected_source_case_count": 7
+      "expected_source_consistency_rate": 0.5,
+      "expected_source_case_count": 8
     },
     "latency": {
       "overall": {
-        "avg_ms": 2372.82,
-        "p50_ms": 188.19,
-        "p95_ms": 7919.83,
-        "max_ms": 10477.76,
-        "sample_count": 10
+        "avg_ms": 1282.58,
+        "p50_ms": 332.2,
+        "p95_ms": 4496.69,
+        "max_ms": 4952.51,
+        "sample_count": 13
       },
       "by_task_type": {
         "chat": {
-          "avg_ms": 5764.5,
-          "p50_ms": 4611.22,
-          "p95_ms": 9625.12,
-          "max_ms": 10477.76,
+          "avg_ms": 3858.48,
+          "p50_ms": 3923.84,
+          "p95_ms": 4838.56,
+          "max_ms": 4952.51,
           "sample_count": 4
         },
         "compare": {
-          "avg_ms": 188.19,
-          "p50_ms": 188.19,
-          "p95_ms": 190.03,
-          "max_ms": 190.24,
-          "sample_count": 2
+          "avg_ms": 348.48,
+          "p50_ms": 343.99,
+          "p95_ms": 366.73,
+          "max_ms": 369.26,
+          "sample_count": 3
         },
         "search": {
-          "avg_ms": 73.46,
-          "p50_ms": 45.58,
-          "p95_ms": 142.92,
-          "max_ms": 160.08,
-          "sample_count": 4
+          "avg_ms": 32.37,
+          "p50_ms": 15.5,
+          "p95_ms": 91.88,
+          "max_ms": 116.87,
+          "sample_count": 6
         }
       }
     },
-    "failed_case_count": 5
+    "failed_case_count": 7
   }
 }

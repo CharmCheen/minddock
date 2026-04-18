@@ -78,3 +78,4 @@ frontend/test-results/
 # Runtime data (never commit)
 data/active_runtime.json
 frontend/data/
+data/chroma_backup_*/

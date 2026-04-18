@@ -79,7 +79,7 @@ class ChatService:
                     ),
                     citations=[],
                     metadata=UseCaseMetadata(
-                        retrieved_count=0,
+                        retrieved_count=len(hits),
                         mode="grounded",
                         insufficient_evidence=True,
                         support_status=grounding.support_status.value,

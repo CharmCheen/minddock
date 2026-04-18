@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from app.rag.pdf_parser import extract_page_blocks, PageBlocks
+from adapters.parsers.word_parser import WordParser
 
 # Minimum characters on a page to consider it "has text"
 _MIN_PAGE_TEXT_LENGTH = 20
@@ -16,9 +17,10 @@ from app.rag.url_loader import URLContent, fetch_url_content
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {".md", ".txt", ".pdf"}
+SUPPORTED_EXTENSIONS = {".md", ".txt", ".pdf", ".docx"}
 _TEXT_EXTENSIONS = {".md", ".txt"}
 _PDF_EXTENSIONS = {".pdf"}
+_DOCX_EXTENSIONS = {".docx"}
 
 
 class SourceLoader(ABC):
@@ -56,6 +58,8 @@ class FileSourceLoader(SourceLoader):
             )
         if suffix in _PDF_EXTENSIONS:
             return self._load_pdf(descriptor=descriptor, path=path)
+        if suffix in _DOCX_EXTENSIONS:
+            return self._load_docx(descriptor=descriptor, path=path)
         raise ValueError(f"Unsupported file extension: {suffix}")
 
     def _load_pdf(self, *, descriptor: SourceDescriptor, path: Path) -> SourceLoadResult:
@@ -87,6 +91,23 @@ class FileSourceLoader(SourceLoader):
             title=path.stem,
             text=plain_text,
             metadata={"_page_blocks": pages_dicts},  # injected for structured chunker
+        )
+
+    def _load_docx(self, *, descriptor: SourceDescriptor, path: Path) -> SourceLoadResult:
+        parser = WordParser()
+        blocks = parser.parse(path)
+        if not blocks:
+            return SourceLoadResult(
+                descriptor=descriptor,
+                title=path.stem,
+                text="",
+            )
+        text = "\n".join(b["text"] for b in blocks)
+        return SourceLoadResult(
+            descriptor=descriptor,
+            title=path.stem,
+            text=text,
+            metadata={"_docx_blocks": blocks},
         )
 
 

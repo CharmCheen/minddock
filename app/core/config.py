@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     chroma_dir: str = CHROMA_DIR
     embedding_model: str = EMBEDDING_MODEL
     llm_api_key: str = ""
+    llm_provider: str = "openai"
     llm_base_url: str = LLM_BASE_URL
     llm_model: str = LLM_MODEL
     llm_timeout_seconds: float = LLM_TIMEOUT_SECONDS

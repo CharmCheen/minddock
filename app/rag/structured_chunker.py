@@ -686,9 +686,8 @@ def blocks_to_chunks(
             # prevents multi-page headings from incorrectly merging with
             # previous page content into a single chunk.
             heading_page_change = b.page != prev_page
-            if heading_page_change and para_buf:
+            if not (heading_page_change and para_buf):
                 _flush_paragraphs()
-            _flush_paragraphs()
 
             # Front matter headings (Abstract / 摘要 often have the first sentence
             # merged into the same PDF block. Split them: emit heading marker as HEADING,

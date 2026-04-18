@@ -90,6 +90,20 @@ def _decompose_compare_query(question: str) -> Optional[tuple[str, str]]:
         if left and right and left.lower() != right.lower():
             return (left, right)
 
+    # Chinese compare patterns (explicit extract, not split)
+    _CN_PATTERNS = [
+        (r"对比\s*(\S+?)\s*[和与跟和]\s*(\S+)$", 1, 2),  # "对比A和B"
+        (r"比较\s*(\S+?)\s*[和与跟和]\s*(\S+)$", 1, 2),  # "比较A与B"
+        (r"(\S+)\s*[和与跟和]\s*(\S+)\s*(?:区别|差异|不同)", 1, 2),  # "A和B的区别"
+        (r"(?:区别|差异)\s*[在于]?\s*(\S+)\s*[和与跟和]\s*(\S+)", 1, 2),  # "区别于A和B"
+    ]
+    for pat, g1, g2 in _CN_PATTERNS:
+        m = re.match(pat, question)
+        if m:
+            left, right = m.group(g1).strip(), m.group(g2).strip()
+            if left and right and left != right:
+                return (left, right)
+
     # Pattern: "A vs B" or "A and B" (after stripping question framing)
     for sep_re in _COMPARE_SEPARATORS:
         parts = sep_re.split(question)
@@ -500,20 +514,19 @@ class CompareService:
         a_only: list[RetrievedChunk] = []
         b_only: list[RetrievedChunk] = []
         dual: list[RetrievedChunk] = []
+        a_keys: set[tuple[str, str]] = set()
 
         for hit in hits_a:
             key = (hit.doc_id, hit.chunk_id)
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
+            a_keys.add(key)
             a_only.append(hit)
 
         for hit in hits_b:
             key = (hit.doc_id, hit.chunk_id)
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            b_only.append(hit)
+            if key in a_keys:
+                dual.append(hit)  # appears in both sub-queries = dual-topic
+            else:
+                b_only.append(hit)
 
         # Sort each list by relevance (distance: lower is better)
         def _by_distance(h: RetrievedChunk) -> float:

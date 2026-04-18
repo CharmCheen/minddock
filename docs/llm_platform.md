@@ -85,3 +85,32 @@ LLM_MODEL=llama3
 - ✅ `OpenAICompatibleLLM`：支持任意 OpenAI-compatible API 端点
 - ✅ `MockLLM`：纯本地 mock 实现，用于无 API Key 时的基础功能演示
 - ⚠️ DeepSeek/MiniMax/Ollama 专用适配器：当前通过 `OpenAICompatibleLLM` + 切换 base_url 实现，暂不需要独立适配器类
+
+## 智能体（Agent）架构
+
+### 整体架构
+
+MindDock 基于 LangGraph 构建智能体工作流，采用"检索 → 推理 → 生成"三阶段设计：
+
+1. **检索阶段（Retrieval）**：向量相似度召回 + metadata-aware rerank
+2. **推理阶段（Reasoning）**：基于 LangChain Chain 实现意图识别、任务分解
+3. **生成阶段（Generation）**：引用驱动的 grounded generation，强制输出引用链
+
+### 工作流类型
+
+| 工作流 | 描述 |
+|--------|------|
+| `retrieval` | 向量检索 → rerank → 证据组装 → 生成 |
+| `compare` | 查询分解 → 双路检索 → topic diversity merge → 对比生成 |
+| `summarize` | 检索 → map-reduce → 结构化输出 |
+
+### 关键实现
+
+- 入口：`app/application/orchestrators.py`（ChatOrchestrator）
+- 工作流定义：`app/workflows/langgraph_pipeline.py`（RetrievalWorkflow）
+- 服务编排：`app/services/chat_service.py`、`app/services/compare_service.py`
+- 智能体注册：`app/skills/`（SkillRegistry）
+
+### 意图识别流程
+
+用户输入 → 轻量级意图分类 → TaskType（search/chat/compare/summarize/structured_output）→ 对应 Orchestrator 方法 → 执行 DAG 工作流

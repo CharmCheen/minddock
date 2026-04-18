@@ -445,7 +445,18 @@ class CompareService:
                             source=evidence.source,
                             page=evidence.page,
                             anchor=evidence.anchor,
+                            title=getattr(evidence, 'title', None),
+                            section=getattr(evidence, 'section', None),
+                            location=getattr(evidence, 'location', None),
+                            ref=getattr(evidence, 'ref', None),
                             original_text=evidence.snippet,
+                            extra_metadata={
+                                'block_id': getattr(evidence, 'block_id', None),
+                                'section_path': getattr(evidence, 'section_path', None),
+                                'highlighted_sentence': getattr(evidence, 'highlighted_sentence', None),
+                                'position_start': getattr(evidence, 'position_start', None),
+                                'position_end': getattr(evidence, 'position_end', None),
+                            },
                         )
                     )
                 )

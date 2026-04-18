@@ -151,9 +151,11 @@ class LangChainChromaStore:
         distances = result.get("distances") or [[]]
 
         hits: list[RetrievedChunk] = []
-        for index, text in enumerate(documents[0]):
-            metadata = metadatas[0][index] or {}
-            distance = distances[0][index] if distances and distances[0] else None
+        max_index = len(documents[0]) if documents else 0
+        for index in range(max_index):
+            text = documents[0][index] if documents and documents[0] else ""
+            metadata = metadatas[0][index] if metadatas and metadatas[0] and index < len(metadatas[0]) else {}
+            distance = distances[0][index] if distances and distances[0] and index < len(distances[0]) else None
             hits.append(RetrievedChunk.from_raw(text, metadata, distance))
 
         return _apply_post_filters(hits, filters)[:top_k]

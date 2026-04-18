@@ -586,7 +586,7 @@ def blocks_to_chunks(
         return int(cjk_chars / 1.5) + english_words
 
     def _flush_paragraphs() -> None:
-        nonlocal chunks, order, para_buf, current_section, current_table_id, first_page, last_page
+        nonlocal chunks, order, para_buf, current_section, current_table_id
         if not para_buf:
             return
 
@@ -621,7 +621,7 @@ def blocks_to_chunks(
         semantic_type: str | None = None,
     ) -> None:
         nonlocal chunks, order
-        nonlocal current_section, current_section_path, current_semantic_type, current_table_id, first_page, last_page, seen_page1_title
+        nonlocal current_section, current_section_path, current_semantic_type, current_table_id, seen_page1_title
         if not text.strip():
             return
         tok = _estimate_tokens(text)
@@ -730,7 +730,7 @@ def blocks_to_chunks(
                     if idx == 0:
                         path_parts.append(part)
                     else:
-                        path_parts.append(f"{parts[idx-1]}.{part}")
+                        path_parts.append(f"{path_parts[idx-1]}.{part}")
                 current_section_path = "/".join(path_parts)
 
             # Remove common heading prefixes

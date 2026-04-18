@@ -55,6 +55,61 @@ _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 _NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?")
 _OVERLAP_THRESHOLD = 0.2
 
+# Compare query decomposition patterns
+_COMPARE_SEPARATORS = [
+    re.compile(r"\bvs?\b", re.IGNORECASE),  # "vs" or "versus"
+    re.compile(r"\bversus\b", re.IGNORECASE),
+    re.compile(r"\band\b", re.IGNORECASE),  # "A and B"
+    re.compile(r"\bcompare[d]?\s+(.+?)\s+(?:with|to|and)\s+(.+)", re.IGNORECASE),  # "compare A with/to B"
+    re.compile(r"\bcompare\s+(.+?)\s+(?:and|with|to)\s+(.+)", re.IGNORECASE),  # "compare A and B"
+    re.compile(r"\b(difference|compare|contrast)\b", re.IGNORECASE),  # "difference between A and B"
+]
+
+
+def _decompose_compare_query(question: str) -> Optional[tuple[str, str]]:
+    """Try to decompose a compare query into two sub-queries.
+
+    Returns (sub_q1, sub_q2) if decomposition succeeds, None otherwise.
+
+    Examples:
+        "Compare A and B" -> ("A", "B")
+        "Compare A vs B" -> ("A", "B")
+        "difference between A and B" -> ("A", "B")
+    """
+    original = question
+
+    # Normalize: strip the question framing
+    question = re.sub(r"^\s*how?\s+(do|does|did|is|are|can|should)\s+", "", question, flags=re.IGNORECASE)
+    question = re.sub(r"\s*(how|what|why|when|where|who|which)\s*$", "", question, flags=re.IGNORECASE)
+    question = question.strip().rstrip("?").strip()
+
+    # Pattern: "compare A and B" or "compare A vs B" or "compare A with B"
+    m = re.match(r"^compare\s+(.+?)\s+(?:and|vs|versus|with|to)\s+(.+)$", question, re.IGNORECASE)
+    if m:
+        left, right = m.group(1).strip(), m.group(2).strip()
+        if left and right and left.lower() != right.lower():
+            return (left, right)
+
+    # Pattern: "A vs B" or "A and B" (after stripping question framing)
+    for sep_re in _COMPARE_SEPARATORS:
+        parts = sep_re.split(question)
+        if len(parts) == 2:
+            left, right = parts[0].strip(), parts[1].strip()
+            # Clean up common prefixes
+            left = re.sub(r"^(and|with|to|for)\s+", "", left, flags=re.IGNORECASE).strip()
+            right = re.sub(r"^(and|with|to|for)\s+", "", right, flags=re.IGNORECASE).strip()
+            if left and right and left.lower() != right.lower():
+                return (left, right)
+
+    # Pattern: "difference between A and B"
+    m = re.match(r"^(?:difference\s+between|compare\s+)\s*(.+?)\s+(?:and|vs|versus|with)\s+(.+)$", question, re.IGNORECASE)
+    if m:
+        left, right = m.group(1).strip(), m.group(2).strip()
+        if left and right and left.lower() != right.lower():
+            return (left, right)
+
+    return None
+
 
 @dataclass(frozen=True)
 class _EvidenceGroup:
@@ -98,7 +153,22 @@ class CompareService:
                 hits = precomputed_hits
                 retrieval_ms = 0.0
             else:
-                hits = self.search_service.retrieve(query=question, top_k=top_k, filters=filters)
+                decomposed = _decompose_compare_query(question)
+                if decomposed:
+                    sub_q1, sub_q2 = decomposed
+                    logger.info("Compare query decomposed: sub_q1=%s sub_q2=%s", sub_q1[:40], sub_q2[:40])
+                    per_sub_k = max(top_k, 3)  # Retrieve enough candidates from each sub-query
+                    hits_a = self.search_service.retrieve(query=sub_q1, top_k=per_sub_k, filters=filters)
+                    hits_b = self.search_service.retrieve(query=sub_q2, top_k=per_sub_k, filters=filters)
+                    merged_hits = self._merge_dual_hits(hits_a, hits_b, top_k=top_k)
+                    merged_doc_ids = set(h.doc_id for h in merged_hits if h.doc_id)
+                    if len(merged_doc_ids) >= 2:
+                        hits = merged_hits
+                    else:
+                        logger.info("Dual retrieval insufficient diversity, falling back")
+                        hits = self.search_service.retrieve(query=question, top_k=top_k, filters=filters)
+                else:
+                    hits = self.search_service.retrieve(query=question, top_k=top_k, filters=filters)
                 retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
             grounded_hits = select_grounded_hits(hits).hits
             if not grounded_hits:
@@ -410,3 +480,88 @@ class CompareService:
         if len(normalized) <= limit:
             return normalized
         return f"{normalized[: limit - 3]}..."
+
+    def _merge_dual_hits(
+        self,
+        hits_a: list[RetrievedChunk],
+        hits_b: list[RetrievedChunk],
+        *,
+        top_k: int,
+    ) -> list[RetrievedChunk]:
+        """Merge hits from two sub-queries ensuring both topics are represented.
+
+        Strategy:
+        1. Separate hits by provenance (a-only, b-only, dual-topic)
+        2. Take at least 1 best hit from each of the two pure topics
+        3. Sort remaining by relevance (distance) and fill up to top_k
+        4. Apply doc-level dedup throughout
+        """
+        seen_keys: set[tuple[str, str]] = set()
+        a_only: list[RetrievedChunk] = []
+        b_only: list[RetrievedChunk] = []
+        dual: list[RetrievedChunk] = []
+
+        for hit in hits_a:
+            key = (hit.doc_id, hit.chunk_id)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            a_only.append(hit)
+
+        for hit in hits_b:
+            key = (hit.doc_id, hit.chunk_id)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            b_only.append(hit)
+
+        # Sort each list by relevance (distance: lower is better)
+        def _by_distance(h: RetrievedChunk) -> float:
+            return h.distance if h.distance is not None else 999.0
+
+        a_only.sort(key=_by_distance)
+        b_only.sort(key=_by_distance)
+        dual.sort(key=_by_distance)
+
+        # Build result with diversity guarantee
+        result: list[RetrievedChunk] = []
+        result_doc_ids: set[str] = set()
+
+        def _add(hit: RetrievedChunk) -> bool:
+            doc_id = hit.doc_id
+            if doc_id and doc_id not in result_doc_ids:
+                result.append(hit)
+                if doc_id:
+                    result_doc_ids.add(doc_id)
+                return True
+            return False
+
+        # 1. Best from each pure topic (at least 1 each)
+        if a_only and not _add(a_only[0]):
+            pass
+        if b_only and not _add(b_only[0]):
+            pass
+
+        # 2. Dual-topic hits (relevant to both)
+        for hit in dual:
+            if len(result) >= top_k:
+                break
+            _add(hit)
+
+        # 3. Remaining from each topic, sorted by relevance
+        remaining = a_only[1:] + b_only[1:]
+        remaining.sort(key=_by_distance)
+        for hit in remaining:
+            if len(result) >= top_k:
+                break
+            _add(hit)
+
+        logger.debug(
+            "Dual merge: a_only=%d b_only=%d dual=%d result=%d doc_ids=%s",
+            len(a_only),
+            len(b_only),
+            len(dual),
+            len(result),
+            sorted(result_doc_ids),
+        )
+        return result

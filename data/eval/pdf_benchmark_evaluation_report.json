@@ -1,0 +1,1200 @@
+{
+  "dataset_path": "eval\\benchmark\\pdf_benchmark.jsonl",
+  "generated_at": "2026-04-18T11:20:14+00:00",
+  "cases": [
+    {
+      "id": "search_agentic_rag_taxonomy",
+      "task_type": "search",
+      "query": "What are the main approaches to Agentic RAG?",
+      "expected_doc_ids": [
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+      ],
+      "expected_chunk_ids": [
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:10"
+      ],
+      "expected_citation_doc_ids": [
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+      ],
+      "notes": "ArXiv 2501: confirmed top-3 retrieval. Agentic RAG taxonomy query.",
+      "top_k": 5
+    },
+    {
+      "id": "search_lost_middle_context",
+      "task_type": "search",
+      "query": "How do language models use long context windows?",
+      "expected_doc_ids": [
+        "ebea242174757e8c733abf78745593064298964a"
+      ],
+      "expected_chunk_ids": [
+        "ebea242174757e8c733abf78745593064298964a:3"
+      ],
+      "expected_citation_doc_ids": [
+        "ebea242174757e8c733abf78745593064298964a"
+      ],
+      "notes": "Lost in Middle: confirmed top retrieval. Core finding about LLM context usage.",
+      "top_k": 5
+    },
+    {
+      "id": "search_milvus_features",
+      "task_type": "search",
+      "query": "Milvus vector database features and capabilities",
+      "expected_doc_ids": [
+        "7624bd969988f79d49a6064c0c79d451498bb1f5"
+      ],
+      "expected_chunk_ids": [
+        "7624bd969988f79d49a6064c0c79d451498bb1f5:0"
+      ],
+      "expected_citation_doc_ids": [
+        "7624bd969988f79d49a6064c0c79d451498bb1f5"
+      ],
+      "notes": "SIGMOD21 Milvus: confirmed top-1 retrieval. Vector DB features.",
+      "top_k": 5
+    },
+    {
+      "id": "search_pkm_methods",
+      "task_type": "search",
+      "query": "Personal knowledge management methods and tools",
+      "expected_doc_ids": [
+        "c544c16bdcbed7f82511bd1b83484d2a4b85ef02"
+      ],
+      "expected_chunk_ids": [
+        "c544c16bdcbed7f82511bd1b83484d2a4b85ef02:0"
+      ],
+      "expected_citation_doc_ids": [
+        "c544c16bdcbed7f82511bd1b83484d2a4b85ef02"
+      ],
+      "notes": "PKM Review: confirmed top-1 retrieval. Methods and tools.",
+      "top_k": 5
+    },
+    {
+      "id": "search_vector_compare",
+      "task_type": "search",
+      "query": "vector database comparison and features",
+      "expected_doc_ids": [
+        "1b40c87f977bfd069722901fe3af9ad442c474fd",
+        "7624bd969988f79d49a6064c0c79d451498bb1f5"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "1b40c87f977bfd069722901fe3af9ad442c474fd",
+        "7624bd969988f79d49a6064c0c79d451498bb1f5"
+      ],
+      "notes": "Vector databases paper and Milvus: confirmed top retrieval.",
+      "top_k": 5
+    },
+    {
+      "id": "search_acl_context",
+      "task_type": "search",
+      "query": "ACL 2025 findings on context modeling in NLP",
+      "expected_doc_ids": [
+        "d8ad79b42c7a9703550162be16f453f206459546"
+      ],
+      "expected_chunk_ids": [
+        "d8ad79b42c7a9703550162be16f453f206459546:0"
+      ],
+      "expected_citation_doc_ids": [
+        "d8ad79b42c7a9703550162be16f453f206459546"
+      ],
+      "notes": "ACL 2025 Findings EMNLP: context modeling discussion.",
+      "top_k": 5
+    },
+    {
+      "id": "search_naacl_experiments",
+      "task_type": "search",
+      "query": "NAACL long paper experimental setup and results",
+      "expected_doc_ids": [
+        "23ab2ba547dd40fdac05d60eb8a09ba80e172a64"
+      ],
+      "expected_chunk_ids": [
+        "23ab2ba547dd40fdac05d60eb8a09ba80e172a64:12"
+      ],
+      "expected_citation_doc_ids": [
+        "23ab2ba547dd40fdac05d60eb8a09ba80e172a64"
+      ],
+      "notes": "NAACL 2025 Long paper: experimental setup.",
+      "top_k": 5
+    },
+    {
+      "id": "search_arxiv2309",
+      "task_type": "search",
+      "query": "arxiv 2023 paper on collaborative inference edge computing",
+      "expected_doc_ids": [
+        "566eef43fe89666b83164181f8390fcc3a4f6524"
+      ],
+      "expected_chunk_ids": [
+        "566eef43fe89666b83164181f8390fcc3a4f6524:0"
+      ],
+      "expected_citation_doc_ids": [
+        "566eef43fe89666b83164181f8390fcc3a4f6524"
+      ],
+      "notes": "ArXiv 2309: collaborative inference edge computing.",
+      "top_k": 5
+    },
+    {
+      "id": "chat_agentic_rag",
+      "task_type": "chat",
+      "query": "Explain the taxonomy of Agentic RAG systems and their main categories",
+      "expected_doc_ids": [
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+      ],
+      "notes": "ArXiv 2501: grounded chat about Agentic RAG taxonomy.",
+      "top_k": 5
+    },
+    {
+      "id": "chat_lost_middle",
+      "task_type": "chat",
+      "query": "What does Lost in the Middle say about how language models use context?",
+      "expected_doc_ids": [
+        "ebea242174757e8c733abf78745593064298964a"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "ebea242174757e8c733abf78745593064298964a"
+      ],
+      "notes": "Lost in Middle: grounded chat about LLM context usage.",
+      "top_k": 5
+    },
+    {
+      "id": "meta_abstract_general",
+      "task_type": "search",
+      "query": "what is the abstract of this paper",
+      "expected_doc_ids": [
+        "d8ad79b42c7a9703550162be16f453f206459546",
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+        "23ab2ba547dd40fdac05d60eb8a09ba80e172a64"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [],
+      "notes": "Metadata-aware rerank ABSTRACT intent: query explicitly asks for abstract. Tests bypass of ABSTRACT penalty. Expected docs: papers with abstract sections.",
+      "top_k": 5
+    },
+    {
+      "id": "meta_author_general",
+      "task_type": "search",
+      "query": "who are the authors",
+      "expected_doc_ids": [
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+        "566eef43fe89666b83164181f8390fcc3a4f6524",
+        "23ab2ba547dd40fdac05d60eb8a09ba80e172a64"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [],
+      "notes": "Metadata-aware rerank AUTHOR intent: query explicitly asks for authors. Tests bypass of AUTHOR penalty. Expected: papers with author sections.",
+      "top_k": 5
+    },
+    {
+      "id": "meta_references_general",
+      "task_type": "search",
+      "query": "what are the references",
+      "expected_doc_ids": [
+        "d8ad79b42c7a9703550162be16f453f206459546",
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+        "23ab2ba547dd40fdac05d60eb8a09ba80e172a64"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [],
+      "notes": "Metadata-aware rerank REFERENCE intent: query explicitly asks for references. Tests bypass of REFERENCE penalty.",
+      "top_k": 5
+    },
+    {
+      "id": "compare_agentic_rag_vs_milvus",
+      "task_type": "compare",
+      "query": "Compare Agentic RAG approaches with Milvus vector database: how do they relate to each other in a RAG pipeline?",
+      "expected_doc_ids": [
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+        "7624bd969988f79d49a6064c0c79d451498bb1f5"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+        "7624bd969988f79d49a6064c0c79d451498bb1f5"
+      ],
+      "notes": "Cross-doc compare: Agentic RAG vs Milvus. Both confirmed retrievable.",
+      "top_k": 6
+    },
+    {
+      "id": "compare_pkm_vs_vector",
+      "task_type": "compare",
+      "query": "Compare personal knowledge management tools with vector database approaches for knowledge management",
+      "expected_doc_ids": [
+        "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+        "1b40c87f977bfd069722901fe3af9ad442c474fd"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+        "1b40c87f977bfd069722901fe3af9ad442c474fd"
+      ],
+      "notes": "Cross-doc compare: PKM vs vector databases. Both confirmed retrievable.",
+      "top_k": 6
+    },
+    {
+      "id": "compare_lost_vs_rag",
+      "task_type": "compare",
+      "query": "Compare Lost in the Middle findings on context usage with the Agentic RAG survey discussion of retrieval",
+      "expected_doc_ids": [
+        "ebea242174757e8c733abf78745593064298964a",
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "ebea242174757e8c733abf78745593064298964a",
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+      ],
+      "notes": "Cross-doc compare: Lost in Middle vs ArXiv 2501. Both confirmed retrievable.",
+      "top_k": 6
+    },
+    {
+      "id": "search_ai_agent_kb",
+      "task_type": "search",
+      "query": "automated approach for creating knowledge bases for conversational AI agents",
+      "expected_doc_ids": [
+        "b4d26742999b79172dd59857971796064a49542b"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "b4d26742999b79172dd59857971796064a49542b"
+      ],
+      "notes": "AI knowledge assist paper: automated knowledge base construction.",
+      "top_k": 5
+    },
+    {
+      "id": "compare_architecture_md",
+      "task_type": "compare",
+      "query": "Compare architecture.md and rag_pipeline.md: how do they describe the data flow from ingestion to retrieval?",
+      "expected_doc_ids": [
+        "b82bfe7e81999e992be9158e66e513f1963eb921",
+        "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "b82bfe7e81999e992be9158e66e513f1963eb921",
+        "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+      ],
+      "notes": "Cross-markdown compare: architecture.md vs rag_pipeline.md.",
+      "top_k": 6
+    },
+    {
+      "id": "meta_general_abstract",
+      "task_type": "search",
+      "query": "summarize the main findings",
+      "expected_doc_ids": [
+        "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+        "ebea242174757e8c733abf78745593064298964a"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [],
+      "notes": "Broad abstract-like query to test whether body content ranks above abstract for general queries. Tests ABSTRACT penalty in metadata-aware rerank.",
+      "top_k": 5
+    },
+    {
+      "id": "search_crad_english",
+      "task_type": "search",
+      "query": "edge collaborative inference cloud edge architecture survey",
+      "expected_doc_ids": [
+        "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b"
+      ],
+      "notes": "CRAD paper queried with English terms from the paper body. Tests English keyword retrieval for the bilingual CRAD doc.",
+      "top_k": 5
+    }
+  ],
+  "results": [
+    {
+      "case_id": "search_agentic_rag_taxonomy",
+      "task_type": "search",
+      "query": "What are the main approaches to Agentic RAG?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "observed_chunk_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:177",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:34",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:76",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:192",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:67"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 176.28,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5"
+      ]
+    },
+    {
+      "case_id": "search_lost_middle_context",
+      "task_type": "search",
+      "query": "How do language models use long context windows?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "ebea242174757e8c733abf78745593064298964a",
+          "ebea242174757e8c733abf78745593064298964a",
+          "ebea242174757e8c733abf78745593064298964a",
+          "ebea242174757e8c733abf78745593064298964a",
+          "ebea242174757e8c733abf78745593064298964a"
+        ],
+        "observed_chunk_ids": [
+          "ebea242174757e8c733abf78745593064298964a:0",
+          "ebea242174757e8c733abf78745593064298964a:49",
+          "ebea242174757e8c733abf78745593064298964a:46",
+          "ebea242174757e8c733abf78745593064298964a:24",
+          "ebea242174757e8c733abf78745593064298964a:3"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "ebea242174757e8c733abf78745593064298964a"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 23.32,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "search_milvus_features",
+      "task_type": "search",
+      "query": "Milvus vector database features and capabilities",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "1b40c87f977bfd069722901fe3af9ad442c474fd"
+        ],
+        "observed_chunk_ids": [
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:0",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:122",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:12",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:15",
+          "1b40c87f977bfd069722901fe3af9ad442c474fd:0"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "1b40c87f977bfd069722901fe3af9ad442c474fd"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 32.28,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "search_pkm_methods",
+      "task_type": "search",
+      "query": "Personal knowledge management methods and tools",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+          "fe3a286169617d6d963b87f751efa5c00f422674",
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "observed_chunk_ids": [
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02:11",
+          "fe3a286169617d6d963b87f751efa5c00f422674:0",
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02:10",
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02:6",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:115"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+          "fe3a286169617d6d963b87f751efa5c00f422674",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 36.52,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5"
+      ]
+    },
+    {
+      "case_id": "search_vector_compare",
+      "task_type": "search",
+      "query": "vector database comparison and features",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "1b40c87f977bfd069722901fe3af9ad442c474fd",
+          "1b40c87f977bfd069722901fe3af9ad442c474fd",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5"
+        ],
+        "observed_chunk_ids": [
+          "1b40c87f977bfd069722901fe3af9ad442c474fd:0",
+          "1b40c87f977bfd069722901fe3af9ad442c474fd:1",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:9",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:0",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:63"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "1b40c87f977bfd069722901fe3af9ad442c474fd",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 22.43,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "search_acl_context",
+      "task_type": "search",
+      "query": "ACL 2025 findings on context modeling in NLP",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "ebea242174757e8c733abf78745593064298964a",
+          "ebea242174757e8c733abf78745593064298964a",
+          "ebea242174757e8c733abf78745593064298964a",
+          "ebea242174757e8c733abf78745593064298964a",
+          "ebea242174757e8c733abf78745593064298964a"
+        ],
+        "observed_chunk_ids": [
+          "ebea242174757e8c733abf78745593064298964a:46",
+          "ebea242174757e8c733abf78745593064298964a:0",
+          "ebea242174757e8c733abf78745593064298964a:49",
+          "ebea242174757e8c733abf78745593064298964a:48",
+          "ebea242174757e8c733abf78745593064298964a:3"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "ebea242174757e8c733abf78745593064298964a"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 24.14,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5",
+        "citation_expected_source_miss"
+      ]
+    },
+    {
+      "case_id": "search_naacl_experiments",
+      "task_type": "search",
+      "query": "NAACL long paper experimental setup and results",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "b4d26742999b79172dd59857971796064a49542b",
+          "ebea242174757e8c733abf78745593064298964a",
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "d8ad79b42c7a9703550162be16f453f206459546",
+          "b4d26742999b79172dd59857971796064a49542b"
+        ],
+        "observed_chunk_ids": [
+          "b4d26742999b79172dd59857971796064a49542b:50",
+          "ebea242174757e8c733abf78745593064298964a:55",
+          "05e158c56fc65745a040dae664c868233063ead9:1",
+          "d8ad79b42c7a9703550162be16f453f206459546:45",
+          "b4d26742999b79172dd59857971796064a49542b:22"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "b4d26742999b79172dd59857971796064a49542b",
+          "ebea242174757e8c733abf78745593064298964a",
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "d8ad79b42c7a9703550162be16f453f206459546"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 21.02,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5",
+        "citation_expected_source_miss"
+      ]
+    },
+    {
+      "case_id": "search_arxiv2309",
+      "task_type": "search",
+      "query": "arxiv 2023 paper on collaborative inference edge computing",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b"
+        ],
+        "observed_chunk_ids": [
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:60",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:24",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:3",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:4",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:87"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 23.99,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5",
+        "citation_expected_source_miss"
+      ]
+    },
+    {
+      "case_id": "chat_agentic_rag",
+      "task_type": "chat",
+      "query": "Explain the taxonomy of Agentic RAG systems and their main categories",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "observed_chunk_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:67",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:95",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:81",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:84"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 4,
+        "citation_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 13253.46,
+      "insufficient_evidence": false,
+      "response_preview": "<think>\nThe user is asking about the taxonomy of Agentic RAG systems and their main categories. Let me analyze the provided evidence to extract the relevant ...",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "chat_lost_middle",
+      "task_type": "chat",
+      "query": "What does Lost in the Middle say about how language models use context?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "ebea242174757e8c733abf78745593064298964a",
+          "ebea242174757e8c733abf78745593064298964a",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64",
+          "ebea242174757e8c733abf78745593064298964a"
+        ],
+        "observed_chunk_ids": [
+          "ebea242174757e8c733abf78745593064298964a:0",
+          "ebea242174757e8c733abf78745593064298964a:49",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64:67",
+          "ebea242174757e8c733abf78745593064298964a:46"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 4,
+        "citation_doc_ids": [
+          "ebea242174757e8c733abf78745593064298964a",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 7845.35,
+      "insufficient_evidence": false,
+      "response_preview": "<think>\nThe user is asking about what \"Lost in the Middle\" says about how language models use context. Looking at the evidence provided, I can see references...",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "meta_abstract_general",
+      "task_type": "search",
+      "query": "what is the abstract of this paper",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "d8ad79b42c7a9703550162be16f453f206459546",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64"
+        ],
+        "observed_chunk_ids": [
+          "d8ad79b42c7a9703550162be16f453f206459546:4",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:2",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:2",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:2",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64:3"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": null,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "d8ad79b42c7a9703550162be16f453f206459546",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 14.21,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "meta_author_general",
+      "task_type": "search",
+      "query": "who are the authors",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "566eef43fe89666b83164181f8390fcc3a4f6524",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5"
+        ],
+        "observed_chunk_ids": [
+          "566eef43fe89666b83164181f8390fcc3a4f6524:1",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:165",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:164",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:5",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:4"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": null,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "566eef43fe89666b83164181f8390fcc3a4f6524",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 14.74,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "meta_references_general",
+      "task_type": "search",
+      "query": "what are the references",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "d8ad79b42c7a9703550162be16f453f206459546",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64",
+          "ebea242174757e8c733abf78745593064298964a",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5"
+        ],
+        "observed_chunk_ids": [
+          "d8ad79b42c7a9703550162be16f453f206459546:6",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:5",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64:5",
+          "ebea242174757e8c733abf78745593064298964a:4",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:4"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": null,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "d8ad79b42c7a9703550162be16f453f206459546",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64",
+          "ebea242174757e8c733abf78745593064298964a",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 15.55,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "compare_agentic_rag_vs_milvus",
+      "task_type": "compare",
+      "query": "Compare Agentic RAG approaches with Milvus vector database: how do they relate to each other in a RAG pipeline?",
+      "top_k": 6,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [],
+        "observed_chunk_ids": []
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 0,
+        "citation_doc_ids": [],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 19.2,
+      "insufficient_evidence": true,
+      "response_preview": "Insufficient evidence to compare the requested documents.",
+      "warnings": [
+        "Insufficient grounded evidence for compare response."
+      ],
+      "failure_reasons": [
+        "retrieval_miss@5",
+        "citation_expected_source_miss"
+      ]
+    },
+    {
+      "case_id": "compare_pkm_vs_vector",
+      "task_type": "compare",
+      "query": "Compare personal knowledge management tools with vector database approaches for knowledge management",
+      "top_k": 6,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+          "fe3a286169617d6d963b87f751efa5c00f422674"
+        ],
+        "observed_chunk_ids": [
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02:6",
+          "fe3a286169617d6d963b87f751efa5c00f422674:0"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 2,
+        "citation_doc_ids": [
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+          "fe3a286169617d6d963b87f751efa5c00f422674"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 350.64,
+      "insufficient_evidence": false,
+      "response_preview": "Comparison question: Compare personal knowledge management tools with vector database approaches for knowledge management\nCommon points:\n- Both sources conta...",
+      "warnings": [],
+      "failure_reasons": [
+        "citation_expected_source_miss"
+      ]
+    },
+    {
+      "case_id": "compare_lost_vs_rag",
+      "task_type": "compare",
+      "query": "Compare Lost in the Middle findings on context usage with the Agentic RAG survey discussion of retrieval",
+      "top_k": 6,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "05e158c56fc65745a040dae664c868233063ead9"
+        ],
+        "observed_chunk_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:108",
+          "05e158c56fc65745a040dae664c868233063ead9:5"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 2,
+        "citation_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "05e158c56fc65745a040dae664c868233063ead9"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 374.7,
+      "insufficient_evidence": false,
+      "response_preview": "Comparison question: Compare Lost in the Middle findings on context usage with the Agentic RAG survey discussion of retrieval\nCommon points:\n- Both sources c...",
+      "warnings": [],
+      "failure_reasons": [
+        "citation_expected_source_miss"
+      ]
+    },
+    {
+      "case_id": "search_ai_agent_kb",
+      "task_type": "search",
+      "query": "automated approach for creating knowledge bases for conversational AI agents",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "b4d26742999b79172dd59857971796064a49542b",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "observed_chunk_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:51",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:229",
+          "05e158c56fc65745a040dae664c868233063ead9:93",
+          "b4d26742999b79172dd59857971796064a49542b:14",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:3"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "b4d26742999b79172dd59857971796064a49542b"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 17.49,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "compare_architecture_md",
+      "task_type": "compare",
+      "query": "Compare architecture.md and rag_pipeline.md: how do they describe the data flow from ingestion to retrieval?",
+      "top_k": 6,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": false,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "b82bfe7e81999e992be9158e66e513f1963eb921"
+        ],
+        "observed_chunk_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:170",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:2"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 2,
+        "citation_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "b82bfe7e81999e992be9158e66e513f1963eb921"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 446.2,
+      "insufficient_evidence": false,
+      "response_preview": "Comparison question: Compare architecture.md and rag_pipeline.md: how do they describe the data flow from ingestion to retrieval?\nCommon points:\n- Both sourc...",
+      "warnings": [],
+      "failure_reasons": [
+        "citation_expected_source_miss"
+      ]
+    },
+    {
+      "case_id": "meta_general_abstract",
+      "task_type": "search",
+      "query": "summarize the main findings",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+          "566eef43fe89666b83164181f8390fcc3a4f6524",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64",
+          "d8ad79b42c7a9703550162be16f453f206459546",
+          "b4d26742999b79172dd59857971796064a49542b"
+        ],
+        "observed_chunk_ids": [
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02:8",
+          "566eef43fe89666b83164181f8390fcc3a4f6524:32",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64:55",
+          "d8ad79b42c7a9703550162be16f453f206459546:60",
+          "b4d26742999b79172dd59857971796064a49542b:25"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": null,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+          "566eef43fe89666b83164181f8390fcc3a4f6524",
+          "23ab2ba547dd40fdac05d60eb8a09ba80e172a64",
+          "d8ad79b42c7a9703550162be16f453f206459546",
+          "b4d26742999b79172dd59857971796064a49542b"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 17.48,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5"
+      ]
+    },
+    {
+      "case_id": "search_crad_english",
+      "task_type": "search",
+      "query": "edge collaborative inference cloud edge architecture survey",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b"
+        ],
+        "observed_chunk_ids": [
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:3",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:60",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:4",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:24",
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b:82"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "b4cbbae852a425a95b5ccd93dd78a5d749f32b8b"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 18.07,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    }
+  ],
+  "summary": {
+    "dataset_size": 20,
+    "task_counts": {
+      "search": 14,
+      "chat": 2,
+      "compare": 4
+    },
+    "retrieval": {
+      "hit_at_1": 0.5,
+      "hit_at_3": 0.55,
+      "hit_at_5": 0.65
+    },
+    "citation": {
+      "overall_consistency_rate": 0.65,
+      "structure_consistency_rate": 1.0,
+      "expected_source_consistency_rate": 0.5625,
+      "expected_source_case_count": 16
+    },
+    "latency": {
+      "overall": {
+        "avg_ms": 1137.35,
+        "p50_ms": 23.66,
+        "p95_ms": 8115.76,
+        "max_ms": 13253.46,
+        "sample_count": 20
+      },
+      "by_task_type": {
+        "chat": {
+          "avg_ms": 10549.4,
+          "p50_ms": 10549.4,
+          "p95_ms": 12983.05,
+          "max_ms": 13253.46,
+          "sample_count": 2
+        },
+        "compare": {
+          "avg_ms": 297.69,
+          "p50_ms": 362.67,
+          "p95_ms": 435.47,
+          "max_ms": 446.2,
+          "sample_count": 4
+        },
+        "search": {
+          "avg_ms": 32.68,
+          "p50_ms": 21.73,
+          "p95_ms": 85.44,
+          "max_ms": 176.28,
+          "sample_count": 14
+        }
+      }
+    },
+    "failed_case_count": 10
+  }
+}

@@ -252,6 +252,28 @@ def _looks_like_multiline_allcaps_heading(raw_text: str) -> bool:
     return bool(re.fullmatch(r"[A-Z][A-Z\s\-]{2,}", lines[1]))
 
 
+def _looks_like_multiline_heading(raw_text: str) -> bool:
+    """Detect multiline numbered heading: '2\\nMulti-Document Question Answering'.
+
+    Many English papers (especially ACL/arxiv style) place the section number
+    on its own line, followed by the title on the next line.
+    """
+    lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
+    if len(lines) < 2:
+        return False
+    # First line must be a standalone section number (e.g. "2" or "2.1")
+    if not re.fullmatch(r"\d+(?:\.\d+)*", lines[0]):
+        return False
+    # Second line must look like a heading title (starts with uppercase, multiple words)
+    second = lines[1]
+    if len(second) < 3:
+        return False
+    # Title case or ALL CAPS heading (at least 2 words, starts with uppercase)
+    if re.match(r"[A-Z][a-zA-Z\s\-]{3,}", second) and len(second.split()) >= 1:
+        return True
+    return False
+
+
 def _looks_like_inferred_abstract_start(
     text: str,
     *,
@@ -291,6 +313,10 @@ def _classify_block(
 
     # Skip pure page-number / header / footer artifacts
     if _looks_like_multiline_allcaps_heading(raw_text):
+        return BlockType.HEADING, 1
+
+    # Multiline numbered heading: "2\nMulti-Document Question Answering"
+    if _looks_like_multiline_heading(raw_text):
         return BlockType.HEADING, 1
 
     if _is_page_artifact(first_line, lines):

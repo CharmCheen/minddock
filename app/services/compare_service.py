@@ -445,10 +445,10 @@ class CompareService:
                             source=evidence.source,
                             page=evidence.page,
                             anchor=evidence.anchor,
-                            title=getattr(evidence, 'title', None),
-                            section=getattr(evidence, 'section', None),
-                            location=getattr(evidence, 'location', None),
-                            ref=getattr(evidence, 'ref', None),
+                            title=evidence.title,
+                            section=evidence.section,
+                            location=evidence.location,
+                            ref=evidence.ref,
                             original_text=evidence.snippet,
                             extra_metadata={
                                 'block_id': evidence.block_id,
@@ -521,7 +521,6 @@ class CompareService:
         3. Sort remaining by relevance (distance) and fill up to top_k
         4. Apply doc-level dedup throughout
         """
-        seen_keys: set[tuple[str, str]] = set()
         a_only: list[RetrievedChunk] = []
         b_only: list[RetrievedChunk] = []
         dual: list[RetrievedChunk] = []

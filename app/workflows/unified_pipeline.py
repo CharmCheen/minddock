@@ -113,11 +113,11 @@ class RetrievalPipeline:
 
                 def _node(self, name: str, state: UnifiedWorkflowState):
                     if name == "retrieve":
-                        return RetrievalPipeline._retrieve(self, state)
+                        return self._retrieve(state)
                     if name == "rerank":
-                        return RetrievalPipeline._rerank(self, state)
+                        return self._rerank(state)
                     if name == "compress":
-                        return RetrievalPipeline._compress(self, state)
+                        return self._compress(state)
                     return {}
 
             instance = _SequentialGraph()

@@ -131,6 +131,10 @@ class EvidenceObject:
     snippet: str
     page: int | None = None
     anchor: str | None = None
+    title: str | None = None
+    section: str | None = None
+    location: str | None = None
+    ref: str | None = None
     score: float | None = None
     source_version: str | None = None
     content_hash: str | None = None
@@ -149,6 +153,10 @@ class EvidenceObject:
             "source": self.source,
             "page": self.page,
             "anchor": self.anchor,
+            "title": self.title,
+            "section": self.section,
+            "location": self.location,
+            "ref": self.ref,
             "snippet": self.snippet,
             "score": self.score,
             "source_version": self.source_version,

@@ -100,12 +100,15 @@ class ChatOrchestrator:
             output_format=output_format,
         )
 
-    def compare(self, *, question: str, top_k: int, filters=None, precomputed_hits=None):
+    def compare(self, *, question: str, top_k: int, filters=None, precomputed_hits=None,
+                 max_distance_threshold=None, partial_support_distance=None):
         return self._compare_service().compare(
             question=question,
             top_k=top_k,
             filters=filters,
             precomputed_hits=precomputed_hits,
+            max_distance_threshold=max_distance_threshold,
+            partial_support_distance=partial_support_distance,
         )
 
     def build_execution_plan(self, request: UnifiedExecutionRequest) -> ExecutionPlan:
@@ -844,6 +847,7 @@ class FrontendFacade:
                 top_k=request.retrieval.top_k,
                 filters=request.retrieval.filters,
                 precomputed_hits=None,  # CompareService has its own internal retrieval
+                max_distance_threshold=request.retrieval.max_distance_threshold,
             )
             response = self._build_compare_response(request=request, result=result)
         else:

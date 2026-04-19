@@ -6,6 +6,7 @@ import logging
 import re
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -189,8 +190,20 @@ class CompareService:
                     sub_q1, sub_q2 = decomposed
                     logger.info("Compare query decomposed: sub_q1=%s sub_q2=%s", sub_q1[:40], sub_q2[:40])
                     per_sub_k = max(top_k, 3)  # Retrieve enough candidates from each sub-query
-                    hits_a = self.search_service.retrieve(query=sub_q1, top_k=per_sub_k, filters=filters)
-                    hits_b = self.search_service.retrieve(query=sub_q2, top_k=per_sub_k, filters=filters)
+                    # Parallel retrieval of both sub-queries for ~2x speedup
+                    retrieval_a_started = time.perf_counter()
+                    with ThreadPoolExecutor(max_workers=2) as executor:
+                        future_a = executor.submit(self.search_service.retrieve, sub_q1, per_sub_k, filters)
+                        future_b = executor.submit(self.search_service.retrieve, sub_q2, per_sub_k, filters)
+                        try:
+                            hits_a, hits_b = future_a.result(timeout=30), future_b.result(timeout=30)
+                            retrieval_ms_a = round((time.perf_counter() - retrieval_a_started) * 1000, 2)
+                        except Exception as e:
+                            logger.warning("Parallel retrieval failed, falling back to sequential: %s", e)
+                            hits_a = self.search_service.retrieve(query=sub_q1, top_k=per_sub_k, filters=filters)
+                            hits_b = self.search_service.retrieve(query=sub_q2, top_k=per_sub_k, filters=filters)
+                            retrieval_ms_a = round((time.perf_counter() - retrieval_a_started) * 1000, 2)
+                    retrieval_ms = retrieval_ms_a  # parallel execution, use wall-clock time
                     merged_hits = self._merge_dual_hits(hits_a, hits_b, top_k=top_k)
                     merged_doc_ids = set(h.doc_id for h in merged_hits if h.doc_id)
                     if len(merged_doc_ids) >= 2:

@@ -55,6 +55,20 @@ _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 _NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?")
 _OVERLAP_THRESHOLD = 0.2
 
+
+@dataclass
+class CompareConfig:
+    """Optional configuration for the compare workflow.
+
+    Setting ``enable_llm_conflict_detection=True`` adds a lightweight LLM step
+    (timeout 200ms) to double-check whether candidate conflicting sentences
+    actually contradict each other, reducing false-positive conflict flags.
+    """
+
+    enable_llm_conflict_detection: bool = False
+    llm_timeout_ms: int = 200
+
+
 # Compare query decomposition patterns
 _COMPARE_SEPARATORS = [
     re.compile(r"\bvs?\b", re.IGNORECASE),  # "vs" or "versus"
@@ -144,6 +158,7 @@ class CompareService:
     reranker: Reranker = field(default_factory=get_reranker)
     compressor: Compressor = field(default_factory=get_compressor)
     collection: object = field(default=None)
+    config: CompareConfig | None = None
 
     def compare(
         self,
@@ -501,7 +516,52 @@ class CompareService:
             return True
         left_negated = bool(left_tokens & _NEGATION_WORDS)
         right_negated = bool(right_tokens & _NEGATION_WORDS)
-        return left_negated != right_negated
+        heuristic_conflict = left_negated != right_negated
+
+        if not heuristic_conflict:
+            return False
+
+        # LLM double-check: only performed when heuristic flags a conflict
+        # to reduce false positives without adding latency on every pair.
+        if self.config is not None and self.config.enable_llm_conflict_detection:
+            return self._llm_is_conflicting(left_text, right_text)
+
+        return True
+
+    def _llm_is_conflicting(self, left_text: str, right_text: str) -> bool:
+        """Use LLM to determine if two texts contradict each other.
+
+        Lightweight: single short prompt, {llm_timeout_ms} ms timeout.
+        Returns True only when LLM explicitly says YES (contradiction).
+        Falls back to heuristic result on timeout or error.
+        """
+        import threading
+        timeout_ms = (self.config.llm_timeout_ms or 200) if self.config else 200
+
+        result: dict[str, bool] = {"value": True}  # fallback
+
+        def _call_llm() -> None:
+            try:
+                from app.llm.factory import get_llm_provider
+                provider = get_llm_provider()
+                prompt = (
+                    f"Do these two sentences contradict each other? "
+                    f"Answer only YES or NO.\n"
+                    f"1. {left_text[:300]}\n"
+                    f"2. {right_text[:300]}\n"
+                )
+                response = provider.complete(prompt=prompt, max_tokens=5, temperature=0)
+                result["value"] = "yes" in response.strip().lower()[:5]
+            except Exception:
+                result["value"] = True  # on error, trust heuristic
+
+        thread = threading.Thread(target=_call_llm, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout_ms / 1000.0)
+        if thread.is_alive():
+            logger.warning("LLM conflict check timed out after %dms, trusting heuristic", timeout_ms)
+            return True
+        return result["value"]
 
     def _tokenize(self, text: str) -> set[str]:
         return {

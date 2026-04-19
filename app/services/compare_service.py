@@ -466,8 +466,13 @@ class CompareService:
         return hit.title or hit.source or hit.doc_id or "document"
 
     def _has_strong_group(self, group: _EvidenceGroup) -> bool:
-        best_score = build_evidence(group.best_hit).score
-        return best_score is None or float(best_score) <= PARTIAL_SUPPORT_DISTANCE
+        best = group.best_hit
+        # Use distance (not rerank_score) for threshold: rerank_score is a composite
+        # heuristic with range ~0-2.5, while PARTIAL_SUPPORT_DISTANCE=1.0 is calibrated
+        # for raw cosine distance (0-1). Using rerank_score here would make the
+        # threshold nearly always pass (since most rerank_scores > 1.0).
+        score = best.distance if best.distance is not None else best.rerank_score
+        return score is None or float(score) <= PARTIAL_SUPPORT_DISTANCE
 
     def _hit_sort_key(self, hit: RetrievedChunk) -> tuple[float, str]:
         score = hit.rerank_score if hit.rerank_score is not None else hit.distance

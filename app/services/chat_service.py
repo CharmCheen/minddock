@@ -45,6 +45,8 @@ class ChatService:
         top_k: int,
         filters: RetrievalFilters | None = None,
         precomputed_hits: Optional[list] = None,
+        max_distance_threshold: float | None = None,
+        partial_support_distance: float | None = None,
     ) -> ChatServiceResult:
         """Run the full RAG chat pipeline.
 
@@ -64,10 +66,10 @@ class ChatService:
             else:
                 hits = self.search_service.retrieve(query=query, top_k=top_k, filters=filters)
                 retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
-            grounded_selection = select_grounded_hits(hits)
+            grounded_selection = select_grounded_hits(hits, max_distance_threshold=max_distance_threshold)
             grounded_hits = grounded_selection.hits
             if not grounded_hits:
-                grounding = assess_grounding(retrieved_hits=hits, evidence=[])
+                grounding = assess_grounding(retrieved_hits=hits, evidence=[], partial_support_distance=partial_support_distance)
                 logger.info("Chat returning insufficient evidence: query_preview=%s", query[:60])
                 return ChatServiceResult(
                     answer=INSUFFICIENT_EVIDENCE,
@@ -134,7 +136,7 @@ class ChatService:
             generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
             citations = [build_citation(hit, query) for hit in compressed_hits]
             evidence = [build_evidence(hit, query) for hit in compressed_hits]
-            grounding = assess_grounding(retrieved_hits=hits, evidence=evidence)
+            grounding = assess_grounding(retrieved_hits=hits, evidence=evidence, partial_support_distance=partial_support_distance)
 
             logger.info(
                 "Chat completed: query_preview=%s grounded=%d reranked=%d compressed=%d",

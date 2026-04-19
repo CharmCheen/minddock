@@ -122,6 +122,7 @@ class RetrievalOptions:
 
     top_k: int = 5
     filters: RetrievalFilters | None = None
+    max_distance_threshold: float | None = None  # overrides MAX_EVIDENCE_DISTANCE when set
 
 
 @dataclass(frozen=True)

@@ -28,13 +28,15 @@ class GroundingAssessment:
     refusal_reason: RefusalReason | None = None
 
 
-def select_grounded_hits(hits: list[RetrievedChunk]) -> GroundedSelectionResult:
+def select_grounded_hits(
+    hits: list[RetrievedChunk], max_distance_threshold: float | None = None
+) -> GroundedSelectionResult:
     """Filter retrieved hits down to evidence strong enough for generation."""
-
+    threshold = max_distance_threshold if max_distance_threshold is not None else MAX_EVIDENCE_DISTANCE
     grounded_hits = [
         hit
         for hit in hits
-        if hit.distance is None or float(hit.distance) < MAX_EVIDENCE_DISTANCE
+        if hit.distance is None or float(hit.distance) < threshold
     ]
     return GroundedSelectionResult(hits=grounded_hits)
 
@@ -286,8 +288,10 @@ def assess_grounding(
     *,
     retrieved_hits: list[RetrievedChunk],
     evidence: list[EvidenceObject],
+    partial_support_distance: float | None = None,
 ) -> GroundingAssessment:
     """Classify support strength using a small, stable, and testable heuristic."""
+    threshold = partial_support_distance if partial_support_distance is not None else PARTIAL_SUPPORT_DISTANCE
 
     if not retrieved_hits:
         return GroundingAssessment(
@@ -309,7 +313,7 @@ def assess_grounding(
     strong_evidence = [
         item
         for item in evidence
-        if item.score is None or float(item.score) <= PARTIAL_SUPPORT_DISTANCE
+        if item.score is None or float(item.score) <= threshold
     ]
     if strong_evidence:
         return GroundingAssessment(support_status=SupportStatus.SUPPORTED)

@@ -152,6 +152,8 @@ class CompareService:
         top_k: int,
         filters: RetrievalFilters | None = None,
         precomputed_hits: Optional[list] = None,
+        max_distance_threshold: float | None = None,
+        partial_support_distance: float | None = None,
     ) -> CompareServiceResult:
         """Run the compare workflow.
 
@@ -184,7 +186,7 @@ class CompareService:
                 else:
                     hits = self.search_service.retrieve(query=question, top_k=top_k, filters=filters)
                 retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
-            grounded_hits = select_grounded_hits(hits).hits
+            grounded_hits = select_grounded_hits(hits, max_distance_threshold=max_distance_threshold).hits
             if not grounded_hits:
                 return self._insufficient_result(
                     question=question,
@@ -192,6 +194,7 @@ class CompareService:
                     retrieval_ms=retrieval_ms,
                     started=started,
                     filters=filters,
+                    partial_support_distance=partial_support_distance,
                 )
 
             rerank_started = time.perf_counter()
@@ -214,6 +217,7 @@ class CompareService:
                     started=started,
                     filters=filters,
                     reason="insufficient_context",
+                    partial_support_distance=partial_support_distance,
                 )
 
             left_group, right_group = groups[:2]
@@ -226,6 +230,7 @@ class CompareService:
                 common_points=common_points,
                 differences=differences,
                 conflicts=conflicts,
+                partial_support_distance=partial_support_distance,
             )
             compare_result = refresh_compare_result_freshness(compare_result, collection=self.collection)
             citations = self._collect_citations(compare_result)
@@ -277,11 +282,12 @@ class CompareService:
         rerank_ms: float | None = None,
         compress_ms: float | None = None,
         reason: str | None = None,
+        partial_support_distance: float | None = None,
     ) -> CompareServiceResult:
         compare_result = GroundedCompareResult(
             query=question,
             support_status=SupportStatus.INSUFFICIENT_EVIDENCE,
-            refusal_reason=assess_grounding(retrieved_hits=hits, evidence=[]).refusal_reason if reason is None else None,
+            refusal_reason=assess_grounding(retrieved_hits=hits, evidence=[], partial_support_distance=partial_support_distance).refusal_reason if reason is None else None,
         )
         if reason == "insufficient_context":
             compare_result = GroundedCompareResult(
@@ -401,19 +407,20 @@ class CompareService:
         common_points: tuple[ComparedPoint, ...],
         differences: tuple[ComparedPoint, ...],
         conflicts: tuple[ComparedPoint, ...],
+        partial_support_distance: float | None = None,
     ) -> GroundedCompareResult:
         evidence = [
             item
             for point in (*common_points, *differences, *conflicts)
             for item in (*point.left_evidence, *point.right_evidence)
         ]
-        grounding = assess_grounding(retrieved_hits=hits, evidence=evidence)
+        grounding = assess_grounding(retrieved_hits=hits, evidence=evidence, partial_support_distance=partial_support_distance)
         support_status = grounding.support_status
         refusal_reason = grounding.refusal_reason
         if conflicts:
             support_status = SupportStatus.CONFLICTING_EVIDENCE
             refusal_reason = None
-        elif differences and not (self._has_strong_group(left_group) and self._has_strong_group(right_group)):
+        elif differences and not (self._has_strong_group(left_group, partial_support_distance) and self._has_strong_group(right_group, partial_support_distance)):
             support_status = SupportStatus.PARTIALLY_SUPPORTED
             refusal_reason = None
         if not common_points and not differences and not conflicts:
@@ -465,14 +472,15 @@ class CompareService:
     def _group_label(self, hit: RetrievedChunk) -> str:
         return hit.title or hit.source or hit.doc_id or "document"
 
-    def _has_strong_group(self, group: _EvidenceGroup) -> bool:
+    def _has_strong_group(self, group: _EvidenceGroup, partial_support_distance: float | None = None) -> bool:
+        threshold = partial_support_distance if partial_support_distance is not None else PARTIAL_SUPPORT_DISTANCE
         best = group.best_hit
         # Use distance (not rerank_score) for threshold: rerank_score is a composite
         # heuristic with range ~0-2.5, while PARTIAL_SUPPORT_DISTANCE=1.0 is calibrated
         # for raw cosine distance (0-1). Using rerank_score here would make the
         # threshold nearly always pass (since most rerank_scores > 1.0).
         score = best.distance if best.distance is not None else best.rerank_score
-        return score is None or float(score) <= PARTIAL_SUPPORT_DISTANCE
+        return score is None or float(score) <= threshold
 
     def _hit_sort_key(self, hit: RetrievedChunk) -> tuple[float, str]:
         score = hit.rerank_score if hit.rerank_score is not None else hit.distance

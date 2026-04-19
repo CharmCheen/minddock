@@ -219,6 +219,7 @@ class ChatOrchestrator:
             top_k=request.retrieval.top_k,
             filters=request.retrieval.filters,
             precomputed_hits=precomputed_hits,
+            max_distance_threshold=request.retrieval.max_distance_threshold,
         )
 
     def run_summarize_with_runtime(

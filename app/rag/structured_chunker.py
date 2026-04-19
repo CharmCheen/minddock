@@ -359,7 +359,6 @@ def _classify_block(
     # Legacy explicit startswith checks are superseded by regex-based markers.
 
     # ---- Table detection ----
-    import sys as _sys; _sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     if _looks_like_table(raw_text, lines):
         return BlockType.TABLE_LIKE, 0
 
@@ -598,10 +597,11 @@ def blocks_to_chunks(
             _emit_chunk(combined, BlockType.PARAGRAPH, min(pages), max(pages), current_table_id,
                         section_path=current_section_path, semantic_type=current_semantic_type)
         else:
-            # Sliding window fallback - split by characters (approximate tokens)
-            # Convert token size to approximate character size for Chinese
+            # Sentence-aware split: accumulate sentences into token-bounded windows,
+            # falling back to character-level split only for sentences that exceed
+            # the window size themselves.
             char_size = int(CHUNK_MAX_TOKENS * 1.5)
-            for sub in _sliding_window(combined, char_size, CHUNK_OVERLAP_TOKENS):
+            for sub in _sentence_aware_window(combined, char_size, CHUNK_OVERLAP_TOKENS):
                 pages = _pages_for_text(sub, para_buf)
                 _emit_chunk(sub, BlockType.PARAGRAPH, min(pages), max(pages), current_table_id,
                             section_path=current_section_path, semantic_type=current_semantic_type)
@@ -661,6 +661,60 @@ def blocks_to_chunks(
             if t in sub or sub in t:
                 pages.append(b.page)
         return pages or [buf[0][0].page] if buf else [1]
+
+    def _sentence_aware_window(text: str, size: int, overlap: int) -> list[str]:
+        """Sentence-aware sliding window for oversized paragraphs.
+
+        Tries to split at sentence boundaries first, then falls back to
+        character-level split only for sentences that individually exceed `size`.
+        """
+        # Split text into sentences using end punctuation
+        sentences: list[str] = []
+        buf = ""
+        for ch in text:
+            buf += ch
+            if ch in _SENTENCE_END_CHARS:
+                sentences.append(buf)
+                buf = ""
+        if buf.strip():
+            sentences.append(buf)
+
+        if not sentences:
+            sentences = [text]
+
+        # If any single sentence exceeds size, fall back to character sliding window
+        for s in sentences:
+            if len(s) > size:
+                return _sliding_window(text, size, overlap)
+
+        # Accumulate sentences into token-bounded windows
+        windows: list[str] = []
+        current_window = ""
+        current_tokens = 0
+
+        def _tok(t: str) -> int:
+            words = re.findall(r"[\w\u4e00-\u9fff]+", t)
+            cjk_chars = sum(len(w) for w in re.findall(r"[\u4e00-\u9fff]", t))
+            english_words = len([w for w in words if re.match(r"[\w]", w)])
+            return int(cjk_chars / 1.5) + english_words
+
+        for sent in sentences:
+            sent_tokens = _tok(sent)
+            # If adding this sentence exceeds the window, flush and start new window
+            if current_window and current_tokens + sent_tokens > int(CHUNK_MAX_TOKENS * 0.95):
+                windows.append(current_window.strip())
+                # Start new window with overlap from end of previous window
+                overlap_text = current_window[-overlap:] if overlap < len(current_window) else ""
+                current_window = overlap_text + sent
+                current_tokens = _tok(current_window)
+            else:
+                current_window = (current_window + " " + sent).strip() if current_window else sent
+                current_tokens += sent_tokens
+
+        if current_window.strip():
+            windows.append(current_window.strip())
+
+        return windows if windows else [text]
 
     def _sliding_window(text: str, size: int, overlap: int) -> list[str]:
         """Character-level sliding window for oversized paragraphs."""

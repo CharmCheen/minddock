@@ -393,8 +393,7 @@ class ContextBlock:
 def _normalize_optional_text(value: object) -> str | None:
     if value is None:
         return None
-    normalized = str(value).strip()
-    return normalized or None
+    return str(value).strip()
 
 
 def _parse_page(value: object) -> int | None:

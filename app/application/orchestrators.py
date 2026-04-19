@@ -820,14 +820,14 @@ class FrontendFacade:
             result = self.chat.run_chat_with_runtime(
                 request=request,
                 runtime=runtime,
-                precomputed_hits=precomputed_retrieval_state["hits"] if precomputed_retrieval_state else None,
+                precomputed_hits=precomputed_retrieval_state["compressed_hits"] if precomputed_retrieval_state else None,
             )
             response = self._build_chat_response(request=request, result=result)
         elif request.task_type == TaskType.SUMMARIZE:
             result = self.chat.run_summarize_with_runtime(
                 request=request,
                 runtime=runtime,
-                precomputed_hits=precomputed_retrieval_state["hits"] if precomputed_retrieval_state else None,
+                precomputed_hits=precomputed_retrieval_state["compressed_hits"] if precomputed_retrieval_state else None,
             )
             response = self._build_summarize_response(request=request, result=result)
         elif request.task_type == TaskType.SEARCH:

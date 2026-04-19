@@ -213,10 +213,12 @@ def build_citation(hit: RetrievedChunk, query: str | None = None) -> CitationRec
     # block_id and section_path come from ingest-time metadata (pre-computed)
     block_id = _metadata_text(hit, "block_id")
     section_path = _metadata_text(hit, "section_path")
-    # highlighted_sentence and offsets are always computed from chunk text
-    # so they reflect the current query context accurately
+    # Use original_text for offset so positions are consistent with citation参考追溯.
+    # When compression was applied, hit.text is the compressed version but offsets
+    # are stored as positions in the original document for citation traceability.
+    text_for_offset = hit.original_text if hit.original_text else hit.text
     highlighted_sentence, position_start, position_end = _extract_highlighted_sentence(
-        hit.text, query
+        text_for_offset, query
     )
 
     return CitationRecord(
@@ -252,9 +254,10 @@ def build_evidence(hit: RetrievedChunk, query: str | None = None) -> EvidenceObj
     score = hit.rerank_score if hit.rerank_score is not None else hit.distance
     # block_id comes from ingest-time metadata (pre-computed)
     block_id = _metadata_text(hit, "block_id")
-    # highlighted_sentence and offsets are always computed from chunk text
+    # Use original_text for offset so positions are consistent with the source document.
+    text_for_offset = hit.original_text if hit.original_text else hit.text
     highlighted_sentence, position_start, position_end = _extract_highlighted_sentence(
-        hit.text, query
+        text_for_offset, query
     )
 
     return EvidenceObject(

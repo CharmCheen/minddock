@@ -34,6 +34,7 @@ class BlockType(str, Enum):
     HEADING = "heading"      # Section / sub-section title
     PARAGRAPH = "paragraph"  # Body text
     TABLE_LIKE = "table"     # Tabular / pseudo-tabular content
+    TABLE_ROW = "table_row"  # Individual row of a table (structured representation)
     CAPTION = "caption"      # Figure / table caption text
     LIST_ITEM = "list_item"  # Bullet / numbered list entry
     OTHER = "other"          # Page number, footnote, header, etc.
@@ -49,6 +50,7 @@ class PDFBlock:
     block_index: int        # position on the page (0-based)
     heading_level: int = 0  # 1-6 for heading blocks, 0 otherwise
     raw_bboxes: tuple[str, ...] = field(default_factory=tuple)  # debug aid
+    table_lines: list[dict[str, Any]] = field(default_factory=list)  # original PyMuPDF lines for TABLE_LIKE blocks
 
     @property
     def is_visible(self) -> bool:
@@ -66,7 +68,7 @@ class ChunkMeta:
     source_path: str
     source_type: str
     title: str
-    block_type: str           # title | author | abstract | heading | paragraph | table | caption | list_item | reference | other
+    block_type: str           # title | author | abstract | heading | paragraph | table | table_row | caption | list_item | reference | other
     section_title: str        # nearest heading above this chunk
     table_id: str | None      # e.g. "表1" if a table caption was detected
     page_start: int
@@ -182,12 +184,18 @@ def extract_blocks_from_page(page_num: int, blocks: list[dict[str, Any]]) -> lis
             block_index=idx,
         )
 
+        # Preserve raw lines for table blocks so structured CSV can be generated later
+        table_lines_for_block: list[dict[str, Any]] = []
+        if block_type == BlockType.TABLE_LIKE:
+            table_lines_for_block = lines
+
         result.append(PDFBlock(
             block_type=block_type,
             text=raw_text,
             page=page_num,
             block_index=idx,
             heading_level=heading_level,
+            table_lines=table_lines_for_block,
         ))
 
     return result
@@ -432,6 +440,43 @@ def _looks_like_list(first_line: str) -> bool:
         re.match(r"^\([a-z]\)\s+", stripped, re.IGNORECASE) or  # "(a) item"
         re.match(r"^[\(]?[\u2460-\u2473]+[\.、\s]", stripped)
     )
+
+
+def _table_to_csv(raw_text: str, lines: list[dict[str, Any]]) -> str:
+    """Convert raw table text with separator lines into a CSV string.
+
+    Preserves row/column structure so vector embeddings capture tabular semantics
+    rather than just pipe-separated wall-of-text.
+    """
+    import csv
+    import io
+
+    # Extract each line's text spans
+    row_texts: list[list[str]] = []
+    for line in lines:
+        spans = line.get("spans", [])
+        cells: list[str] = []
+        for span in spans:
+            text = span.get("text", "").strip()
+            cells.append(text)
+        if cells:
+            row_texts.append(cells)
+
+    if not row_texts:
+        return raw_text
+
+    num_cols = max(len(row) for row in row_texts)
+    if num_cols < 2 or num_cols > 30:
+        return raw_text  # not a proper table or too wide to be useful
+
+    # Pad rows to uniform width
+    padded = [row + [""] * (num_cols - len(row)) for row in row_texts]
+
+    # Write CSV with consistent delimiter
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerows(padded)
+    return output.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -818,7 +863,9 @@ def blocks_to_chunks(
             _flush_paragraphs()
             # Try to extract table number from surrounding caption blocks
             table_id = _extract_table_id_from_block(b)
-            _emit_chunk(b.text, BlockType.TABLE_LIKE, b.page, b.page, table_id)
+            # Convert table to structured CSV for better vector embedding semantics
+            table_text = _table_to_csv(b.text, b.table_lines) if b.table_lines else b.text
+            _emit_chunk(table_text, BlockType.TABLE_LIKE, b.page, b.page, table_id)
             prev_page = b.page
             i += 1
             continue

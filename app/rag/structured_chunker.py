@@ -573,8 +573,6 @@ def blocks_to_chunks(
     current_section_path: str | None = None   # hierarchical path like "1/1.2"
     current_semantic_type: str | None = None   # "abstract" for abstract-following paras
     current_table_id: str | None = None
-    first_page = 0
-    last_page = 0
     seen_page1_title = False
     prev_page = cleaned[0].page if cleaned else 0
 

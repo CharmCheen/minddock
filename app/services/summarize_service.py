@@ -104,7 +104,7 @@ class SummarizeService:
                         refusal_reason=grounding.refusal_reason,
                     ),
                     metadata=UseCaseMetadata(
-                        retrieved_count=0,
+                        retrieved_count=len(workflow_state.hits),
                         mode=mode,
                         output_format=output_format,
                         insufficient_evidence=True,

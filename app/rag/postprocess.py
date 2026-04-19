@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 _WORD_RE = re.compile(r"[A-Za-z0-9_]+")
 _SENTENCE_RE = re.compile(r"(?<=[.!?。！？])\s+")
-_MAX_COMPRESSED_CHARS = 280
-_MAX_COMPRESSED_HITS = 4
-_MAX_COMPRESSED_SENTENCES = 2
+_MAX_COMPRESSED_CHARS = 350
+_MAX_COMPRESSED_HITS = 5
+_MAX_COMPRESSED_SENTENCES = 3
 
 # Intent detection patterns for query-aware bias override.
 # Strict: only match when the query is genuinely asking ABOUT the category.
@@ -51,8 +51,28 @@ _AUTHOR_BIAS = -0.15
 _REFERENCE_BIAS = -0.15
 _ABSTRACT_BIAS = -0.05
 
+# Chinese character pattern for language detection
+_HAS_CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
+
 
 def _tokenize(text: str) -> list[str]:
+    """Tokenize text into words.
+    
+    For Chinese text (contains CJK characters): uses jieba word segmentation for accurate
+    multi-character word detection, which improves overlap scoring significantly.
+    
+    For English text: extracts alphanumeric tokens using regex.
+    """
+    # Detect if text contains Chinese characters
+    if _HAS_CHINESE_RE.search(text):
+        try:
+            import jieba
+            # jieba returns a generator, convert to list and filter empty
+            return [token.lower() for token in jieba.cut(text) if token.strip()]
+        except ImportError:
+            # Fallback: treat each non-whitespace character as a token
+            return [c.lower() for c in text.split() if c.strip()]
+    
     return [token.lower() for token in _WORD_RE.findall(text)]
 
 
@@ -65,7 +85,19 @@ def _overlap_score(query: str, text: str) -> float:
     matches = sum(1 for token in text_tokens if token in query_tokens)
     density = matches / max(len(text_tokens), 1)
     coverage = len(query_tokens.intersection(text_tokens)) / max(len(query_tokens), 1)
-    return density + coverage
+    # Positional weighting: query terms appearing earlier in the query are more important.
+    # Weight decays linearly from 1.0 (first term) to 0.5 (last term).
+    query_term_list = query.lower().split()
+    if query_term_list:
+        alpha = 0.5 / max(len(query_term_list) - 1, 1)
+        position_bonus = sum(
+            (1.0 - i * alpha) for i, term in enumerate(query_term_list)
+            if term in text_tokens
+        )
+        overlap_score = density + coverage + 0.15 * min(position_bonus, len(query_term_list))
+    else:
+        overlap_score = density + coverage
+    return overlap_score
 
 
 def _get_metadata_bias(hit: RetrievedChunk, query: str) -> float:
@@ -191,15 +223,25 @@ class TrimmingCompressor(Compressor):
             if not sentences:
                 sentences = [text]
 
-            ranked_sentences = sorted(
-                sentences,
-                key=lambda sentence: _overlap_score(query, sentence),
-                reverse=True,
-            )
+            # Score each sentence: overlap + positional bonus (earlier sentences in chunk
+            # are more likely to contain the main point in academic writing).
+            # Keep sentences in original order to preserve natural flow.
+            sentence_scores: list[tuple[int, float, str]] = []
+            for idx, sentence in enumerate(sentences):
+                overlap = _overlap_score(query, sentence)
+                # Position bonus: first sentence gets 0.4, decaying by 0.05/sentence
+                position_bonus = max(0.0, 0.4 - idx * 0.05)
+                sentence_scores.append((idx, overlap + position_bonus, sentence))
+
+            # Filter to sentences with minimum relevance (at least 20% of best overlap)
+            best_score = max(s for _, s, _ in sentence_scores) if sentence_scores else 0.0
+            min_threshold = max(0.2, best_score * 0.25) if best_score > 0 else 0.0
+            relevant = [(idx, score, s) for idx, score, s in sentence_scores if score >= min_threshold]
+            relevant.sort(key=lambda x: (x[1], -x[0]), reverse=True)  # best first
 
             kept_sentences: list[str] = []
             total_chars = 0
-            for sentence in ranked_sentences:
+            for _, score, sentence in relevant:
                 if len(kept_sentences) >= _MAX_COMPRESSED_SENTENCES:
                     break
                 next_chars = total_chars + len(sentence) + (1 if kept_sentences else 0)

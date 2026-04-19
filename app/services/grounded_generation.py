@@ -15,7 +15,7 @@ from app.rag.retrieval_models import (
     SupportStatus,
 )
 
-SNIPPET_LIMIT = 120
+SNIPPET_LIMIT = 300
 MAX_EVIDENCE_DISTANCE = 1.5
 PARTIAL_SUPPORT_DISTANCE = 1.0
 
@@ -57,7 +57,9 @@ def _extract_highlighted_sentence(
     """Extract the most query-relevant sentence from chunk text and its character offsets.
 
     Strategy:
-    1. Split chunk_text into sentences using sentence-ending punctuation.
+    1. Split chunk_text into sentences using improved sentence boundary detection.
+       - For Chinese: split directly on 。！？ punctuation (no whitespace required).
+       - For English: use sentence-ending punctuation with proper abbreviation handling.
     2. Score each sentence by query term coverage (case-insensitive).
     3. Return the best match as (sentence, start_offset, end_offset).
 
@@ -72,33 +74,87 @@ def _extract_highlighted_sentence(
     if not chunk_text or not chunk_text.strip():
         return None, None, None
 
-    # Split into sentences — handles both English (.,!,?) and Chinese (。,！,？) delimiters.
-    # We split on: . ! ? 。 ! ？ at sentence boundary, consuming the delimiter.
-    sentence_pattern = re.compile(
-        r"(?<=[.!?。！？])\s+"
-    )
-    raw_sentences = sentence_pattern.split(chunk_text)
+    # Improved sentence splitting that handles both Chinese and English:
+    # 1. Chinese: directly split on 。！？ (whitespace not required after)
+    # 2. English: split on sentence-ending punctuation, but NOT on abbreviations
+    #    like "et al.", "Mr.", "Dr.", "i.e.", "e.g." followed by comma/space
+    
     sentences: list[tuple[str, int, int]] = []
-
-    cursor = 0
-    for raw in raw_sentences:
-        if not raw.strip():
-            cursor += len(raw)
-            continue
-        # Safely find raw in chunk_text starting from cursor
-        try:
-            start = chunk_text.index(raw, cursor)
-        except ValueError:
-            # Edge case: regex split produced a fragment not in original text
-            # Fall back to treating the whole chunk as one sentence
-            sentences = [(chunk_text.strip(), 0, len(chunk_text))]
-            break
-        end = start + len(raw)
-        sentences.append((raw.strip(), start, end))
-        cursor = end
+    
+    # Handle Chinese text: split on 。！？ without requiring whitespace
+    # This regex finds sentence endings and captures the delimiter
+    chinese_sentence_pattern = re.compile(r'([。！？])')
+    english_sentence_pattern = re.compile(r'(?<=[.!?])\s+')
+    
+    # Check if text appears to be primarily Chinese (contains Chinese characters)
+    has_chinese = bool(re.search(r'[\u4e00-\u9fff]', chunk_text))
+    
+    if has_chinese:
+        # For Chinese: split on 。！？ directly
+        # Process character by character to find sentence boundaries
+        current_sentence_chars: list[str] = []
+        cursor = 0
+        
+        i = 0
+        while i < len(chunk_text):
+            char = chunk_text[i]
+            current_sentence_chars.append(char)
+            
+            if char in '。！？':
+                # Found sentence ending - flush this sentence
+                sentence_text = ''.join(current_sentence_chars).strip()
+                if sentence_text:
+                    start = cursor
+                    end = cursor + len(sentence_text)
+                    sentences.append((sentence_text, start, end))
+                current_sentence_chars = []
+                cursor = i + 1
+            i += 1
+        
+        # Handle remaining text as last sentence
+        if current_sentence_chars:
+            remaining = ''.join(current_sentence_chars).strip()
+            if remaining:
+                sentences.append((remaining, cursor, len(chunk_text)))
     else:
-        if not sentences:
-            sentences = [(chunk_text.strip(), 0, len(chunk_text))]
+        # For English: split on sentence-ending punctuation followed by whitespace
+        # but try to avoid splitting on common abbreviations
+        abbrev_pattern = re.compile(r'\b(e\.g\.|i\.e\.|et al\.|Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.|vs\.|etc\.)\s*$', re.IGNORECASE)
+        
+        raw_sentences = english_sentence_pattern.split(chunk_text)
+        cursor = 0
+        
+        for raw in raw_sentences:
+            if not raw.strip():
+                cursor += len(raw)
+                continue
+            
+            # Check if this fragment ends with an abbreviation (would be wrong split)
+            try:
+                start = chunk_text.index(raw, cursor)
+            except ValueError:
+                sentences = [(chunk_text.strip(), 0, len(chunk_text))]
+                break
+            end = start + len(raw)
+            
+            # Check last few characters before this fragment for abbreviation
+            if start >= 3:
+                before_text = chunk_text[max(0, start - 10):start]
+                if abbrev_pattern.search(before_text):
+                    # This was a false split - merge with previous
+                    if sentences:
+                        prev_text, prev_start, _ = sentences.pop()
+                        merged_text = prev_text + ' ' + raw.strip()
+                        merged_end = end
+                        sentences.append((merged_text.strip(), prev_start, merged_end))
+                        cursor = end
+                        continue
+            
+            sentences.append((raw.strip(), start, end))
+            cursor = end
+
+    if not sentences:
+        sentences = [(chunk_text.strip(), 0, len(chunk_text))]
 
     if query is None:
         # No query provided — return first sentence as anchor
@@ -120,13 +176,19 @@ def _extract_highlighted_sentence(
         sent_lower = sent_text.lower()
         # Count how many query terms appear in this sentence
         score = sum(1 for term in query_terms if term in sent_lower)
-        # Normalize by sentence length to avoid bias toward long sentences
-        normalized = score / max(len(sent_text), 1)
-        if normalized > best_score:
-            best_score = normalized
+        # Use raw match count as primary score (avoid bias toward very short sentences)
+        # Only use length normalization as tiebreaker for sentences with same match count
+        if score > best_score:
+            best_score = score
             best_sentence = sent_text
             best_start = start
             best_end = end
+        elif score == best_score and score > 0:
+            # Tiebreaker: prefer slightly longer sentences (more context)
+            if len(sent_text) > len(best_sentence or ''):
+                best_sentence = sent_text
+                best_start = start
+                best_end = end
 
     # Require at least one term match to consider it "highlighted"
     if best_score > 0 and best_sentence is not None:

@@ -1,5 +1,5 @@
 import { apiClient } from '../client';
-import { SourceCatalogResponse, SourceChunkResponse, SourceChunkWrapperResponse } from '../../../core/types/api';
+import { SourceCatalogResponse, SourceChunkWrapperResponse } from '../../../core/types/api';
 
 interface SourceCatalogWrapperResponse {
   items: SourceCatalogResponse[];
@@ -21,9 +21,11 @@ export const SourceService = {
     await apiClient.delete(`/sources/${docId}`);
   },
 
-  async getSourceChunks(docId: string): Promise<SourceChunkResponse[]> {
-    const { data } = await apiClient.get<SourceChunkWrapperResponse>(`/sources/${docId}/chunks`);
-    return data.chunks || [];
+  async getSourceChunks(docId: string, limit = 100): Promise<SourceChunkWrapperResponse> {
+    const { data } = await apiClient.get<SourceChunkWrapperResponse>(`/sources/${docId}/chunks`, {
+      params: { limit, offset: 0 },
+    });
+    return data;
   },
 
   async ingestUrls(urls: string[]): Promise<void> {

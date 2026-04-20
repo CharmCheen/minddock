@@ -3,13 +3,14 @@ import { useWorkspaceStore } from '../store';
 import { SourceService } from '../../../lib/api/services/sources';
 
 export const SourceDetailPanel: React.FC = () => {
-  const { 
-    selectedDocId, 
-    selectedDocDetail, 
-    selectedDocChunks, 
-    highlightedChunkId, 
-    loadingChunks, 
-    setDocChunks, 
+  const {
+    selectedDocId,
+    selectedDocDetail,
+    selectedDocChunks,
+    selectedDocTotalChunks,
+    highlightedChunkId,
+    loadingChunks,
+    setDocChunks,
     setLoadingChunks,
     setHighlightedChunkId
   } = useWorkspaceStore();
@@ -19,13 +20,13 @@ export const SourceDetailPanel: React.FC = () => {
 
     let mounted = true;
     setLoadingChunks(true);
-    
+
     SourceService.getSourceChunks(selectedDocId)
-      .then(chunks => {
+      .then((wrapper) => {
         if (mounted) {
-          setDocChunks(chunks);
+          setDocChunks(wrapper.chunks || [], wrapper.total_chunks || 0);
           setLoadingChunks(false);
-          
+
           // Auto-scroll to highlighted chunk if it was already selected (e.g. from citation click before load)
           if (highlightedChunkId) {
             setTimeout(() => {
@@ -37,7 +38,7 @@ export const SourceDetailPanel: React.FC = () => {
       })
       .catch(() => {
         if (mounted) {
-          setDocChunks([]);
+          setDocChunks([], 0);
           setLoadingChunks(false);
         }
       });
@@ -45,7 +46,7 @@ export const SourceDetailPanel: React.FC = () => {
     return () => { mounted = false; };
   }, [selectedDocId]);
 
-  // Effect to handle scroll when highlighedChunkId changes after chunks are loaded
+  // Effect to handle scroll when highlightedChunkId changes after chunks are loaded
   useEffect(() => {
     if (highlightedChunkId && !loadingChunks) {
       const el = document.getElementById(`chunk-${highlightedChunkId}`) || document.getElementById(`chunk-idx-${highlightedChunkId}`);
@@ -128,7 +129,9 @@ export const SourceDetailPanel: React.FC = () => {
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <span style={{color:'#94a3b8', fontSize:'11px'}}>📦</span>
-          {selectedDocChunks.length} chunks
+          {selectedDocTotalChunks > 0
+            ? `${selectedDocChunks.length} / ${selectedDocTotalChunks} chunks`
+            : `${selectedDocChunks.length} chunks`}
         </span>
         {selectedDocDetail.ingest_status && (
           <span style={{
@@ -141,8 +144,7 @@ export const SourceDetailPanel: React.FC = () => {
           </span>
         )}
       </div>
-      
-      
+
       {/* Chunk List */}
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '8px' }}>
         {loadingChunks && (
@@ -162,11 +164,11 @@ export const SourceDetailPanel: React.FC = () => {
             <div style={{ color: '#64748b', fontSize: '14px' }}>No chunks available for this document.</div>
           </div>
         )}
-        
+
         {selectedDocChunks.map((chunk) => {
           const isHighlighted = highlightedChunkId === chunk.chunk_id || highlightedChunkId === String(chunk.chunk_index);
           return (
-            <div 
+            <div
               key={chunk.chunk_id}
               id={`chunk-idx-${chunk.chunk_index}`}
               onClick={() => setHighlightedChunkId(chunk.chunk_id)}

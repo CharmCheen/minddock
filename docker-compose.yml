@@ -1,0 +1,34 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minddock-backend
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      EMBEDDING_MODEL: all-MiniLM-L6-v2
+      KB_DIR: knowledge_base
+      CHROMA_DIR: data/chroma
+      LOG_DIR: logs
+      LOG_LEVEL: INFO
+      RERANK_ENABLED: "true"
+      COMPRESS_ENABLED: "true"
+      WATCH_ENABLED: "false"
+    volumes:
+      # Mount knowledge base so documents persist and are editable from host
+      - ./knowledge_base:/app/knowledge_base
+      # Mount chroma data for persistence across container restarts
+      - ./data/chroma:/app/data/chroma
+      # Mount logs so they're accessible from host
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

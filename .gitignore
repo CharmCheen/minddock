@@ -37,11 +37,46 @@ data/processed/*
 data/index/*
 !data/index/.gitkeep
 data/chroma/
+data/eval_bias/
 
 # Environment
 .env
 .env.*
 *.local.ps1
 
+# Claude Code local config (preserve shared .claude/settings.json and .claude/skills/)
+.claude/settings.local.json
+.claude/local/
+.claude/cache/
+.claude/tmp/
+
 # Test artifacts
 .ruff_cache/
+
+# --- Development artifacts (local only) ---
+# Debug / inspection scripts
+debug_*.py
+debug_output*.txt
+debug_trace*.py
+debug_zh_abstract.py
+
+# Proof / inspection output
+proof_*.txt
+
+# Eval intermediate logs
+eval_run*.txt
+eval/_*.md
+
+# One-off inspection scripts
+front_matter_inspect.py
+
+# Local session archives
+docs/session_logs/
+
+# Frontend test artifacts
+frontend/test-results/
+
+# Runtime data (never commit)
+data/active_runtime.json
+frontend/data/
+data/chroma_backup_*/

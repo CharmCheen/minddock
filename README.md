@@ -1,320 +1,317 @@
 # MindDock
 
-MindDock is a personal knowledge management assistant backend built around a minimal RAG workflow. It is currently under active iterative development for a graduation project, with the main focus on private/local knowledge ingestion, retrieval, grounded answering, summarization, and incremental knowledge-base maintenance.
+MindDock is a backend-oriented personal knowledge management assistant built around a grounded RAG pipeline. The current work is focused on making both the ingest side and the retrieval side look like a maintainable program: explicit source identity, formal ingest models, formal retrieval models, controlled filter semantics, and clear service/runtime boundaries.
 
-The repository is no longer just a static concept description: the backend MVP is already runnable, but several modules are still being refined toward the full graduation-project target.
+The latest architecture work also adds:
 
-## Development Status
+- a frontend-facing application facade over the main use cases
+- a runtime port/adapter model so LangChain is no longer the only architectural center
+- a minimal skill registry skeleton for future tool/skill integration
 
-MindDock is currently in the MVP stage.
+## Current Scope
 
-What that means in practice:
+Implemented core capabilities:
 
-- the core backend loop is already runnable end-to-end
-- local knowledge can be ingested into a persistent Chroma store
-- the API can return search hits, grounded answers, summaries, and citations
-- incremental update support already exists for local file create / modify / delete
-- the project is still being iterated, tested, and documented toward a more complete defense-ready system
+- local file ingest for `.md`, `.txt`, `.pdf`
+- URL / HTML page ingest with og:title / og:description / og:image / canonical / domain metadata extraction; og:title preferred over `<title>` tag
+- persistent Chroma vector storage
+- `/search`, `/chat`, `/summarize`, `/compare`, `/ingest`, `/health`
+- source catalog / lifecycle endpoints for list, detail, chunk inspect, delete, and reingest
+- watcher-based incremental maintenance for create / modify / delete / move
+- LangChain-first generation runtime with explicit fallback to local mock mode when no API key is present
+- grounded citations shared across search, chat, summarize, and compare
+- lightweight rerank / compression, map-reduce summarize, Mermaid structured output
+- formal source/ingest models and loader registry
+- formal retrieval/citation/filter models shared by search/chat/summarize/compare
+- formal API response models and centralized route presenters
+- formal service result models for search/chat/summarize/compare/ingest
+- demo/eval internal consumers aligned to service results
+- frontend-facing orchestrators/facade for query and knowledge-base flows
+- runtime registry + runtime request/response adapters
+- skill registry skeleton with a minimal example skill
 
-For a lightweight progress snapshot that should stay in sync with every important push, see [docs/STATUS.md](docs/STATUS.md).
+## Formal Models
 
-## What Works Now
+### Source / ingest side
 
-Verified working parts of the current repository:
+Core objects:
 
-- FastAPI backend startup
-- `GET /`
-- `GET /health`
-- local knowledge ingestion
-- `.md`, `.txt`, and `.pdf` ingestion
-- Chroma persistence under `data/chroma`
-- `POST /search` in the basic case
-- `POST /chat`
-- `POST /summarize`
-- citation return for search/chat/summarize
-- watcher-based incremental update for file create / modify / delete
-- no-key local demo path via fallback/mock LLM behavior
+- `SourceDescriptor`
+- `SourceLoadResult`
+- `DocumentPayload`
+- `IngestSourceResult`
+- `IngestBatchResult`
+- `IncrementalUpdateResult`
+- `SourceCatalogEntry`
+- `SourceDetail`
+- `DeleteSourceResult`
+- `SourceChunkPreview`
+- `SourceChunkPage`
+- `SourceInspectResult`
 
-## Current Limitations
+### Retrieval side
 
-Known limitations that are still being worked on:
+Core objects:
 
-- rerank and compress are currently placeholder no-op hooks
-- URL ingestion is not implemented yet
-- multi-filter search is not fully stable against the current Chroma query behavior
-- `/ingest` with `rebuild=true` can fail in long-running API mode on Windows because Chroma files may be locked
-- real OpenAI-compatible remote generation exists in code, but local demos may still rely on the fallback/mock path
-- retrieval quality depends heavily on whether `sentence-transformers` is available or the system falls back to `DummyEmbedding`
-- CI workflow is not configured yet
-- some documentation files may lag behind the latest code changes if not updated together
+- `RetrievalFilters`
+- `RetrievedChunk`
+- `CitationRecord`
+- `ContextBlock`
+- `SearchHitRecord`
+- `SearchResult`
+- `GroundedSelectionResult`
 
-## Next Steps
+These objects keep internal service code off loose dict protocols. API compatibility is preserved by converting them to JSON at route boundaries.
 
-Near-term roadmap for the next iteration cycle:
+### Response / API side
 
-1. fix real runtime issues in filtered search and rebuild behavior
-2. improve retrieval quality and demo consistency
-3. add missing URL ingestion capability
-4. replace rerank/compress placeholders with real implementations or a smaller but concrete first version
-5. improve tests and add CI automation
-6. keep README, status docs, and demo docs synchronized as features evolve
-7. later extend toward richer workflow / agent-style orchestration beyond the current backend MVP
+Core boundary objects:
+
+- `SearchResponse`
+- `ChatResponse`
+- `SummarizeResponse`
+- `IngestResponse`
+- `CitationItem`
+- `FailedSourceItem`
+- `ErrorResponse`
+
+Routes now delegate most response serialization to a dedicated presenter layer instead of hand-assembling dicts per endpoint.
+
+### Service / use case side
+
+Core use-case result objects:
+
+- `SearchServiceResult`
+- `ChatServiceResult`
+- `SummarizeServiceResult`
+- `IngestServiceResult`
+- `UseCaseMetadata`
+- `RetrievalPreparationResult`
+
+These objects let the service layer return stable application results without forcing route handlers or presenters to understand service-internal dicts.
+
+`app/demo.py` and `app/eval/rag_eval.py` now treat these service results as the primary internal consumer contract. Presenter/response schemas remain reserved for HTTP API boundaries.
+
+More detail:
+
+- [docs/SOURCE_MODEL.md](docs/SOURCE_MODEL.md)
+- [docs/RETRIEVAL_MODEL.md](docs/RETRIEVAL_MODEL.md)
+- [docs/RESPONSE_MODEL.md](docs/RESPONSE_MODEL.md)
+- [docs/SERVICE_MODEL.md](docs/SERVICE_MODEL.md)
+- [docs/CATALOG_MODEL.md](docs/CATALOG_MODEL.md)
+- [docs/APPLICATION_LAYER.md](docs/APPLICATION_LAYER.md)
+- [docs/RUNTIME_MODEL.md](docs/RUNTIME_MODEL.md)
+- [docs/SKILL_MODEL.md](docs/SKILL_MODEL.md)
+
+## Source Types
+
+Currently supported source types:
+
+- `file`
+- `url`
+
+Current built-in file formats:
+
+- Markdown
+- plain text
+- PDF
+
+Important source rules:
+
+- `source` is the stable filter/citation identity
+- file `source` is repository-relative
+- URL `source` is the resolved final URL after redirects
+- `doc_id` is derived deterministically from `source`
+
+Management capabilities now built on top of that identity:
+
+- list indexed sources
+- inspect indexed source detail
+- inspect paginated chunk previews for one source
+- delete indexed sources
+- reingest a source by `doc_id` or exact `source`
+
+## Integration Guidance
+
+For future frontend work:
+
+- prefer the application facade/orchestrator layer instead of calling low-level services directly
+- keep HTTP API routes as thin adapters over that facade
+- treat the current LangChain runtime as one adapter behind the runtime port, not as the only possible runtime
+
+For future runtime expansion:
+
+- add a new runtime adapter and register it in the runtime registry
+- do not rewrite `ChatService` / `SummarizeService` for each backend
+
+For future skill work:
+
+- register skills through the skill registry
+- keep skill invocation outside route-local logic
+- prefer orchestrator/runtime composition over ad hoc helper functions
+
+## Retrieval and Filter Semantics
+
+`/search`, `/chat`, `/summarize`, and `/compare` now share the same retrieval/filter model.
+
+Supported filter capabilities:
+
+- `source`: single value or multiple values
+- `source_type`: single value or multiple values
+- `section`: exact match
+- `title_contains`: controlled case-insensitive contains
+- `requested_url_contains`: controlled case-insensitive contains
+- `page_from` / `page_to`: bounded page range filtering
+
+Current limits:
+
+- this is not a general boolean DSL
+- `contains` is intentionally limited to a small set of fields
+- complex nested filter expressions are not supported
 
 ## Quick Start
 
-### Shortest Demo Path
-
-From the repository root:
-
-```powershell
-conda env create -f environment.yml
-conda activate minddock
-python -m app.demo ingest
-python -m app.demo serve
-```
-
-Then verify the service:
-
-```powershell
-python -m app.demo health
-```
-
-Expected response:
-
-```json
-{"status":"ok","service":"MindDock","version":"0.1.0"}
-```
-
-### 1. Create and activate the recommended conda environment
-
-Windows PowerShell:
+### Environment
 
 ```powershell
 conda env create -f environment.yml
 conda activate minddock
 ```
 
-macOS / Linux:
-
-```bash
-conda env create -f environment.yml
-conda activate minddock
-```
-
-This repository now treats `conda` + `environment.yml` as the preferred local/demo setup.
-
-If you already have an older `.venv` workflow prepared, it can still work, but new local setup and demo rehearsal should prefer the conda path for consistency.
-
-### 2. Install dependencies
-
-The editable install is already included in `environment.yml`, so the simplest path is:
+### Install
 
 ```powershell
-conda env create -f environment.yml
-conda activate minddock
-```
-
-If you create the environment manually instead, install with `pip`:
-
-```powershell
-conda create -n minddock python=3.11 -y
-conda activate minddock
-pip install -U pip
 pip install -e ".[dev]"
 ```
 
-Notes:
-
-- if `sentence-transformers` is unavailable, the app falls back to `DummyEmbedding`
-- the fallback path keeps the MVP runnable, but retrieval quality is weaker
-- no `.env` file is required for the shortest local demo path
-
-### 3. Prepare the knowledge base
-
-The repository already ships with demo files under `knowledge_base/`, including Markdown and PDF samples.
-
-Current supported local file types in code:
-
-- `.md`
-- `.txt`
-- `.pdf`
-
-### 4. Build the local vector store
+### Build the index
 
 ```powershell
 python -m app.demo ingest
 ```
 
-Expected console output:
+Add one or more URLs during ingest:
 
-```text
-Loaded N documents
-Created M chunks
-Stored to Chroma
+```powershell
+python -m app.demo ingest --no-rebuild --url http://example.com
 ```
 
-### 5. Start the API
+Inspect one indexed source with chunk previews:
+
+```powershell
+python -m app.demo source-chunks --source notes.md --limit 5 --offset 0
+python -m app.demo source-chunks --source https://example.com/final --limit 3 --include-admin-metadata
+```
+
+### Start the API
 
 ```powershell
 python -m app.demo serve
 ```
 
-Default address:
-
-```text
-http://127.0.0.1:8000
-```
-
-Interactive docs:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-## Demo API Flow
-
-### Health check
+### Call the API
 
 ```powershell
-python -m app.demo health
+python -m app.demo search --query "local Chroma"
+python -m app.demo chat --query "How is data stored?"
+python -m app.demo summarize --topic "storage design"
+python -m app.demo compare --question "Compare the storage approaches across documents"
 ```
 
-### `/search`
+## URL Fetch Configuration
 
-```powershell
-python -m app.demo search
-```
+Relevant settings:
 
-What to look for:
+- `url_fetch_timeout_seconds`
+- `url_fetch_retry_count`
+- `url_fetch_retry_backoff_seconds`
+- `url_fetch_verify_ssl`
+- `url_fetch_allow_insecure_fallback`
+- `url_fetch_user_agent`
 
-- `hits` contains retrieved chunks
-- each hit includes `doc_id`, `chunk_id`, `source`, `distance`
-- each hit also includes a structured `citation`
+Defaults are intentionally conservative:
 
-### `/chat`
+- SSL verification is enabled
+- insecure fallback is disabled
 
-```powershell
-python -m app.demo chat
-```
+If insecure fallback is enabled, the loader may retry a failed SSL request without certificate verification. This is useful in constrained local environments, but it is not the safe default.
 
-What to look for:
+## API Notes
 
-- answer is built from retrieved evidence
-- citations are returned together with the answer
-- local demo can still run without a real remote API key
+### `POST /ingest`
 
-### `/summarize`
+Request fields:
 
-```powershell
-python -m app.demo summarize
-```
+- `rebuild`
+- `urls`
 
-What to look for:
+Response fields:
 
-- summary is grounded in retrieved chunks
-- citations reuse the same traceable structure as `/chat`
+- `documents`
+- `chunks`
+- `ingested_sources`
+- `failed_sources`
+- `partial_failure`
 
-## Incremental Update Demo
+`partial_failure=true` means at least one source failed but the request still completed successfully.
 
-Watcher mode is already useful for manual presentation/demo:
+### Shared error shape
 
-```powershell
-python -m app.demo watch
-```
+Handled API errors use the same top-level fields:
 
-Recommended live demo actions:
+- `error`
+- `category`
+- `detail`
+- `request_id`
 
-1. create a new `.md` file under `knowledge_base/`
-2. modify the file and show updated retrieval behavior
-3. delete the file and show the corresponding chunk removal
+`category` currently mirrors `error` and exists as an explicit extension point for future client logic.
 
-## Environment Notes
+### Source lifecycle endpoints
 
-### Recommended environment for live demo
+Available management endpoints:
 
-The currently recommended local/demo environment is:
+- `GET /sources`
+- `GET /sources/{doc_id}`
+- `GET /sources/by-source?source=...`
+- `DELETE /sources/{doc_id}`
+- `DELETE /sources/by-source?source=...`
+- `POST /sources/{doc_id}/reingest`
+- `POST /sources/by-source/reingest?source=...`
 
-- `conda`
-- Python `3.11`
-- environment created from `environment.yml`
+### Shared retrieval filters
 
-This path has been used to validate the current demo command layer:
+The same filter object is accepted by:
 
-- `python -m app.demo ingest`
-- `python -m app.demo serve`
-- `python -m app.demo health`
-- `python -m app.demo search`
-- `python -m app.demo chat`
-- `python -m app.demo summarize`
+- `/search`
+- `/chat`
+- `/summarize`
 
-### Logging layout
+Filter execution is split deliberately:
 
-MindDock now uses a fixed logging directory and layered log files:
-
-- `logs/minddock.info.log`: business-level info, warnings, and errors
-- `logs/minddock.debug.log`: debug-level diagnostics
-- `logs/minddock.trace.log`: fine-grained trace events
-
-The default directory comes from `Settings.log_dir` and currently resolves to `logs/`.
-
-### DummyEmbedding vs real embedding
-
-If `sentence-transformers` cannot load, the system falls back to `DummyEmbedding`.
-
-That means:
-
-- the project still runs locally
-- the ingestion/search/chat/summarize loop still works
-- semantic quality is weaker than with a real embedding model
-
-### API key vs no API key
-
-Without `LLM_API_KEY`:
-
-- `/chat` and `/summarize` still work through the local fallback path
-- this is usually the safer on-site demo mode
-
-With `LLM_API_KEY`:
-
-- the OpenAI-compatible provider can be used
-- output quality may improve
-- demo stability becomes more dependent on network/provider conditions
+- vector store handles exact-match-friendly constraints
+- retrieval layer applies controlled post-filtering for multi-value, contains, and page-range behavior
 
 ## Tests
 
-Run the full test suite:
+Run the full suite:
 
 ```powershell
 python -m pytest
 ```
 
-If incremental maintenance changed:
+Run the most relevant stage 6 tests:
 
 ```powershell
-python -m pytest tests/unit/test_incremental_ingest.py tests/unit/test_watcher.py
+python -m pytest tests/unit/test_retrieval_models.py tests/unit/test_search_service.py tests/unit/test_chat_service.py tests/unit/test_summarize_service.py tests/integration/test_system_pipeline.py
 ```
 
-## Documentation Map
+## Known Limits
 
-- [docs/STATUS.md](docs/STATUS.md): current stage, completed items, issues, next priorities
-- [docs/DEMO_CN.md](docs/DEMO_CN.md): Chinese demo/presentation guide
-- [docs/DEMO_REHEARSAL_CN.md](docs/DEMO_REHEARSAL_CN.md): Chinese rehearsal script with short demo commands
-- [docs/ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md): concise architecture summary
-- [docs/TEST_PLAN.md](docs/TEST_PLAN.md): local validation scope
-- [docs/INCREMENTAL_DEMO.md](docs/INCREMENTAL_DEMO.md): focused incremental demo notes
-- [docs/DEMO_FLOW.md](docs/DEMO_FLOW.md): end-to-end defense demo flow
-- [docs/CHANGELOG.md](docs/CHANGELOG.md): modification history
-
-## Progress Tracking Convention
-
-This repository is maintained as an actively iterating graduation-project backend. Whenever an important feature, runtime fix, or demo-visible behavior is merged or pushed, the following docs should be reviewed and synchronized in the same change set when applicable:
-
-- `README.md`
-- `docs/STATUS.md`
-- `docs/DEMO_CN.md`
-- `docs/CHANGELOG.md`
-
-This is a workflow convention for keeping code status, demo narrative, and repository history aligned over time.
+- URL metadata extraction requires a fetchable, HTML-rendered page; JavaScript-rendered pages and paywalled content are not supported
+- filter semantics are controlled and intentionally limited, not a full query language
+- vector-store post-filtering may fetch extra candidates when enhanced filters are used
+- Chroma rebuild behavior on Windows is mitigated but not fully under application control
+- no CI workflow is configured yet
 
 ## License
 

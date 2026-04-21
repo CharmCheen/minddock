@@ -10,7 +10,9 @@ Target flow:
 2. search
 3. question answering
 4. topic summarization
-5. incremental maintenance
+5. structured Mermaid output
+6. document compare
+7. incremental maintenance
 
 ## Demo Preparation
 
@@ -117,7 +119,69 @@ What to point at:
 - `citations`
 - `retrieved_count`
 
-## Step 5: Incremental Update Demo
+Optional upgraded demo:
+
+```powershell
+python -m app.demo summarize --mode map_reduce
+```
+
+What to say:
+
+- this version first builds partial summaries across grouped evidence and then reduces them into one grounded synthesis
+- it is still traceable back to the original citations
+
+Optional Mermaid demo:
+
+```powershell
+python -m app.demo summarize --mode map_reduce --output-format mermaid
+```
+
+What to point at:
+
+- `structured_output`
+- the returned Mermaid text is grounded in retrieved evidence
+
+## Step 5: Structured Output Demo
+
+Use the Mermaid variant above and explain:
+
+- the system can turn grounded evidence into a structured representation for demo/presentation use
+- this is a lightweight first version of knowledge-structure output, not yet a full visual reasoning engine
+
+## Step 6: Compare Demo
+
+The compare feature performs grounded multi-document comparison through the unified execution protocol. It requires at least two indexed documents to compare.
+
+Example requests:
+
+```powershell
+# Compare across all indexed sources
+python -m app.demo compare
+
+# Compare specific sources (comma-separated)
+python -m app.demo compare --filters doc_a.md,doc_b.md
+
+# Via API
+python -m app.demo compare --via-api
+```
+
+What to say:
+
+- compare is a first-class task type in the unified execution protocol
+- it reuses the same retrieval, rerank, and compression chain as chat and summarize
+- compare runs through the unified `/frontend/execute` path and produces both a text summary and a `compare.v1` structured artifact
+- evidence freshness is tracked per source so stale or invalidated sources are flagged in the response
+
+What to point at:
+
+- `common_points` — points where both documents agree
+- `differences` — points where documents diverge
+- `conflicts` — points where documents contradict each other
+- `support_status` — overall grounding quality
+- `citations` — traceable evidence for each comparison point
+- the `compare.v1` structured artifact and its `schema_name`
+
+## Step 7: Incremental Update Demo
 
 Best run with watcher in a second terminal:
 
@@ -188,4 +252,5 @@ You can summarize the project like this:
 2. We then perform controlled retrieval on top of that local store.
 3. On top of retrieval, we support grounded Q&A with citations.
 4. We also support grounded topic summarization with the same citation chain.
-5. Finally, we support incremental maintenance so the knowledge base can stay updated as files change.
+5. We support grounded multi-document comparison through a unified execution protocol.
+6. Finally, we support incremental maintenance so the knowledge base can stay updated as files change.

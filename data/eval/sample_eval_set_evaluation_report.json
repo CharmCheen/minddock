@@ -1,0 +1,635 @@
+{
+  "dataset_path": "eval\\benchmark\\sample_eval_set.jsonl",
+  "generated_at": "2026-04-07T12:40:03+00:00",
+  "cases": [
+    {
+      "id": "search_storage_chroma",
+      "task_type": "search",
+      "query": "Where does MindDock store document chunks and metadata?",
+      "expected_doc_ids": [
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d"
+      ],
+      "expected_chunk_ids": [
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:0"
+      ],
+      "expected_citation_doc_ids": [
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d"
+      ],
+      "notes": "Single-document retrieval from example.md Storage section.",
+      "top_k": 5
+    },
+    {
+      "id": "search_extension_points",
+      "task_type": "search",
+      "query": "Which source describes extension points for future development?",
+      "expected_doc_ids": [
+        "b82bfe7e81999e992be9158e66e513f1963eb921"
+      ],
+      "expected_chunk_ids": [
+        "b82bfe7e81999e992be9158e66e513f1963eb921:3"
+      ],
+      "expected_citation_doc_ids": [],
+      "notes": "Single-document retrieval from architecture.md Extension Points.",
+      "top_k": 5
+    },
+    {
+      "id": "search_retrieval_flow",
+      "task_type": "search",
+      "query": "What retrieval method does MindDock use at query time?",
+      "expected_doc_ids": [
+        "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+      ],
+      "expected_chunk_ids": [
+        "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:3"
+      ],
+      "expected_citation_doc_ids": [],
+      "notes": "Single-document retrieval from rag_pipeline.md Retrieval section.",
+      "top_k": 5
+    },
+    {
+      "id": "chat_citation_fields",
+      "task_type": "chat",
+      "query": "What citation fields do chat and summarize responses return?",
+      "expected_doc_ids": [
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d"
+      ],
+      "expected_chunk_ids": [
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:1"
+      ],
+      "expected_citation_doc_ids": [
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d"
+      ],
+      "notes": "Single-document QA grounded in example.md Citations section.",
+      "top_k": 5
+    },
+    {
+      "id": "chat_architecture_flow",
+      "task_type": "chat",
+      "query": "How does MindDock process data from ingestion to grounded answer generation?",
+      "expected_doc_ids": [
+        "b82bfe7e81999e992be9158e66e513f1963eb921"
+      ],
+      "expected_chunk_ids": [
+        "b82bfe7e81999e992be9158e66e513f1963eb921:2"
+      ],
+      "expected_citation_doc_ids": [
+        "b82bfe7e81999e992be9158e66e513f1963eb921"
+      ],
+      "notes": "Single-document QA grounded in architecture.md Data Flow section.",
+      "top_k": 5
+    },
+    {
+      "id": "chat_supported_filters",
+      "task_type": "chat",
+      "query": "Which metadata filters are currently supported by search and chat?",
+      "expected_doc_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+      ],
+      "expected_chunk_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4:5"
+      ],
+      "expected_citation_doc_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+      ],
+      "notes": "Single-document QA grounded in api_usage.md Filters section.",
+      "top_k": 5
+    },
+    {
+      "id": "chat_insufficient_token_rotation",
+      "task_type": "chat",
+      "query": "What token rotation strategy does MindDock use for authentication?",
+      "expected_doc_ids": [],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [],
+      "notes": "Evidence-insufficient scenario; current docs only say authentication is not required.",
+      "top_k": 5
+    },
+    {
+      "id": "compare_architecture_vs_rag",
+      "task_type": "compare",
+      "query": "Compare architecture.md and rag_pipeline.md in how they describe retrieval and answer generation.",
+      "expected_doc_ids": [
+        "b82bfe7e81999e992be9158e66e513f1963eb921",
+        "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "b82bfe7e81999e992be9158e66e513f1963eb921",
+        "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+      ],
+      "notes": "Cross-document compare over architecture.md and rag_pipeline.md.",
+      "top_k": 6
+    },
+    {
+      "id": "compare_example_vs_api",
+      "task_type": "compare",
+      "query": "Compare example.md and api_usage.md on how they describe search and chat related interfaces.",
+      "expected_doc_ids": [
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+      ],
+      "expected_chunk_ids": [],
+      "expected_citation_doc_ids": [
+        "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+      ],
+      "notes": "Cross-document compare over example.md and api_usage.md.",
+      "top_k": 6
+    },
+    {
+      "id": "search_ingest_endpoint",
+      "task_type": "search",
+      "query": "Which endpoint triggers a batch ingestion of all documents in the knowledge base directory?",
+      "expected_doc_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+      ],
+      "expected_chunk_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4:3"
+      ],
+      "expected_citation_doc_ids": [
+        "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+      ],
+      "notes": "Single-document retrieval from api_usage.md Ingest Endpoint section.",
+      "top_k": 5
+    }
+  ],
+  "results": [
+    {
+      "case_id": "search_storage_chroma",
+      "task_type": "search",
+      "query": "Where does MindDock store document chunks and metadata?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "b82bfe7e81999e992be9158e66e513f1963eb921"
+        ],
+        "observed_chunk_ids": [
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:0",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:0",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:0",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:1",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:2"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "b82bfe7e81999e992be9158e66e513f1963eb921"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 160.08,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "search_extension_points",
+      "task_type": "search",
+      "query": "Which source describes extension points for future development?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "d8ad79b42c7a9703550162be16f453f206459546",
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "observed_chunk_ids": [
+          "b82bfe7e81999e992be9158e66e513f1963eb921:3",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:1",
+          "d8ad79b42c7a9703550162be16f453f206459546:19",
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02:7",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:25"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": null,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "d8ad79b42c7a9703550162be16f453f206459546",
+          "c544c16bdcbed7f82511bd1b83484d2a4b85ef02",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 45.5,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "search_retrieval_flow",
+      "task_type": "search",
+      "query": "What retrieval method does MindDock use at query time?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "observed_chunk_ids": [
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:0",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:0",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:0",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:18",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:16"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": null,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 45.66,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5"
+      ]
+    },
+    {
+      "case_id": "chat_citation_fields",
+      "task_type": "chat",
+      "query": "What citation fields do chat and summarize responses return?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+        ],
+        "observed_chunk_ids": [
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:1",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:2",
+          "05e158c56fc65745a040dae664c868233063ead9:21",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:4"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 4,
+        "citation_doc_ids": [
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "05e158c56fc65745a040dae664c868233063ead9",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 3357.82,
+      "insufficient_evidence": false,
+      "response_preview": "<think>\nThe user is asking about what citation fields chat and summarize responses return.\n\nFrom the evidence provided:\n[example > Citations | 56b97ed9cc7de1...",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "chat_architecture_flow",
+      "task_type": "chat",
+      "query": "How does MindDock process data from ingestion to grounded answer generation?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "fe3a286169617d6d963b87f751efa5c00f422674",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+        ],
+        "observed_chunk_ids": [
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:4",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:0",
+          "fe3a286169617d6d963b87f751efa5c00f422674:2",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:2"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 4,
+        "citation_doc_ids": [
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "fe3a286169617d6d963b87f751efa5c00f422674",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 10477.76,
+      "insufficient_evidence": false,
+      "response_preview": "<think>\nThe user is asking about how MindDock processes data from ingestion to grounded answer generation. Let me analyze the evidence provided to construct ...",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5",
+        "citation_expected_source_miss"
+      ]
+    },
+    {
+      "case_id": "chat_supported_filters",
+      "task_type": "chat",
+      "query": "Which metadata filters are currently supported by search and chat?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "05e158c56fc65745a040dae664c868233063ead9"
+        ],
+        "observed_chunk_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:5",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5:5",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:1",
+          "05e158c56fc65745a040dae664c868233063ead9:21"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 4,
+        "citation_doc_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "7624bd969988f79d49a6064c0c79d451498bb1f5",
+          "05e158c56fc65745a040dae664c868233063ead9"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 4428.95,
+      "insufficient_evidence": false,
+      "response_preview": "<think>\nThe user is asking which metadata filters are currently supported by search and chat endpoints.\n\nLooking at the evidence provided:\n\nFrom the first so...",
+      "warnings": [],
+      "failure_reasons": []
+    },
+    {
+      "case_id": "chat_insufficient_token_rotation",
+      "task_type": "chat",
+      "query": "What token rotation strategy does MindDock use for authentication?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+        ],
+        "observed_chunk_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:0",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d:0",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:0",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:0"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": null,
+        "overall_consistent": true,
+        "citation_count": 4,
+        "citation_doc_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "56b97ed9cc7de1ecc311f1ecfd9454276e83842d",
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 4793.48,
+      "insufficient_evidence": false,
+      "response_preview": "<think>\nThe user is asking about MindDock's token rotation strategy for authentication.\n\nLet me examine the evidence provided:\n\n1. The Authentication section...",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5"
+      ]
+    },
+    {
+      "case_id": "compare_architecture_vs_rag",
+      "task_type": "compare",
+      "query": "Compare architecture.md and rag_pipeline.md in how they describe retrieval and answer generation.",
+      "top_k": 6,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": false,
+        "hit_at_3": false,
+        "hit_at_5": false,
+        "observed_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "fe3a286169617d6d963b87f751efa5c00f422674"
+        ],
+        "observed_chunk_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:0",
+          "fe3a286169617d6d963b87f751efa5c00f422674:1"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 2,
+        "citation_doc_ids": [
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd",
+          "fe3a286169617d6d963b87f751efa5c00f422674"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 190.24,
+      "insufficient_evidence": false,
+      "response_preview": "Comparison question: Compare architecture.md and rag_pipeline.md in how they describe retrieval and answer generation.\nCommon points:\n- Both sources contain ...",
+      "warnings": [],
+      "failure_reasons": [
+        "retrieval_miss@5",
+        "citation_expected_source_miss"
+      ]
+    },
+    {
+      "case_id": "compare_example_vs_api",
+      "task_type": "compare",
+      "query": "Compare example.md and api_usage.md on how they describe search and chat related interfaces.",
+      "top_k": 6,
+      "retrieval": {
+        "match_basis": "doc",
+        "hit_at_1": false,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+        ],
+        "observed_chunk_ids": [
+          "b82bfe7e81999e992be9158e66e513f1963eb921:1",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:2"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": false,
+        "overall_consistent": false,
+        "citation_count": 2,
+        "citation_doc_ids": [
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 186.13,
+      "insufficient_evidence": false,
+      "response_preview": "Comparison question: Compare example.md and api_usage.md on how they describe search and chat related interfaces.\nCommon points:\n- Both sources contain evide...",
+      "warnings": [],
+      "failure_reasons": [
+        "citation_expected_source_miss"
+      ]
+    },
+    {
+      "case_id": "search_ingest_endpoint",
+      "task_type": "search",
+      "query": "Which endpoint triggers a batch ingestion of all documents in the knowledge base directory?",
+      "top_k": 5,
+      "retrieval": {
+        "match_basis": "chunk",
+        "hit_at_1": true,
+        "hit_at_3": true,
+        "hit_at_5": true,
+        "observed_doc_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "observed_chunk_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:3",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a:1",
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4:1",
+          "b82bfe7e81999e992be9158e66e513f1963eb921:2",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd:17"
+        ]
+      },
+      "citation": {
+        "structure_consistent": true,
+        "expected_source_consistent": true,
+        "overall_consistent": true,
+        "citation_count": 5,
+        "citation_doc_ids": [
+          "5f791bd9a336667614fb50c3eee8d9cf82026fa4",
+          "97a1bf3bafb6e15d0bce34346ae13bbe7247000a",
+          "b82bfe7e81999e992be9158e66e513f1963eb921",
+          "d07a9187d3b876532d8b16a463cc25e36b5cb9bd"
+        ],
+        "dangling_citation_keys": []
+      },
+      "latency_ms": 42.6,
+      "insufficient_evidence": false,
+      "response_preview": "",
+      "warnings": [],
+      "failure_reasons": []
+    }
+  ],
+  "summary": {
+    "dataset_size": 10,
+    "task_counts": {
+      "search": 4,
+      "chat": 4,
+      "compare": 2
+    },
+    "retrieval": {
+      "hit_at_1": 0.5,
+      "hit_at_3": 0.6,
+      "hit_at_5": 0.6
+    },
+    "citation": {
+      "overall_consistency_rate": 0.7,
+      "structure_consistency_rate": 1.0,
+      "expected_source_consistency_rate": 0.5714,
+      "expected_source_case_count": 7
+    },
+    "latency": {
+      "overall": {
+        "avg_ms": 2372.82,
+        "p50_ms": 188.19,
+        "p95_ms": 7919.83,
+        "max_ms": 10477.76,
+        "sample_count": 10
+      },
+      "by_task_type": {
+        "chat": {
+          "avg_ms": 5764.5,
+          "p50_ms": 4611.22,
+          "p95_ms": 9625.12,
+          "max_ms": 10477.76,
+          "sample_count": 4
+        },
+        "compare": {
+          "avg_ms": 188.19,
+          "p50_ms": 188.19,
+          "p95_ms": 190.03,
+          "max_ms": 190.24,
+          "sample_count": 2
+        },
+        "search": {
+          "avg_ms": 73.46,
+          "p50_ms": 45.58,
+          "p95_ms": 142.92,
+          "max_ms": 160.08,
+          "sample_count": 4
+        }
+      }
+    },
+    "failed_case_count": 5
+  }
+}

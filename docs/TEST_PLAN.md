@@ -12,6 +12,9 @@ Keep MindDock's MVP behavior stable while the retrieval and orchestration layers
 - Service logic with mocked dependencies
 - Splitter and utility behavior
 - Incremental ingest create / modify / delete behavior
+- Reranker/compressor behavior
+- Mermaid structured output rendering
+- Lightweight evaluation helper behavior
 
 ### Integration
 
@@ -39,6 +42,18 @@ If ingestion or retrieval code changed, also run:
 python -m app.rag.ingest --rebuild
 ```
 
+If post-retrieval logic or summarize modes changed, also run:
+
+```bash
+python -m pytest tests/unit/test_postprocess.py tests/unit/test_summarize_service.py tests/unit/test_structured_output_service.py
+```
+
+If experiment/evaluation helpers changed, also run:
+
+```bash
+python scripts/evaluate_rag.py
+```
+
 If incremental maintenance changed, also review:
 
 ```bash
@@ -56,14 +71,17 @@ Then manually exercise:
 - `/search`
 - `/chat`
 - `/summarize`
+- `/compare` (requires at least 2 indexed documents for meaningful output)
 - watcher-based incremental maintenance
 
 Recommended demo dataset:
 
 - `knowledge_base/example.md`
+- `knowledge_base/architecture.md`
+- `knowledge_base/api_usage.md`
 
 ## Deferred
 
 - Performance benchmarks
-- Citation quality evaluation dataset
+- Larger citation quality evaluation dataset
 - End-to-end workflow replay tests

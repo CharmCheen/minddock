@@ -36,6 +36,12 @@ class _WatchHandler:
                     return
                 service.handle_deleted(Path(event.src_path))
 
+            def on_moved(self, event) -> None:  # type: ignore[no-untyped-def]
+                if event.is_directory:
+                    return
+                service.handle_deleted(Path(event.src_path))
+                service.handle_created(Path(event.dest_path))
+
         self.instance = Handler()
 
 

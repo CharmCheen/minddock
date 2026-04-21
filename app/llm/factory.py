@@ -1,25 +1,50 @@
-"""Factory for choosing the active LLM provider."""
+"""Compatibility factory helpers for the generation runtime.
+
+The primary runtime path is now exposed through ``app.runtime``.
+This module remains as a compatibility bridge so existing service imports and
+tests can keep using ``get_generation_runtime()`` while the architecture moves
+toward a runtime port/adapter model.
+"""
 
 from __future__ import annotations
 
-from app.core.config import get_settings
-from app.llm.mock import MockLLM
-from app.llm.openai_compatible import FallbackLLM, OpenAICompatibleLLM
-from ports.llm import LLMProvider
+from functools import lru_cache
+
+from app.runtime import GenerationRuntime, ResolvedRuntimeBinding
+from app.core.exceptions import RuntimeResolutionFailedError
+from app.runtime.factory import get_runtime_factory
+from app.runtime.profiles import get_runtime_profile_registry
+
+LangChainGenerationRuntime = GenerationRuntime
 
 
-def get_llm_provider() -> LLMProvider:
-    """Return the configured provider, with MockLLM as default/fallback."""
+@lru_cache(maxsize=1)
+def get_generation_runtime() -> GenerationRuntime:
+    """Return the default registered generation runtime."""
 
-    settings = get_settings()
-    mock = MockLLM()
-    if not settings.llm_api_key.strip():
-        return mock
-
-    real = OpenAICompatibleLLM(
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url,
-        model=settings.llm_model,
-        timeout_seconds=settings.llm_timeout_seconds,
+    profiles = get_runtime_profile_registry().list_profiles(include_disabled=False)
+    if not profiles:
+        raise RuntimeResolutionFailedError(detail="No enabled runtime profiles are configured.")
+    profile = profiles[0]
+    factory = get_runtime_factory()
+    return factory.create(
+        binding=ResolvedRuntimeBinding(
+            selected_profile_id=profile.profile_id,
+            adapter_kind=profile.adapter_kind,
+            provider_kind=profile.provider_kind,
+            model_name=profile.model_name,
+            resolved_capabilities=factory.runtime_registry.resolve_capabilities(profile),
+            fallback_used=False,
+            selection_reason="legacy_default_profile",
+        )
     )
-    return FallbackLLM(primary=real, fallback=mock)
+
+
+def get_llm_provider():
+    """Return the provider attached to the default runtime when available."""
+
+    runtime = get_generation_runtime()
+    provider = getattr(runtime, "provider", None)
+    if provider is None:
+        raise RuntimeError("The configured runtime does not expose a direct provider.")
+    return provider

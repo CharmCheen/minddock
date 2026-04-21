@@ -1,0 +1,38 @@
+import { apiClient } from '../client';
+import { SourceCatalogResponse, SourceChunkWrapperResponse } from '../../../core/types/api';
+
+interface SourceCatalogWrapperResponse {
+  items: SourceCatalogResponse[];
+  total: number;
+}
+
+export const SourceService = {
+  async getSources(): Promise<SourceCatalogResponse[]> {
+    const { data } = await apiClient.get<SourceCatalogWrapperResponse>('/sources');
+    return data.items || [];
+  },
+
+  async getSource(docId: string): Promise<SourceCatalogResponse> {
+    const { data } = await apiClient.get<SourceCatalogResponse>(`/sources/${docId}`);
+    return data;
+  },
+
+  async deleteSource(docId: string): Promise<void> {
+    await apiClient.delete(`/sources/${docId}`);
+  },
+
+  async getSourceChunks(docId: string, limit = 100): Promise<SourceChunkWrapperResponse> {
+    const { data } = await apiClient.get<SourceChunkWrapperResponse>(`/sources/${docId}/chunks`, {
+      params: { limit, offset: 0 },
+    });
+    return data;
+  },
+
+  async ingestUrls(urls: string[]): Promise<void> {
+    await apiClient.post('/ingest', { urls, rebuild: false });
+  },
+
+  async reingestSource(docId: string): Promise<void> {
+    await apiClient.post(`/sources/${docId}/reingest`);
+  }
+};

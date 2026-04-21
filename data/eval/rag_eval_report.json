@@ -1,0 +1,39 @@
+{
+  "cases": [
+    {
+      "query": "Where does MindDock store document chunks and metadata?",
+      "expected_source": "example.md",
+      "top_sources": [
+        "example.md",
+        "rag_pipeline.md",
+        "architecture.md"
+      ],
+      "top_hit_match": true,
+      "search_latency_ms": 203.15,
+      "summary_latency_ms": 5622.46,
+      "citation_complete": true,
+      "retrieved_count": 3
+    },
+    {
+      "query": "Summarize how MindDock stores chunks and metadata",
+      "expected_source": "example.md",
+      "top_sources": [
+        "example.md",
+        "rag_pipeline.md",
+        "architecture.md"
+      ],
+      "top_hit_match": true,
+      "search_latency_ms": 20.52,
+      "summary_latency_ms": 7512.15,
+      "citation_complete": true,
+      "retrieved_count": 3
+    }
+  ],
+  "summary": {
+    "case_count": 2,
+    "top_hit_rate": 1.0,
+    "citation_complete_rate": 1.0,
+    "avg_search_latency_ms": 111.84,
+    "avg_summary_latency_ms": 6567.31
+  }
+}

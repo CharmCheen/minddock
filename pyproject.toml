@@ -21,7 +21,8 @@ dependencies = [
   "langchain-chroma>=0.1.0,<0.3.0",
   "langgraph>=0.2.0,<0.4.0",
   "sentence-transformers>=3.0.0,<4.0.0",
-  "pymupdf>=1.24.0,<2.0.0"
+  "pymupdf>=1.24.0,<2.0.0",
+  "jieba>=0.42.1,<1.0.0",
 ]
 
 [project.optional-dependencies]

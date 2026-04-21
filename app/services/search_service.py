@@ -6,7 +6,9 @@ import logging
 import time
 from dataclasses import dataclass, field
 
+from app.core.config import get_settings
 from app.core.exceptions import SearchError
+from app.rag.hybrid_retrieval import HybridRetrievalService, get_hybrid_retrieval_service
 from app.rag.retrieval_models import RetrievalFilters, RetrievedChunk, SearchHitRecord, SearchResult
 from app.services.service_models import RetrievalStats, SearchServiceResult, ServiceIssue, UseCaseMetadata, UseCaseTiming
 from app.rag.vectorstore import get_vectorstore
@@ -20,9 +22,21 @@ class SearchService:
     """Bridge API requests to vector retrieval with formal hit/citation models."""
 
     vectorstore: object = field(default_factory=get_vectorstore)
+    hybrid_service: HybridRetrievalService | None = None
+
+    def _get_hybrid_service(self) -> HybridRetrievalService:
+        if self.hybrid_service is None:
+            self.hybrid_service = get_hybrid_retrieval_service(
+                vectorstore=self.vectorstore,
+            )
+        return self.hybrid_service
 
     def retrieve(self, query: str, top_k: int, filters: RetrievalFilters | None = None) -> list[RetrievedChunk]:
         """Retrieve normalized hits from the vector store."""
+
+        settings = get_settings()
+        if settings.hybrid_retrieval_enabled:
+            return self._get_hybrid_service().retrieve(query=query, top_k=top_k, filters=filters)
 
         hits = self.vectorstore.search_by_text(query=query, top_k=top_k, filters=filters)
         logger.debug(

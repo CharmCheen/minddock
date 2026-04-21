@@ -37,6 +37,7 @@ data/processed/*
 data/index/*
 !data/index/.gitkeep
 data/chroma/
+data/eval_bias/
 
 # Environment
 .env
@@ -78,3 +79,4 @@ frontend/test-results/
 # Runtime data (never commit)
 data/active_runtime.json
 frontend/data/
+data/chroma_backup_*/

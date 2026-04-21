@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     compress_enabled: bool = True
     rerank_provider: str = RERANK_PROVIDER
     compress_provider: str = COMPRESS_PROVIDER
+    # Hybrid retrieval (dense + BM25 + RRF)
+    hybrid_retrieval_enabled: bool = False
+    bm25_top_k: int = 50
+    rrf_k: int = 60
     watch_enabled: bool = False
     watch_path: str = KB_DIR
     watch_debounce_seconds: float = WATCH_DEBOUNCE_SECONDS

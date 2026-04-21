@@ -2,9 +2,15 @@ import { UnifiedExecutionRequestBody, ClientEvent } from '../../../core/types/ap
 
 interface StreamCallbacks {
   onEvent: (event: ClientEvent) => void;
-  onError: (error: Error) => void;
+  onError: (error: Error, isNetworkError?: boolean) => void;
   onDone: () => void;
 }
+
+const isAbortError = (err: unknown): boolean =>
+  err instanceof Error && err.name === 'AbortError';
+
+const isBrowserNetworkError = (err: unknown): boolean =>
+  err instanceof TypeError && err.message.toLowerCase().includes('failed to fetch');
 
 export const ExecutionService = {
   executeStream(input: { query: string, task_type?: string }, callbacks: StreamCallbacks): AbortController {
@@ -86,12 +92,14 @@ export const ExecutionService = {
 
         
         callbacks.onDone();
-      } catch (err: any) {
-        if (err.name === 'AbortError') {
-          console.log('Stream cancelled by user.');
-        } else {
-          callbacks.onError(err);
+      } catch (err: unknown) {
+        if (isAbortError(err)) {
+          // HMR / user cancel — silent, no UI error
+          return;
         }
+        const isNetErr = isBrowserNetworkError(err);
+        const message = err instanceof Error ? err.message : String(err);
+        callbacks.onError(new Error(message), isNetErr);
       }
     };
 

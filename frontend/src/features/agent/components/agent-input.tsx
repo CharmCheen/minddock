@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAgentStore } from '../store';
+import { useAvailabilityStore } from '../../app/store/availability';
 import { ExamplePrompts } from './example-prompts';
 import { ExecutionService } from '../../../lib/api/services/execution';
 import { ClientArtifactPayload, ClientEvent } from '../../../core/types/api';
@@ -10,10 +11,24 @@ export const AgentInput: React.FC<{
 }> = ({ controller, setController }) => {
   const [query, setQuery] = useState('');
   const { status, taskType, setTaskType, artifacts, startRun, appendEvent, appendArtifact, finishRun, failRun, reset } = useAgentStore();
+  const { status: backendStatus } = useAvailabilityStore();
+
+  // Abort any in-progress stream on unmount / HMR
+  useEffect(() => {
+    return () => {
+      if (controller) {
+        controller.abort();
+      }
+    };
+  }, [controller]);
 
   const handleStart = () => {
     if (!query.trim()) return;
-    
+    if (backendStatus === 'offline' || backendStatus === 'checking') {
+      failRun('Backend is not available. Please wait or retry.');
+      return;
+    }
+
     reset();
     
     const ctrl = ExecutionService.executeStream(
@@ -38,8 +53,13 @@ export const AgentInput: React.FC<{
             failRun(data.error || data.message || 'Stream failed');
           }
         },
-        onError: (err) => {
-          failRun(err.message);
+        onError: (err, isNetworkError) => {
+          // Network errors from offline backend are expected — don't surface as red errors
+          if (isNetworkError) {
+            failRun('Backend unreachable. Retrying connection…');
+          } else {
+            failRun(err.message);
+          }
           setController(null);
         },
         onDone: () => {

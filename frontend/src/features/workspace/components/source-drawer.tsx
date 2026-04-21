@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useWorkspaceStore } from '../store';
 import { SourceService } from '../../../lib/api/services/sources';
+import { useAvailabilityStore } from '../../app/store/availability';
 
 export const SourceDrawer: React.FC = () => {
   const {
@@ -16,14 +17,17 @@ export const SourceDrawer: React.FC = () => {
     setHighlightedChunkId,
     setDrawerOpen,
   } = useWorkspaceStore();
+  const { status: backendStatus } = useAvailabilityStore();
 
   useEffect(() => {
     if (!drawerOpen || !selectedDocId) return;
+    if (backendStatus !== 'online') return;
 
     let mounted = true;
+    const controller = new AbortController();
     setLoadingChunks(true);
 
-    SourceService.getSourceChunks(selectedDocId)
+    SourceService.getSourceChunks(selectedDocId, 100, { signal: controller.signal })
       .then((wrapper) => {
         if (mounted) {
           setDocChunks(wrapper.chunks || [], wrapper.total_chunks || 0);
@@ -37,15 +41,19 @@ export const SourceDrawer: React.FC = () => {
           }
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === 'CanceledError') return;
         if (mounted) {
           setDocChunks([], 0);
           setLoadingChunks(false);
         }
       });
 
-    return () => { mounted = false; };
-  }, [open, selectedDocId]);
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, [drawerOpen, selectedDocId, backendStatus]);
 
   useEffect(() => {
     if (highlightedChunkId && !loadingChunks) {
@@ -161,7 +169,15 @@ export const SourceDrawer: React.FC = () => {
 
         {/* Chunk List */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {loadingChunks && (
+          {backendStatus !== 'online' && (
+            <div style={{ padding: '32px', textAlign: 'center', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca' }}>
+              <div style={{ color: '#ef4444', fontSize: '24px', marginBottom: '8px' }}>🔌</div>
+              <div style={{ color: '#dc2626', fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>Backend Offline</div>
+              <div style={{ color: '#94a3b8', fontSize: '13px' }}>Start the backend or retry connection to load chunks</div>
+            </div>
+          )}
+
+          {backendStatus === 'online' && loadingChunks && (
             <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
               <svg viewBox="0 0 24 24" width="24" height="24" style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }}>
                 <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
@@ -171,7 +187,7 @@ export const SourceDrawer: React.FC = () => {
             </div>
           )}
 
-          {!loadingChunks && selectedDocChunks.length === 0 && (
+          {backendStatus === 'online' && !loadingChunks && selectedDocChunks.length === 0 && (
             <div style={{ padding: '32px', textAlign: 'center', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
               <div style={{ color: '#cbd5e1', fontSize: '24px', marginBottom: '8px' }}>📭</div>
               <div style={{ color: '#64748b', fontSize: '14px' }}>No chunks available</div>

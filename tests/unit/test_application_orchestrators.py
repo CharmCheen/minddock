@@ -860,8 +860,28 @@ def test_unified_pipeline_emits_retrieval_trace_events(monkeypatch) -> None:
     chat_orchestrator = ChatOrchestrator()
     profile_registry, resolver, factory = _runtime_stack()
     registry = _run_registry()
+    controlled_hits = [
+        RetrievedChunk(
+            text="MindDock stores chunks in local Chroma.",
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/doc.md",
+            source_type="file",
+            title="doc",
+            section="Storage",
+            location="Storage",
+            ref="doc > Storage",
+            page=None,
+            anchor=None,
+            distance=0.1,
+        ),
+    ]
+
+    def fake_retrieve(self, query, top_k, filters=None):
+        return controlled_hits
 
     def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
+        assert precomputed_hits == controlled_hits
         return ChatServiceResult(
             answer="chat response",
             citations=[],
@@ -869,6 +889,7 @@ def test_unified_pipeline_emits_retrieval_trace_events(monkeypatch) -> None:
             metadata=UseCaseMetadata(retrieved_count=1, mode="grounded", support_status="supported"),
         )
 
+    monkeypatch.setattr(SearchService, "retrieve", fake_retrieve)
     monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
 
     facade = FrontendFacade(
@@ -910,4 +931,4 @@ def test_unified_pipeline_emits_retrieval_trace_events(monkeypatch) -> None:
     assert pipeline_done.payload is not None
     from app.application.events import RetrievalPipelineCompletedPayload
     assert isinstance(pipeline_done.payload, RetrievalPipelineCompletedPayload)
-    assert pipeline_done.payload.retrieved_hits > 0
+    assert pipeline_done.payload.retrieved_hits == len(controlled_hits)

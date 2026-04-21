@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { RuntimeConfigResponse } from '../../core/types/api';
-import { RuntimeConfigService } from '../../lib/api/services/runtime-config';
+import { RuntimeConfigService, RuntimeServiceOptions } from '../../lib/api/services/runtime-config';
+import { isNetworkError, getErrorMessage } from '../../lib/api/client';
 
 export interface RuntimeFormValues {
   provider: string;
@@ -17,30 +18,27 @@ interface TestResult {
 }
 
 interface SettingsState {
-  // --- Runtime state ---
-  config: RuntimeConfigResponse | null;     // what is currently ACTIVE (from last save/reset)
+  config: RuntimeConfigResponse | null;
   loading: boolean;
   saving: boolean;
   testing: boolean;
   resetting: boolean;
+  offline: boolean;          // true when backend unreachable
+  configMissing: boolean;    // true when backend online but runtime not configured
   error: string | null;
   successMessage: string | null;
-
-  // --- Test result (persists until form changes or reset) ---
   testResult: TestResult | null;
-  testTimestamp: number | null;             // Date.now() of last test
-
-  // --- Form editing state ---
+  testTimestamp: number | null;
   formValues: RuntimeFormValues;
-  isDirty: boolean;                        // true when form differs from last saved config
-
-  // --- Actions ---
-  loadConfig: () => Promise<void>;
-  saveConfig: (form: RuntimeFormValues) => Promise<void>;
-  testConnection: (form: Omit<RuntimeFormValues, 'enabled'>) => Promise<void>;
-  resetConfig: () => Promise<void>;
+  isDirty: boolean;
+  loadConfig: (options?: RuntimeServiceOptions) => Promise<void>;
+  saveConfig: (form: RuntimeFormValues, options?: RuntimeServiceOptions) => Promise<void>;
+  testConnection: (form: Omit<RuntimeFormValues, 'enabled'>, options?: RuntimeServiceOptions) => Promise<void>;
+  resetConfig: (options?: RuntimeServiceOptions) => Promise<void>;
   updateFormValues: (form: RuntimeFormValues) => void;
   clearMessages: () => void;
+  setOffline: () => void;
+  setOnline: () => void;
 }
 
 const DEFAULT_FORM: RuntimeFormValues = {
@@ -51,14 +49,14 @@ const DEFAULT_FORM: RuntimeFormValues = {
   enabled: false,
 };
 
-function formFromConfig(config: RuntimeConfigResponse | null, hasStoredKey: boolean): RuntimeFormValues {
+function formFromConfig(config: RuntimeConfigResponse | null): RuntimeFormValues {
   if (!config) return { ...DEFAULT_FORM };
   return {
-    provider: config.provider,
-    base_url: config.base_url,
-    model: config.model,
+    provider: config.provider || DEFAULT_FORM.provider,
+    base_url: config.base_url || DEFAULT_FORM.base_url,
+    api_key: '',
+    model: config.model || DEFAULT_FORM.model,
     enabled: config.enabled,
-    api_key: hasStoredKey ? '••••••••' : '',
   };
 }
 
@@ -68,8 +66,7 @@ function computeIsDirty(current: RuntimeFormValues, saved: RuntimeFormValues): b
     current.base_url !== saved.base_url ||
     current.model !== saved.model ||
     current.enabled !== saved.enabled ||
-    // api_key field: treat placeholder as unchanged; any real change makes it dirty
-    (current.api_key !== '' && current.api_key !== saved.api_key && current.api_key !== '••••••••')
+    current.api_key.trim() !== ''
   );
 }
 
@@ -79,6 +76,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   saving: false,
   testing: false,
   resetting: false,
+  offline: false,
+  configMissing: false,
   error: null,
   successMessage: null,
   testResult: null,
@@ -86,47 +85,64 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   formValues: { ...DEFAULT_FORM },
   isDirty: false,
 
-  loadConfig: async () => {
-    set({ loading: true, error: null });
+  setOffline: () => set({ offline: true, configMissing: false, loading: false }),
+  setOnline: () => set({ offline: false }),
+
+  loadConfig: async (options) => {
+    set({ loading: true, error: null, offline: false });
     try {
-      const config = await RuntimeConfigService.getConfig();
-      const hasStoredKey = config.api_key_masked;
-      const formValues = formFromConfig(config, hasStoredKey);
+      const config = await RuntimeConfigService.getConfig(options);
+      const formValues = formFromConfig(config);
       set({
         config,
         formValues,
         isDirty: false,
         loading: false,
+        offline: false,
+        configMissing: false,
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to load runtime config';
-      set({ error: message, loading: false });
+      if (isNetworkError(err)) {
+        // Backend unreachable is an offline state, not a saved configuration error.
+        set({ offline: true, loading: false, error: null });
+      } else {
+        set({ error: getErrorMessage(err, 'Failed to load runtime config'), loading: false, offline: false });
+      }
     }
   },
 
-  saveConfig: async (form) => {
+  saveConfig: async (form, options) => {
     set({ saving: true, error: null, successMessage: null });
     try {
-      const updated = await RuntimeConfigService.updateConfig(form);
-      const hasStoredKey = updated.api_key_masked;
-      const formValues = formFromConfig(updated, hasStoredKey);
+      const updated = await RuntimeConfigService.updateConfig({
+        ...form,
+        api_key: form.api_key.trim(),
+      }, options);
+      const formValues = formFromConfig(updated);
       set({
         config: updated,
         formValues,
         isDirty: false,
         saving: false,
-        successMessage: 'Configuration saved and now active. Changes take effect immediately.',
+        offline: false,
+        successMessage: 'Saved. Runtime changes are active for new runs.',
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to save runtime config';
-      set({ error: message, saving: false });
+      if (isNetworkError(err)) {
+        set({ saving: false, offline: true, error: null });
+      } else {
+        set({ error: getErrorMessage(err, 'Failed to save runtime config'), saving: false });
+      }
     }
   },
 
-  testConnection: async (form) => {
-    set({ testing: true, error: null });
+  testConnection: async (form, options) => {
+    set({ testing: true, error: null, testResult: null });
     try {
-      const result = await RuntimeConfigService.testConnection(form);
+      const result = await RuntimeConfigService.testConnection({
+        ...form,
+        api_key: form.api_key.trim(),
+      }, options);
       set({
         testing: false,
         testResult: {
@@ -135,23 +151,35 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           errorKind: result.error_kind ?? null,
         },
         testTimestamp: Date.now(),
+        offline: false,
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Connection test failed';
-      set({
-        testing: false,
-        testResult: { success: false, message, errorKind: 'unknown' },
-        testTimestamp: Date.now(),
-      });
+      if (isNetworkError(err)) {
+        set({
+          testing: false,
+          testResult: { success: false, message: 'Backend unreachable', errorKind: 'network' },
+          testTimestamp: Date.now(),
+          offline: true,
+        });
+      } else {
+        set({
+          testing: false,
+          testResult: {
+            success: false,
+            message: getErrorMessage(err, 'Connection test failed'),
+            errorKind: 'unknown',
+          },
+          testTimestamp: Date.now(),
+        });
+      }
     }
   },
 
-  resetConfig: async () => {
+  resetConfig: async (options) => {
     set({ resetting: true, error: null, successMessage: null });
     try {
-      const updated = await RuntimeConfigService.resetConfig();
-      const hasStoredKey = updated.api_key_masked;
-      const formValues = formFromConfig(updated, hasStoredKey);
+      const updated = await RuntimeConfigService.resetConfig(options);
+      const formValues = formFromConfig(updated);
       set({
         config: updated,
         formValues,
@@ -159,21 +187,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         resetting: false,
         testResult: null,
         testTimestamp: null,
-        successMessage: 'Configuration cleared. System now uses default runtime (no custom endpoint).',
+        successMessage: 'Cleared. The workspace is using the default runtime again.',
+        offline: false,
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to reset runtime config';
-      set({ error: message, resetting: false });
+      if (isNetworkError(err)) {
+        set({ resetting: false, offline: true, error: null });
+      } else {
+        set({ error: getErrorMessage(err, 'Failed to reset runtime config'), resetting: false });
+      }
     }
   },
 
   updateFormValues: (form) => {
-    const { config } = get();
-    const hasStoredKey = config?.api_key_masked ?? false;
-    const savedForm = formFromConfig(config, hasStoredKey);
+    const savedForm = formFromConfig(get().config);
     set({
       formValues: form,
       isDirty: computeIsDirty(form, savedForm),
+      successMessage: null,
+      testResult: null,
     });
   },
 

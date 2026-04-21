@@ -26,6 +26,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onSettingsClick }) => {
         <button
           onClick={onSettingsClick}
           title="Runtime Settings"
+          aria-label="Open settings"
+          data-testid="settings-button"
           style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '6px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'color 0.2s, background 0.2s' }}
           onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#e2e8f0'; (e.currentTarget as HTMLButtonElement).style.background = '#1e293b'; }}
           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'; (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}

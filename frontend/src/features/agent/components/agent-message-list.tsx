@@ -2,22 +2,21 @@ import React, { useEffect, useRef } from 'react';
 import { useAgentStore } from '../store';
 import { RawArtifactViewer } from './raw-artifact-viewer';
 
+const PHASE_LABELS: Record<string, string> = {
+  preparing: 'Preparing',
+  resolving_runtime: 'Resolving runtime',
+  retrieving: 'Retrieving sources',
+  generating: 'Generating answer',
+  finalizing: 'Finalizing output',
+};
+
 export const AgentMessageList: React.FC = () => {
   const { currentUserQuery, artifacts, status, taskType, events } = useAgentStore();
   const endRef = useRef<HTMLDivElement>(null);
 
-  // phase -> human-readable Chinese label
-  const PHASE_LABELS: Record<string, string> = {
-    preparing: '准备中',
-    resolving_runtime: '正在解析运行时',
-    retrieving: '正在检索资料',
-    generating: '正在生成结果',
-    finalizing: '正在整理输出',
-  };
-
-  const currentProgress = [...events].reverse().find(e => e.event === 'progress');
-  const rawPhase = (currentProgress?.data as any)?.phase as string | undefined;
-  const currentPhaseText = rawPhase ? (PHASE_LABELS[rawPhase] ?? rawPhase) : null;
+  const currentProgress = [...events].reverse().find((event) => event.event === 'progress');
+  const rawPhase = (currentProgress?.data as { phase?: string } | undefined)?.phase;
+  const currentPhaseText = rawPhase ? PHASE_LABELS[rawPhase] ?? rawPhase : null;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -26,62 +25,66 @@ export const AgentMessageList: React.FC = () => {
   if (!currentUserQuery && artifacts.length === 0 && status === 'idle') {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f4f4f5', flexDirection: 'column', padding: '24px' }}>
-        <div style={{ maxWidth: '480px', textAlign: 'center', background: '#fff', padding: '48px 40px', borderRadius: '20px', boxShadow: '0 8px 32px rgba(0,0,0,0.06)' }}>
-          <div style={{ width: '72px', height: '72px', borderRadius: '20px', background: 'linear-gradient(135deg, #e0e7ff 0%, #ede9fe 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px auto', boxShadow: '0 8px 16px rgba(0,0,0,0.06)' }}>
-            <span style={{ fontSize: '36px' }}>✨</span>
-          </div>
-          <h3 style={{ fontSize: '22px', fontWeight: '600', margin: '0 0 16px 0', color: '#1e293b', letterSpacing: '-0.01em' }}>Welcome to MindDock</h3>
-          <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.7', margin: '0 0 28px 0', textAlign: 'left' }}>
-            MindDock is your intelligent knowledge assistant. Core features:
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a', margin: '0 0 6px 0' }}>
+            Ask your knowledge base anything
+          </h3>
+          <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
+            Answers include citations from your sources
           </p>
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-            textAlign: 'left',
-            background: '#f8fafc',
-            padding: '20px',
-            borderRadius: '12px',
-            marginBottom: '28px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', color: '#334155' }}>
-              <span style={{ fontSize: '20px' }}>🔍</span>
-              <span><strong>Search Knowledge Base</strong> — Ask questions based on your documents</span>
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '560px' }}>
+          {[
+            ['Chat', 'Ask questions about your documents'],
+            ['Summarize', 'Extract key points from a source'],
+            ['Compare', 'Compare views across sources'],
+          ].map(([title, body]) => (
+            <div
+              key={title}
+              style={{
+                background: '#fff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '16px 20px',
+                flex: '1 1 160px',
+                maxWidth: '200px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+              }}
+            >
+              <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>{title}</div>
+              <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.5 }}>{body}</div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', color: '#334155' }}>
-              <span style={{ fontSize: '20px' }}>📄</span>
-              <span><strong>Summarize Documents</strong> — Extract key points from selected files</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', color: '#334155' }}>
-              <span style={{ fontSize: '20px' }}>⚖️</span>
-              <span><strong>Compare Sources</strong> — Find similarities and conflicts between documents</span>
-            </div>
-          </div>
-          <div style={{ fontSize: '13px', color: '#94a3b8' }}>
-            Select a mode below and try the example prompts to get started
-          </div>
+          ))}
+        </div>
+
+        <div style={{ marginTop: '24px', fontSize: '12px', color: '#94a3b8', textAlign: 'center' }}>
+          Select a source from the left panel, then choose a mode and ask below
         </div>
       </div>
     );
   }
 
+  const taskLabel = taskType === 'compare' ? 'Compare' : taskType === 'summarize' ? 'Summary' : 'Chat';
+  const resultLabel = taskType === 'compare' ? 'Document Comparison Result' : taskType === 'summarize' ? 'Summary Result' : 'AI Response';
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f4f4f5' }}>
       <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-        {/* User Message */}
         {currentUserQuery && (
           <div style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
-            <div style={{
-              background: '#3b82f6',
-              color: '#fff',
-              padding: '12px 18px',
-              borderRadius: '16px',
-              borderBottomRightRadius: '4px',
-              fontSize: '14px',
-              lineHeight: '1.6',
-              boxShadow: '0 2px 8px rgba(59, 130, 246, 0.25)'
-            }}>
+            <div
+              style={{
+                background: '#3b82f6',
+                color: '#fff',
+                padding: '12px 18px',
+                borderRadius: '16px',
+                borderBottomRightRadius: '4px',
+                fontSize: '14px',
+                lineHeight: 1.6,
+                boxShadow: '0 2px 8px rgba(59, 130, 246, 0.25)',
+              }}
+            >
               {currentUserQuery}
             </div>
             <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', textAlign: 'right', paddingRight: '4px' }}>
@@ -90,160 +93,93 @@ export const AgentMessageList: React.FC = () => {
           </div>
         )}
 
-        {/* Assistant Response Area */}
         {(artifacts.length > 0 || status === 'running') && (
-          <div style={{
-            alignSelf: 'flex-start',
-            background: '#fff',
-            padding: '16px 20px',
-            borderRadius: '12px',
-            width: '100%',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.03)',
-          }}>
-
-            {/* Task Type Header */}
-            <div style={{
-              marginBottom: '16px',
-              paddingBottom: '12px',
-              borderBottom: '1px solid #f1f5f9',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px'
-            }}>
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '5px 12px',
-                borderRadius: '8px',
-                fontSize: '12px',
-                fontWeight: '700',
-                letterSpacing: '0.04em',
-                background: taskType === 'compare' ? '#8b5cf6' : taskType === 'summarize' ? '#10b981' : '#3b82f6',
-                color: '#fff',
-                textTransform: 'uppercase'
-              }}>
-                {taskType === 'compare' ? '⚖ Compare' : taskType === 'summarize' ? '📝 Summary' : '💬 Chat'}
+          <div
+            style={{
+              alignSelf: 'flex-start',
+              background: '#fff',
+              padding: '16px 20px',
+              borderRadius: '8px',
+              width: '100%',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.03)',
+            }}
+          >
+            <div style={{ marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '5px 12px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  background: taskType === 'compare' ? '#8b5cf6' : taskType === 'summarize' ? '#10b981' : '#3b82f6',
+                  color: '#fff',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {taskLabel}
               </span>
-              <span style={{ fontSize: '14px', color: '#64748b', fontWeight: '400' }}>
-                {taskType === 'compare' ? 'Document Comparison Result' : taskType === 'summarize' ? 'Summary Result' : 'AI Response'}
-              </span>
+              <span style={{ fontSize: '14px', color: '#64748b', fontWeight: 400 }}>{resultLabel}</span>
             </div>
 
-            {/* Thinking Indicator — shown immediately when running with no artifacts yet */}
             {status === 'running' && artifacts.length === 0 && (
-              <div style={{
-                padding: '24px',
-                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #f0f9ff 100%)',
-                border: '1px solid #7dd3fc',
-                borderRadius: '14px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '16px',
-                boxShadow: '0 4px 16px rgba(14, 165, 233, 0.12)'
-              }}>
-                <div style={{
+              <div
+                style={{
+                  padding: '24px',
+                  background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #f0f9ff 100%)',
+                  border: '1px solid #7dd3fc',
+                  borderRadius: '8px',
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '52px',
-                  height: '52px',
-                  background: 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)',
-                  borderRadius: '50%',
-                  color: '#fff',
-                  boxShadow: '0 6px 20px rgba(14, 165, 233, 0.35)'
-                }}>
-                  <svg viewBox="0 0 24 24" width="26" height="26" style={{ animation: 'spin 1.4s linear infinite' }}>
-                    <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z"/>
-                  </svg>
-                </div>
+                  gap: '16px',
+                  boxShadow: '0 4px 16px rgba(14, 165, 233, 0.12)',
+                }}
+              >
+                <svg viewBox="0 0 24 24" width="30" height="30" style={{ animation: 'spin 1.4s linear infinite', color: '#2563eb' }}>
+                  <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" />
+                </svg>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ fontSize: '16px', fontWeight: '700', color: '#0c4a6e', letterSpacing: '0.02em' }}>
-                    正在思考
+                  <span style={{ fontSize: '16px', fontWeight: 700, color: '#0c4a6e', letterSpacing: '0.02em' }}>
+                    Thinking
                   </span>
                   <span style={{ fontSize: '13px', color: '#0284c7' }}>
-                    AI 正在分析您的问题并准备回答
+                    Please wait while AI prepares your data
                   </span>
                 </div>
               </div>
             )}
 
-            {/* Phase Progress Stepper — shown when running and phase info is available */}
             {status === 'running' && currentPhaseText && (
-              <div style={{
-                padding: '16px 20px',
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                borderRadius: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px'
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '32px',
-                  height: '32px',
-                  background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
-                  borderRadius: '50%',
-                  color: '#fff',
-                  flexShrink: 0
-                }}>
-                  <svg viewBox="0 0 24 24" width="16" height="16" style={{ animation: 'spin 1.2s linear infinite' }}>
-                    <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z"/>
-                  </svg>
-                </div>
+              <div style={{ marginTop: artifacts.length === 0 ? '12px' : 0, padding: '16px 20px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <svg viewBox="0 0 24 24" width="18" height="18" style={{ animation: 'spin 1.2s linear infinite', color: '#3b82f6', flexShrink: 0 }}>
+                  <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" />
+                </svg>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>
-                    {currentPhaseText}
-                  </span>
-                  <span style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>请稍候</span>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>{currentPhaseText}</span>
+                  <span style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>Working on the current run</span>
                 </div>
               </div>
             )}
 
-            {/* Artifacts */}
             {artifacts.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {artifacts.map((art, idx) => (
-                  <RawArtifactViewer key={idx} artifact={art} />
+                {artifacts.map((artifact, index) => (
+                  <RawArtifactViewer key={artifact.artifact_id || index} artifact={artifact} />
                 ))}
               </div>
             )}
 
-            {/* Thinking / Running Indicator — shown after artifacts while still running */}
             {status === 'running' && artifacts.length > 0 && (
-              <div style={{
-                marginTop: '20px',
-                padding: '16px',
-                background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-                border: '1px solid #e2e8f0',
-                borderRadius: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px'
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '32px',
-                  height: '32px',
-                  background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
-                  borderRadius: '50%',
-                  color: '#fff',
-                  flexShrink: 0
-                }}>
-                  <svg viewBox="0 0 24 24" width="16" height="16" style={{ animation: 'spin 1.2s linear infinite' }}>
-                    <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z"/>
-                  </svg>
-                </div>
+              <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <svg viewBox="0 0 24 24" width="16" height="16" style={{ animation: 'spin 1.2s linear infinite', color: '#3b82f6', flexShrink: 0 }}>
+                  <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" />
+                </svg>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>
-                    {currentPhaseText ?? 'Processing...'}
-                  </span>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>{currentPhaseText ?? 'Processing...'}</span>
                   <span style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>Please wait while AI prepares your data</span>
                 </div>
               </div>

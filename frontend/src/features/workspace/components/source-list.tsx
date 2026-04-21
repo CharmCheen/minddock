@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { SourceService } from '../../../lib/api/services/sources';
 import { SourceCatalogResponse } from '../../../core/types/api';
 import { useWorkspaceStore } from '../store';
-import { SourceDetailPanel } from './source-detail-panel';
+import { useSettingsStore } from '../../settings/store';
+import { useAvailabilityStore } from '../../app/store/availability';
 
 interface AddUrlDialogProps {
   open: boolean;
@@ -93,26 +94,41 @@ const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onAdded }) =
 
 export const SourceList: React.FC = () => {
   const [sources, setSources] = useState<SourceCatalogResponse[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false); // start false, only true when actually loading
   const [addUrlOpen, setAddUrlOpen] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
-  const { selectedDocId, setSelectedDoc } = useWorkspaceStore();
+  const { selectedDocId, setSelectedDoc, setDrawerOpen } = useWorkspaceStore();
+  const { offline } = useSettingsStore();
+  const { status, reset } = useAvailabilityStore();
+  const abortRef = useRef<AbortController | null>(null);
+
+  const isBackendOnline = status === 'online' && !offline;
+  const isChecking = status === 'checking';
 
   const loadSources = () => {
+    // Cancel any in-flight request
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
-    setError(null);
-    SourceService.getSources()
+    SourceService.getSources({ signal: controller.signal })
       .then(data => {
         setSources(data);
         setLoading(false);
       })
       .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : (err as { message?: string })?.message || 'Failed to load sources';
-        setError(msg);
+        // Ignore aborted errors — they're expected when switching sources or HMR
+        if (err instanceof Error && err.name === 'CanceledError') return;
         setLoading(false);
       });
+  };
+
+  const handleRetry = () => {
+    reset(); // re-probe backend
   };
 
   const handleRefresh = async (docId: string, e: React.MouseEvent) => {
@@ -120,223 +136,219 @@ export const SourceList: React.FC = () => {
     setRefreshingId(docId);
     try {
       await SourceService.reingestSource(docId);
-      await loadSources();
-    } catch (err: unknown) {
-      // silently fail for refresh errors
+      loadSources();
+    } catch {
+      // silently fail
     } finally {
       setRefreshingId(null);
     }
   };
 
+  // Load when backend becomes online; don't load when offline/checking
   useEffect(() => {
-    loadSources();
-  }, []);
+    if (isBackendOnline) {
+      loadSources();
+    } else {
+      // Cancel any pending load if we went offline
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+    }
+  }, [isBackendOnline]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f8fafc' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
+      {/* Sidebar Header */}
       <div style={{
-        padding: '16px 24px',
+        padding: '14px 16px',
         borderBottom: '1px solid #e2e8f0',
-        background: '#fff',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px'
+        display: 'flex', alignItems: 'center', gap: '10px',
       }}>
         <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: '36px',
-          height: '36px',
-          borderRadius: '10px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: '30px', height: '30px', borderRadius: '8px',
           background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-          color: '#fff',
-          fontSize: '18px',
-          boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+          color: '#fff', fontSize: '14px', flexShrink: 0,
         }}>
           📚
         </div>
         <div style={{ flex: 1 }}>
-          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#0f172a' }}>Document Workspace</h2>
-          <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Manage your knowledge base sources</p>
+          <div style={{ fontSize: '13px', fontWeight: '600', color: '#0f172a' }}>Knowledge Base</div>
+          <div style={{ fontSize: '11px', color: '#64748b' }}>{sources.length} source{sources.length !== 1 ? 's' : ''}</div>
         </div>
         <button
           onClick={() => setAddUrlOpen(true)}
           style={{
-            padding: '6px 14px', borderRadius: '8px', border: 'none',
-            background: '#3b82f6', color: '#fff', fontSize: '13px', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: '4px',
+            padding: '5px 10px', borderRadius: '6px', border: 'none',
+            background: '#3b82f6', color: '#fff', fontSize: '12px', cursor: 'pointer',
+            fontWeight: '500',
           }}
           title="Add URL"
         >
-          + Add URL
+          + Add
         </button>
       </div>
+
       <AddUrlDialog open={addUrlOpen} onClose={() => setAddUrlOpen(false)} onAdded={loadSources} />
-      
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Source List Column */}
-        <div style={{ width: '40%', minWidth: '200px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
-          <div style={{ padding: '12px 16px', background: '#f1f5f9', fontSize: '13px', fontWeight: '600', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Knowledge Sources
+
+      {/* Source List */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {loading && (
+          <div style={{ padding: '32px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+            <svg viewBox="0 0 24 24" width="20" height="20" style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }}>
+              <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
+              <path fill="currentColor" d="M12 2v4a6 6 0 006 6h4a10 10 0 01-10-10z"/>
+            </svg>
+            <span style={{ color: '#64748b', fontSize: '12px' }}>Loading sources...</span>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            {loading && (
-              <div style={{ padding: '32px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px' }}>
-                  <svg viewBox="0 0 24 24" width="24" height="24" style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }}>
-                    <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
-                    <path fill="currentColor" d="M12 2v4a6 6 0 006 6h4a10 10 0 01-10-10z"/>
-                  </svg>
-                </div>
-                <span style={{ color: '#64748b', fontSize: '13px' }}>Loading Sources...</span>
-              </div>
-            )}
-            {error && (
-              <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-                <div style={{
+        )}
+
+        {isChecking && (
+          <div style={{ padding: '32px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+            <svg viewBox="0 0 24 24" width="20" height="20" style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }}>
+              <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
+              <path fill="currentColor" d="M12 2v4a6 6 0 006 6h4a10 10 0 01-10-10z"/>
+            </svg>
+            <span style={{ color: '#64748b', fontSize: '12px' }}>Connecting...</span>
+          </div>
+        )}
+
+        {(offline || status === 'offline') && !isChecking && (
+          <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+            <div style={{ fontSize: '28px', marginBottom: '10px' }}>🔌</div>
+            <div style={{ color: '#ef4444', fontSize: '13px', fontWeight: '600', marginBottom: '4px' }}>Backend Offline</div>
+            <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '16px' }}>
+              The server is not reachable.
+            </div>
+            <button
+              onClick={handleRetry}
+              style={{
+                padding: '6px 14px', borderRadius: '6px', border: '1px solid #e2e8f0',
+                background: '#fff', color: '#3b82f6', fontSize: '12px', cursor: 'pointer', fontWeight: '500',
+              }}
+            >
+              Retry Connection
+            </button>
+          </div>
+        )}
+
+        {!loading && !isChecking && !offline && sources.length === 0 && (
+          <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+            <div style={{ fontSize: '32px', marginBottom: '10px' }}>🗂️</div>
+            <div style={{ color: '#475569', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>No Sources</div>
+            <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '16px' }}>
+              Add documents or URLs to start.
+            </div>
+            <button
+              onClick={() => setAddUrlOpen(true)}
+              style={{
+                padding: '6px 12px', borderRadius: '6px', border: 'none',
+                background: '#3b82f6', color: '#fff', fontSize: '12px', cursor: 'pointer', fontWeight: '500',
+              }}
+            >
+              + Add URL
+            </button>
+          </div>
+        )}
+
+        {sources.map(src => {
+          const isSelected = selectedDocId === src.doc_id;
+          return (
+            <div
+              key={src.doc_id}
+              onClick={() => setSelectedDoc(src.doc_id, src)}
+              style={{
+                padding: '10px 14px',
+                borderBottom: '1px solid #f1f5f9',
+                cursor: 'pointer',
+                background: isSelected ? '#eff6ff' : '#fff',
+                borderLeft: isSelected ? '3px solid #3b82f6' : '3px solid transparent',
+                transition: 'background 0.12s',
+              }}
+              onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#f8fafc'; }}
+              onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = '#fff'; }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
+                <span style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  width: '44px', height: '44px', borderRadius: '50%',
-                  background: '#fef2f2', marginBottom: '12px', fontSize: '22px'
+                  width: '20px', height: '20px', borderRadius: '4px', flexShrink: 0,
+                  background: src.category === 'url' ? '#dbeafe' : '#f0fdf4', fontSize: '11px',
                 }}>
-                  ⚠️
-                </div>
-                <div style={{ color: '#ef4444', fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>Failed to Load Sources</div>
-                <div style={{ color: '#f87171', fontSize: '12px', marginBottom: '16px', lineHeight: '1.5' }}>{error}</div>
+                  {src.category === 'url' ? '🔗' : '📄'}
+                </span>
+                <span style={{ fontSize: '13px', fontWeight: '500', color: '#1e293b', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {src.title || src.doc_id}
+                </span>
+
+                {/* Quick action: view detail */}
                 <button
-                  onClick={loadSources}
-                  style={{
-                    padding: '6px 14px', borderRadius: '8px', border: '1px solid #e2e8f0',
-                    background: '#fff', color: '#64748b', fontSize: '12px', cursor: 'pointer',
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedDoc(src.doc_id, src);
+                    setDrawerOpen(true);
                   }}
+                  title="View details"
+                  style={{
+                    background: 'none', border: 'none',
+                    cursor: 'pointer', padding: '2px 4px', borderRadius: '4px',
+                    color: isSelected ? '#3b82f6' : '#94a3b8', fontSize: '13px',
+                    opacity: isSelected ? 1 : 0.6,
+                    flexShrink: 0,
+                  }}
+                  onMouseOver={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#3b82f6'; }}
+                  onMouseOut={e => { e.currentTarget.style.opacity = isSelected ? '1' : '0.6'; e.currentTarget.style.color = isSelected ? '#3b82f6' : '#94a3b8'; }}
                 >
-                  Try Again
+                  📖
                 </button>
               </div>
-            )}
-            {!loading && !error && sources.length === 0 && (
-              <div style={{ padding: '32px 16px', textAlign: 'center' }}>
-                <div style={{
-                  width: '52px', height: '52px', borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  margin: '0 auto 16px auto', fontSize: '26px'
-                }}>
-                  🗂️
-                </div>
-                <div style={{ color: '#475569', fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>No Sources Yet</div>
-                <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '20px', lineHeight: '1.5' }}>
-                  Add documents or URLs to start building your knowledge base.
-                </div>
-                <button
-                  onClick={() => setAddUrlOpen(true)}
-                  style={{
-                    padding: '8px 16px', borderRadius: '8px', border: 'none',
-                    background: '#3b82f6', color: '#fff', fontSize: '13px',
-                    cursor: 'pointer', fontWeight: '500',
-                    boxShadow: '0 2px 6px rgba(59, 130, 246, 0.25)',
-                  }}
-                >
-                  + Add URL
-                </button>
-              </div>
-            )}
-            {sources.map(src => (
-              <div
-                key={src.doc_id}
-                onClick={() => setSelectedDoc(src.doc_id, src)}
-                onMouseEnter={(e) => {
-                  if (selectedDocId !== src.doc_id) {
-                    e.currentTarget.style.background = '#f8fafc';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedDocId !== src.doc_id) {
-                    e.currentTarget.style.background = '#fff';
-                  }
-                }}
-                style={{
-                  padding: '12px 16px',
-                  borderBottom: '1px solid #f1f5f9',
-                  cursor: 'pointer',
-                  background: selectedDocId === src.doc_id ? '#eff6ff' : '#fff',
-                  borderLeft: selectedDocId === src.doc_id ? '3px solid #3b82f6' : '3px solid transparent',
-                  transition: 'background 0.15s ease'
-                }}
-              >
-                {/* Row: icon + title */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                  {/* Source-type icon */}
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    width: '22px', height: '22px', borderRadius: '5px', flexShrink: 0,
-                    background: src.category === 'url' ? '#dbeafe' : '#f0fdf4',
-                    fontSize: '12px',
-                  }}>
-                    {src.category === 'url' ? '🔗' : '📄'}
-                  </span>
-                  <span style={{ fontSize: '14px', fontWeight: '500', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-                    {src.title || src.doc_id}
-                  </span>
-                </div>
-                {/* Row: badges + status + action */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
-                  {/* Source-type and domain badge */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                    {src.category === 'url' && src.domain ? (
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '3px',
-                        background: '#dbeafe', color: '#1d4ed8',
-                        borderRadius: '5px', padding: '1px 6px', fontSize: '11px', fontWeight: '500',
-                      }}>
-                        🌐 {src.domain}
-                      </span>
-                    ) : (
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center',
-                        background: '#f1f5f9', color: '#475569',
-                        borderRadius: '5px', padding: '1px 6px', fontSize: '11px', fontWeight: '500',
-                      }}>
-                        📄 {src.category}
-                      </span>
-                    )}
-                    {/* Status badge */}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                  {src.category === 'url' && src.domain ? (
                     <span style={{
                       display: 'inline-flex', alignItems: 'center',
-                      background: src.ingest_status === 'ready' ? '#dcfce7' : '#fef9c3',
-                      color: src.ingest_status === 'ready' ? '#15803d' : '#a16207',
-                      borderRadius: '5px', padding: '1px 6px', fontSize: '11px', fontWeight: '500',
+                      background: '#dbeafe', color: '#1d4ed8',
+                      borderRadius: '4px', padding: '0 5px', fontSize: '10px', fontWeight: '500',
                     }}>
-                      {src.ingest_status === 'ready' ? '● ready' : '○ ' + (src.ingest_status || 'unknown')}
+                      🌐 {src.domain}
                     </span>
-                  </div>
-                  {/* Refresh button for URL sources */}
-                  {src.category === 'url' && (
-                    <button
-                      onClick={(e) => handleRefresh(src.doc_id, e)}
-                      disabled={refreshingId === src.doc_id}
-                      title="Refresh URL source"
-                      style={{
-                        background: 'none', border: 'none',
-                        cursor: refreshingId === src.doc_id ? 'not-allowed' : 'pointer',
-                        padding: '2px 4px', borderRadius: '4px',
-                        color: refreshingId === src.doc_id ? '#94a3b8' : '#3b82f6',
-                        fontSize: '14px', lineHeight: 1, display: 'flex', alignItems: 'center',
-                      }}
-                    >
-                      {refreshingId === src.doc_id ? '⏳' : '🔄'}
-                    </button>
+                  ) : (
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center',
+                      background: '#f1f5f9', color: '#475569',
+                      borderRadius: '4px', padding: '0 5px', fontSize: '10px', fontWeight: '500',
+                    }}>
+                      📄 {src.category}
+                    </span>
                   )}
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center',
+                    background: src.ingest_status === 'ready' ? '#dcfce7' : '#fef9c3',
+                    color: src.ingest_status === 'ready' ? '#15803d' : '#a16207',
+                    borderRadius: '4px', padding: '0 5px', fontSize: '10px', fontWeight: '500',
+                  }}>
+                    {src.ingest_status === 'ready' ? '●' : '○'} {src.ingest_status || 'unknown'}
+                  </span>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Source Detail Preview */}
-        <div style={{ flex: 1, background: '#f8fafc', display: 'flex', flexDirection: 'column', padding: '24px', overflow: 'hidden' }}>
-          <SourceDetailPanel />
-        </div>
+                {src.category === 'url' && (
+                  <button
+                    onClick={(e) => handleRefresh(src.doc_id, e)}
+                    disabled={refreshingId === src.doc_id}
+                    title="Refresh"
+                    style={{
+                      background: 'none', border: 'none', cursor: refreshingId === src.doc_id ? 'not-allowed' : 'pointer',
+                      padding: '2px', borderRadius: '3px', color: refreshingId === src.doc_id ? '#94a3b8' : '#64748b', fontSize: '12px',
+                    }}
+                  >
+                    {refreshingId === src.doc_id ? '⏳' : '🔄'}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

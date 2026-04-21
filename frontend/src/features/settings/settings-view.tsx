@@ -1,9 +1,32 @@
-import React, { useEffect } from 'react';
-import { useSettingsStore, RuntimeFormValues } from './store';
+import React, { useEffect, useState } from 'react';
+import { RuntimeFormValues, useSettingsStore } from './store';
+
+const PROVIDER_LABELS: Record<string, string> = {
+  openai_compatible: 'OpenAI-Compatible',
+};
+
+function runtimeState(config: ReturnType<typeof useSettingsStore.getState>['config']) {
+  if (!config) return { label: 'Missing', color: '#f59e0b' };
+  if (config.enabled && config.api_key_masked) return { label: 'Configured', color: '#22c55e' };
+  if (config.enabled && !config.api_key_masked) return { label: 'Missing API Key', color: '#f59e0b' };
+  return { label: 'Disabled', color: '#94a3b8' };
+}
+
+const fieldStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '9px 11px',
+  background: '#0f172a',
+  border: '1px solid #334155',
+  borderRadius: '6px',
+  color: '#e2e8f0',
+  fontSize: '14px',
+  boxSizing: 'border-box',
+};
 
 export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const {
     config,
+    formValues,
     loading,
     saving,
     testing,
@@ -19,339 +42,329 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
     updateFormValues,
   } = useSettingsStore();
 
-  // Local form state — single source of truth for user edits
-  const [provider, setProvider] = React.useState('openai_compatible');
-  const [baseUrl, setBaseUrl] = React.useState('https://api.openai.com/v1');
-  const [apiKey, setApiKey] = React.useState('');
-  const [model, setModel] = React.useState('gpt-4o-mini');
-  const [enabled, setEnabled] = React.useState(false);
+  const [form, setForm] = useState<RuntimeFormValues>(formValues);
 
-  // Load config on mount
-  useEffect(() => { loadConfig(); }, [loadConfig]);
-
-  // Sync local state when config is reloaded (after save/reset/load) — NOT on every render
   useEffect(() => {
-    if (!config) return;
-    setProvider(config.provider);
-    setBaseUrl(config.base_url);
-    setModel(config.model);
-    setEnabled(config.enabled);
-    setApiKey(config.api_key_masked ? '••••••••' : '');
-  }, [config]);
+    loadConfig();
+  }, [loadConfig]);
 
-  // Helper: build current form snapshot from local state
-  const currentForm = (): RuntimeFormValues => ({
-    provider,
-    base_url: baseUrl,
-    api_key: apiKey,
-    model,
-    enabled,
-  });
+  useEffect(() => {
+    setForm(formValues);
+  }, [formValues]);
 
-  // Sync dirty flag whenever local state changes
-  const handleChange = (updater: () => void) => {
-    updater();
-    // Read fresh store state after React flushes the setState
-    setTimeout(() => {
-      updateFormValues(currentForm());
-    }, 0);
+  const patchForm = (patch: Partial<RuntimeFormValues>) => {
+    const next = { ...form, ...patch };
+    setForm(next);
+    updateFormValues(next);
   };
 
-  const handleSave = async () => {
-    // If api_key shows placeholder, treat as empty (keep existing key on server)
-    const effectiveKey = apiKey === '••••••••' ? '' : apiKey;
-    await saveConfig({ ...currentForm(), api_key: effectiveKey });
+  const status = runtimeState(config);
+  const providerLabel = PROVIDER_LABELS[config?.provider || form.provider] || 'OpenAI-Compatible';
+  const hasStoredKey = Boolean(config?.api_key_masked);
+  const canSave = isDirty && !saving;
+  const canTest = Boolean(form.base_url.trim() && form.model.trim() && form.api_key.trim()) && !testing;
+
+  const handleSave = () => {
+    void saveConfig(form);
   };
 
-  const handleTest = async () => {
-    const effectiveKey = apiKey === '••••••••' ? '' : apiKey;
-    await testConnection({ provider, base_url: baseUrl, api_key: effectiveKey, model });
+  const handleTest = () => {
+    void testConnection({
+      provider: form.provider,
+      base_url: form.base_url,
+      api_key: form.api_key,
+      model: form.model,
+    });
   };
-
-  const handleReset = async () => {
-    await resetConfig();
-  };
-
-  // Derived display values for active status banner
-  const isCustomActive = !!(config?.enabled);
-  const activeStatusColor = isCustomActive ? '#22c55e' : '#64748b';
-  const activeStatusLabel = isCustomActive ? 'Custom Active' : 'Default Runtime';
-  const activeBaseUrl = config?.base_url ?? 'https://api.openai.com/v1';
-  const activeModel = config?.model ?? 'gpt-4o-mini';
-  const activeHasKey = config?.api_key_masked ?? false;
-  const activeConfigSource = config?.config_source ?? 'unknown';
-
-  // Human-readable config source label
-  const configSourceLabel: Record<string, string> = {
-    active_config_env: 'Custom runtime (key from session)',
-    active_config_disabled: 'Custom runtime disabled',
-    env_override: 'Default runtime (key from environment)',
-    default: 'Default runtime (no config)',
-  };
-  const configSourceDisplay = configSourceLabel[activeConfigSource] ?? activeConfigSource;
-
-  const testResultIcon = testResult ? (testResult.success ? '✓' : '✗') : null;
-  const testResultBg = testResult ? (testResult.success ? '#14532d' : '#7f1d1d') : 'transparent';
-  const testResultColor = testResult ? (testResult.success ? '#86efac' : '#fca5a5') : '#e2e8f0';
-  const testResultLabel = testResult
-    ? testResult.success
-      ? 'Connection OK'
-      : `Failed${testResult.errorKind ? ` — ${testResult.errorKind.replace('_', ' ')}` : ''}`
-    : null;
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      <div style={{
-        background: '#1e293b', borderRadius: '12px', padding: '28px',
-        width: '500px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        color: '#e2e8f0',
-      }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>Runtime Settings</h2>
-            {isDirty && (
-              <span style={{
-                padding: '2px 8px', background: '#713f12', borderRadius: '4px',
-                fontSize: '11px', color: '#fde68a', fontWeight: '500',
-              }}>
-                Unsaved changes
-              </span>
-            )}
-          </div>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-title"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(15, 23, 42, 0.56)',
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px',
+      }}
+    >
+      <div
+        style={{
+          width: '720px',
+          maxWidth: '96vw',
+          maxHeight: '92vh',
+          overflow: 'hidden',
+          background: '#111827',
+          border: '1px solid #334155',
+          borderRadius: '10px',
+          boxShadow: '0 24px 70px rgba(0, 0, 0, 0.45)',
+          color: '#e2e8f0',
+          display: 'grid',
+          gridTemplateColumns: '190px 1fr',
+        }}
+      >
+        <aside style={{ borderRight: '1px solid #334155', background: '#0f172a', padding: '18px' }}>
+          <h2 id="settings-title" style={{ margin: '0 0 18px', fontSize: '16px', fontWeight: 700 }}>
+            Settings
+          </h2>
           <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer', padding: '4px' }}
+            type="button"
+            data-testid="settings-runtime-tab"
+            style={{
+              width: '100%',
+              padding: '9px 10px',
+              borderRadius: '6px',
+              border: '1px solid #3b82f6',
+              background: '#1d4ed833',
+              color: '#bfdbfe',
+              fontSize: '13px',
+              fontWeight: 700,
+              textAlign: 'left',
+            }}
           >
-            ×
+            Models & Runtime
           </button>
-        </div>
+        </aside>
 
-        {loading && <p style={{ color: '#94a3b8', fontSize: '14px' }}>Loading...</p>}
-
-        {!loading && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-
-            {/* ── A: Active Status Banner ── */}
-            <div style={{
-              padding: '10px 14px',
-              background: '#0f172a',
-              borderRadius: '8px',
-              border: `1px solid ${isCustomActive ? '#22c55e33' : '#334155'}`,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Currently Active
-                </span>
-                <span style={{
-                  padding: '2px 8px',
-                  background: `${activeStatusColor}22`,
-                  border: `1px solid ${activeStatusColor}66`,
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                  color: activeStatusColor,
-                  fontWeight: '700',
-                }}>
-                  {activeStatusLabel}
-                </span>
-              </div>
-              <div style={{ fontSize: '13px', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <div>
-                  <span style={{ color: '#64748b' }}>Provider: </span>
-                  <span>{config?.provider ?? '—'}</span>
-                </div>
-                <div>
-                  <span style={{ color: '#64748b' }}>Endpoint: </span>
-                  <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{activeBaseUrl}</span>
-                </div>
-                <div>
-                  <span style={{ color: '#64748b' }}>Model: </span>
-                  <span>{activeModel}</span>
-                </div>
-                <div>
-                  <span style={{ color: '#64748b' }}>API Key: </span>
-                  <span>{activeHasKey ? '•••••••• (session)' : 'Not configured'}</span>
-                </div>
-                <div>
-                  <span style={{ color: '#64748b' }}>Source: </span>
-                  <span style={{ fontSize: '12px' }}>{configSourceDisplay}</span>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ borderTop: '1px solid #334155' }} />
-
-            {/* Provider (fixed) */}
+        <section style={{ padding: '22px', overflowY: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Provider</label>
-              <select
-                value={provider}
-                disabled
-                style={{
-                  width: '100%', padding: '8px 12px', background: '#0f172a', border: '1px solid #334155',
-                  borderRadius: '6px', color: '#94a3b8', fontSize: '14px',
-                }}
-              >
-                <option value="openai_compatible">OpenAI-Compatible</option>
-              </select>
-              <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#475569' }}>Phase 1: only OpenAI-compatible endpoints</p>
+              <h3 style={{ margin: '0 0 5px', fontSize: '18px' }}>Models & Runtime</h3>
+              <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
+                Configure the OpenAI-compatible endpoint used by new agent runs.
+              </p>
             </div>
-
-            {/* Base URL */}
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Base URL</label>
-              <input
-                type="text"
-                value={baseUrl}
-                onChange={e => handleChange(() => setBaseUrl(e.target.value))}
-                placeholder="https://api.openai.com/v1"
-                style={{
-                  width: '100%', padding: '8px 12px', background: '#0f172a',
-                  border: `1px solid ${isDirty ? '#f59e0b' : '#334155'}`,
-                  borderRadius: '6px', color: '#e2e8f0', fontSize: '14px', boxSizing: 'border-box',
-                }}
-              />
-            </div>
-
-            {/* API Key */}
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                API Key{activeHasKey && <span style={{ color: '#22c55e', fontSize: '11px' }}> — stored</span>}
-              </label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={e => handleChange(() => setApiKey(e.target.value))}
-                placeholder={activeHasKey ? 'Leave blank to keep current' : 'sk-...'}
-                style={{
-                  width: '100%', padding: '8px 12px', background: '#0f172a',
-                  border: `1px solid ${isDirty ? '#f59e0b' : '#334155'}`,
-                  borderRadius: '6px', color: '#e2e8f0', fontSize: '14px', boxSizing: 'border-box',
-                }}
-              />
-            </div>
-
-            {/* Model */}
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Model</label>
-              <input
-                type="text"
-                value={model}
-                onChange={e => handleChange(() => setModel(e.target.value))}
-                placeholder="gpt-4o-mini"
-                style={{
-                  width: '100%', padding: '8px 12px', background: '#0f172a',
-                  border: `1px solid ${isDirty ? '#f59e0b' : '#334155'}`,
-                  borderRadius: '6px', color: '#e2e8f0', fontSize: '14px', boxSizing: 'border-box',
-                }}
-              />
-            </div>
-
-            {/* Enabled */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <input
-                type="checkbox"
-                id="runtime-enabled"
-                checked={enabled}
-                onChange={e => handleChange(() => setEnabled(e.target.checked))}
-                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-              />
-              <label htmlFor="runtime-enabled" style={{ fontSize: '14px', cursor: 'pointer' }}>
-                Enable this runtime
-              </label>
-            </div>
-
-            {/* ── C: Test Result Banner ── */}
-            {testResult && (
-              <div style={{
-                padding: '8px 12px', borderRadius: '6px',
-                background: testResultBg,
-                border: `1px solid ${testResult.success ? '#22c55e44' : '#ef444444'}`,
-                fontSize: '13px', color: testResultColor,
-                display: 'flex', alignItems: 'flex-start', gap: '8px',
-              }}>
-                <span style={{ fontWeight: '700', fontSize: '16px', lineHeight: '1.2' }}>{testResultIcon}</span>
-                <div>
-                  <div style={{ fontWeight: '600' }}>{testResultLabel}</div>
-                  <div style={{ fontSize: '12px', opacity: 0.85, marginTop: '2px' }}>{testResult.message}</div>
-                </div>
-              </div>
-            )}
-
-            {/* ── D: Success / Error ── */}
-            {error && (
-              <div style={{ padding: '8px 12px', background: '#7f1d1d', borderRadius: '6px', fontSize: '13px', color: '#fca5a5' }}>
-                {error}
-              </div>
-            )}
-            {successMessage && (
-              <div style={{ padding: '8px 12px', background: '#14532d', borderRadius: '6px', fontSize: '13px', color: '#86efac' }}>
-                {successMessage}
-              </div>
-            )}
-
-            {/* ── Actions ── */}
-            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-              <button
-                onClick={handleSave}
-                disabled={saving || !isDirty}
-                title={!isDirty ? 'No changes to save' : 'Save and activate immediately'}
-                style={{
-                  flex: 2, padding: '9px 16px',
-                  background: '#3b82f6', border: 'none', borderRadius: '6px',
-                  color: '#fff', fontSize: '14px', fontWeight: '600',
-                  cursor: (saving || !isDirty) ? 'not-allowed' : 'pointer',
-                  opacity: (saving || !isDirty) ? 0.45 : 1,
-                }}
-              >
-                {saving ? 'Saving...' : 'Save & Activate'}
-              </button>
-              <button
-                onClick={handleTest}
-                disabled={testing}
-                title="Verify connection without saving"
-                style={{
-                  flex: 1.5, padding: '9px 12px',
-                  background: '#0f172a', border: '1px solid #334155', borderRadius: '6px',
-                  color: '#e2e8f0', fontSize: '14px',
-                  cursor: testing ? 'not-allowed' : 'pointer',
-                  opacity: testing ? 0.55 : 1,
-                }}
-              >
-                {testing ? 'Testing...' : 'Test Connection'}
-              </button>
-              <button
-                onClick={handleReset}
-                disabled={resetting}
-                title="Restore default runtime, discard custom config"
-                style={{
-                  padding: '9px 12px',
-                  background: '#0f172a', border: '1px solid #991b1b', borderRadius: '6px',
-                  color: '#fca5a5', fontSize: '14px',
-                  cursor: resetting ? 'not-allowed' : 'pointer',
-                  opacity: resetting ? 0.55 : 1,
-                }}
-              >
-                {resetting ? '…' : 'Reset'}
-              </button>
-            </div>
-
             <button
+              type="button"
+              aria-label="Close settings"
               onClick={onClose}
               style={{
-                width: '100%', padding: '8px',
-                background: '#334155', border: 'none', borderRadius: '6px',
-                color: '#e2e8f0', fontSize: '14px', cursor: 'pointer',
+                width: '30px',
+                height: '30px',
+                borderRadius: '6px',
+                border: '1px solid #334155',
+                background: '#0f172a',
+                color: '#cbd5e1',
+                cursor: 'pointer',
               }}
             >
-              {isDirty ? 'Cancel (changes discarded)' : 'Close'}
+              x
             </button>
-
           </div>
-        )}
+
+          <div
+            data-testid="runtime-current-status"
+            style={{
+              marginTop: '18px',
+              padding: '13px 14px',
+              background: '#0f172a',
+              border: '1px solid #334155',
+              borderRadius: '8px',
+              display: 'grid',
+              gap: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>
+                Current Runtime
+              </span>
+              <span
+                style={{
+                  padding: '3px 8px',
+                  borderRadius: '999px',
+                  background: `${status.color}22`,
+                  border: `1px solid ${status.color}66`,
+                  color: status.color,
+                  fontSize: '11px',
+                  fontWeight: 700,
+                }}
+              >
+                {successMessage ? 'Saved' : error ? 'Error' : status.label}
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '5px 10px', fontSize: '13px' }}>
+              <span style={{ color: '#64748b' }}>Provider Type</span>
+              <span>{providerLabel}</span>
+              <span style={{ color: '#64748b' }}>Base URL</span>
+              <span style={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>{config?.base_url || 'Not configured'}</span>
+              <span style={{ color: '#64748b' }}>Model</span>
+              <span>{config?.model || 'Not configured'}</span>
+              <span style={{ color: '#64748b' }}>API Key</span>
+              <span>{hasStoredKey ? '********' : 'Not configured'}</span>
+            </div>
+          </div>
+
+          {!loading && !config?.api_key_masked && (
+            <div
+              style={{
+                marginTop: '12px',
+                padding: '10px 12px',
+                borderRadius: '6px',
+                background: '#713f1226',
+                border: '1px solid #f59e0b55',
+                color: '#fcd34d',
+                fontSize: '13px',
+              }}
+            >
+              Runtime is missing an API key. Add one here before running model-backed tasks.
+            </div>
+          )}
+
+          {loading ? (
+            <p style={{ color: '#94a3b8', fontSize: '14px' }}>Loading runtime settings...</p>
+          ) : (
+            <form
+              data-testid="runtime-settings-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleSave();
+              }}
+              style={{ marginTop: '18px', display: 'grid', gap: '14px' }}
+            >
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: '#94a3b8' }}>
+                Provider Type
+                <select
+                  value={form.provider}
+                  disabled
+                  onChange={(event) => patchForm({ provider: event.target.value })}
+                  style={{ ...fieldStyle, color: '#94a3b8' }}
+                >
+                  <option value="openai_compatible">OpenAI-Compatible</option>
+                </select>
+              </label>
+
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: '#94a3b8' }}>
+                Base URL
+                <input
+                  data-testid="runtime-base-url"
+                  value={form.base_url}
+                  onChange={(event) => patchForm({ base_url: event.target.value })}
+                  placeholder="https://api.openai.com/v1"
+                  style={fieldStyle}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: '#94a3b8' }}>
+                API Key
+                <input
+                  data-testid="runtime-api-key"
+                  type="password"
+                  value={form.api_key}
+                  onChange={(event) => patchForm({ api_key: event.target.value })}
+                  placeholder={hasStoredKey ? 'Configured - leave blank to keep current key' : 'Enter API key'}
+                  autoComplete="off"
+                  style={fieldStyle}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: '#94a3b8' }}>
+                Model
+                <input
+                  data-testid="runtime-model"
+                  value={form.model}
+                  onChange={(event) => patchForm({ model: event.target.value })}
+                  placeholder="gpt-4o-mini"
+                  style={fieldStyle}
+                />
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', fontSize: '14px' }}>
+                <input
+                  data-testid="runtime-enabled"
+                  type="checkbox"
+                  checked={form.enabled}
+                  onChange={(event) => patchForm({ enabled: event.target.checked })}
+                />
+                Enable this runtime for new runs
+              </label>
+
+              {testResult && (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '6px',
+                    background: testResult.success ? '#14532d33' : '#7f1d1d33',
+                    border: `1px solid ${testResult.success ? '#22c55e55' : '#ef444455'}`,
+                    color: testResult.success ? '#86efac' : '#fca5a5',
+                    fontSize: '13px',
+                  }}
+                >
+                  <strong>{testResult.success ? 'Connection OK' : 'Connection failed'}</strong>
+                  <div style={{ marginTop: '3px' }}>{testResult.message}</div>
+                </div>
+              )}
+
+              {error && (
+                <div style={{ padding: '10px 12px', background: '#7f1d1d33', border: '1px solid #ef444455', borderRadius: '6px', color: '#fca5a5', fontSize: '13px' }}>
+                  {error}
+                </div>
+              )}
+              {successMessage && (
+                <div style={{ padding: '10px 12px', background: '#14532d33', border: '1px solid #22c55e55', borderRadius: '6px', color: '#86efac', fontSize: '13px' }}>
+                  {successMessage}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  onClick={() => void resetConfig()}
+                  disabled={resetting}
+                  style={{
+                    padding: '9px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #7f1d1d',
+                    background: '#0f172a',
+                    color: '#fca5a5',
+                    cursor: resetting ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {resetting ? 'Resetting...' : 'Reset'}
+                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={handleTest}
+                    disabled={!canTest}
+                    style={{
+                      padding: '9px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #334155',
+                      background: '#0f172a',
+                      color: '#e2e8f0',
+                      cursor: canTest ? 'pointer' : 'not-allowed',
+                      opacity: canTest ? 1 : 0.55,
+                    }}
+                  >
+                    {testing ? 'Testing...' : 'Test Connection'}
+                  </button>
+                  <button
+                    type="submit"
+                    data-testid="runtime-save"
+                    disabled={!canSave}
+                    style={{
+                      padding: '9px 16px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: '#2563eb',
+                      color: '#fff',
+                      fontWeight: 700,
+                      cursor: canSave ? 'pointer' : 'not-allowed',
+                      opacity: canSave ? 1 : 0.55,
+                    }}
+                  >
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+        </section>
       </div>
     </div>
   );

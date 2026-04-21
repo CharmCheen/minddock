@@ -8,11 +8,13 @@ interface WorkspaceState {
   selectedDocTotalChunks: number;
   highlightedChunkId: string | null;
   loadingChunks: boolean;
+  drawerOpen: boolean;
 
   setSelectedDoc: (docId: string | null, detail: SourceCatalogResponse | null) => void;
   setDocChunks: (chunks: SourceChunkResponse[], totalChunks?: number) => void;
   setHighlightedChunkId: (chunkId: string | null) => void;
   setLoadingChunks: (loading: boolean) => void;
+  setDrawerOpen: (open: boolean) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
@@ -22,13 +24,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   selectedDocTotalChunks: 0,
   highlightedChunkId: null,
   loadingChunks: false,
+  drawerOpen: false,
 
   setSelectedDoc: (docId, detail) => set({
     selectedDocId: docId,
     selectedDocDetail: detail,
     highlightedChunkId: null,
     selectedDocChunks: [],
-    selectedDocTotalChunks: 0
+    selectedDocTotalChunks: 0,
   }),
 
   setDocChunks: (chunks, totalChunks = chunks.length) => set({
@@ -38,5 +41,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
 
   setHighlightedChunkId: (chunkId) => set({ highlightedChunkId: chunkId }),
 
-  setLoadingChunks: (loading) => set({ loadingChunks: loading })
+  setLoadingChunks: (loading) => set({ loadingChunks: loading }),
+
+  setDrawerOpen: (open) => set({ drawerOpen: open }),
 }));

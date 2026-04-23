@@ -81,6 +81,9 @@ from app.workflows.unified_pipeline import RetrievalPipeline
 _SUMMARIZE_RETRIEVAL_POOL_MULTIPLIER = 3
 _SUMMARIZE_RETRIEVAL_POOL_MIN = 12
 _SUMMARIZE_RETRIEVAL_POOL_MAX = 24
+_CHAT_RETRIEVAL_POOL_MULTIPLIER = 3
+_CHAT_RETRIEVAL_POOL_MIN = 6
+_CHAT_RETRIEVAL_POOL_MAX = 12
 _SCOPE_GUARDRAIL_MESSAGE = (
     "你当前只在单个文档内检索。这个问题更像是全库范围或通用概念问题，"
     "当前文档未必适合回答它。\n\n"
@@ -714,12 +717,17 @@ class FrontendFacade:
             return run
 
     def _retrieval_top_k_for_task(self, request: UnifiedExecutionRequest) -> int:
-        if request.task_type != TaskType.SUMMARIZE:
-            return request.retrieval.top_k
-        return min(
-            max(request.retrieval.top_k * _SUMMARIZE_RETRIEVAL_POOL_MULTIPLIER, _SUMMARIZE_RETRIEVAL_POOL_MIN),
-            _SUMMARIZE_RETRIEVAL_POOL_MAX,
-        )
+        if request.task_type == TaskType.SUMMARIZE:
+            return min(
+                max(request.retrieval.top_k * _SUMMARIZE_RETRIEVAL_POOL_MULTIPLIER, _SUMMARIZE_RETRIEVAL_POOL_MIN),
+                _SUMMARIZE_RETRIEVAL_POOL_MAX,
+            )
+        if request.task_type == TaskType.CHAT:
+            return min(
+                max(request.retrieval.top_k * _CHAT_RETRIEVAL_POOL_MULTIPLIER, _CHAT_RETRIEVAL_POOL_MIN),
+                _CHAT_RETRIEVAL_POOL_MAX,
+            )
+        return request.retrieval.top_k
 
     def _complete_scope_guardrail_run(
         self,

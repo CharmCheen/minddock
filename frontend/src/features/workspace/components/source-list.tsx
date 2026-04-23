@@ -98,7 +98,7 @@ export const SourceList: React.FC = () => {
   const [addUrlOpen, setAddUrlOpen] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
-  const { selectedDocId, setSelectedDoc, setDrawerOpen } = useWorkspaceStore();
+  const { selectedDocIds, toggleSelectedDoc, setSelectedDoc, setDrawerOpen } = useWorkspaceStore();
   const { offline } = useSettingsStore();
   const { status, reset } = useAvailabilityStore();
   const abortRef = useRef<AbortController | null>(null);
@@ -253,11 +253,11 @@ export const SourceList: React.FC = () => {
         )}
 
         {sources.map(src => {
-          const isSelected = selectedDocId === src.doc_id;
+          const isSelected = selectedDocIds.includes(src.doc_id);
           return (
             <div
               key={src.doc_id}
-              onClick={() => setSelectedDoc(src.doc_id, src)}
+              onClick={() => toggleSelectedDoc(src.doc_id, src)}
               style={{
                 padding: '10px 14px',
                 borderBottom: '1px solid #f1f5f9',

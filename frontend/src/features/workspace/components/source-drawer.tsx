@@ -7,6 +7,7 @@ export const SourceDrawer: React.FC = () => {
   const {
     selectedDocId,
     selectedDocDetail,
+    activeCitation,
     selectedDocChunks,
     selectedDocTotalChunks,
     highlightedChunkId,
@@ -15,9 +16,35 @@ export const SourceDrawer: React.FC = () => {
     setDocChunks,
     setLoadingChunks,
     setHighlightedChunkId,
+    setSelectedDocDetail,
+    setActiveCitation,
     setDrawerOpen,
   } = useWorkspaceStore();
   const { status: backendStatus } = useAvailabilityStore();
+  const citationMode = Boolean(activeCitation && activeCitation.doc_id === selectedDocId);
+
+  useEffect(() => {
+    if (!drawerOpen || !selectedDocId) return;
+    if (selectedDocDetail?.doc_id === selectedDocId && selectedDocDetail?.source_state !== null) return;
+
+    let mounted = true;
+    const controller = new AbortController();
+
+    SourceService.getSource(selectedDocId, { signal: controller.signal })
+      .then((detail) => {
+        if (mounted) {
+          setSelectedDocDetail(detail);
+        }
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === 'CanceledError') return;
+      });
+
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, [drawerOpen, selectedDocId, selectedDocDetail, setSelectedDocDetail]);
 
   useEffect(() => {
     if (!drawerOpen || !selectedDocId) return;
@@ -35,7 +62,7 @@ export const SourceDrawer: React.FC = () => {
 
           if (highlightedChunkId) {
             setTimeout(() => {
-              const el = document.getElementById(`chunk-${highlightedChunkId}`) || document.getElementById(`chunk-idx-${highlightedChunkId}`);
+              const el = document.querySelector<HTMLElement>(`[data-chunk-id="${highlightedChunkId}"], [data-chunk-index="${highlightedChunkId}"]`);
               if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }, 100);
           }
@@ -57,7 +84,7 @@ export const SourceDrawer: React.FC = () => {
 
   useEffect(() => {
     if (highlightedChunkId && !loadingChunks) {
-      const el = document.getElementById(`chunk-${highlightedChunkId}`) || document.getElementById(`chunk-idx-${highlightedChunkId}`);
+      const el = document.querySelector<HTMLElement>(`[data-chunk-id="${highlightedChunkId}"], [data-chunk-index="${highlightedChunkId}"]`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [highlightedChunkId, loadingChunks]);
@@ -71,19 +98,22 @@ export const SourceDrawer: React.FC = () => {
         onClick={() => setDrawerOpen(false)}
         style={{
           position: 'fixed', inset: 0,
-          background: 'rgba(0,0,0,0.3)',
+          background: citationMode ? 'transparent' : 'rgba(15, 23, 42, 0.22)',
+          pointerEvents: citationMode ? 'none' : 'auto',
           zIndex: 40,
         }}
       />
 
       {/* Drawer */}
-      <div style={{
+      <div
+        data-testid="source-drawer"
+        style={{
         position: 'fixed',
         top: 0, right: 0, bottom: 0,
-        width: '480px',
-        maxWidth: '90vw',
+        width: '500px',
+        maxWidth: '92vw',
         background: '#fff',
-        boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
+        boxShadow: '-10px 0 30px rgba(15, 23, 42, 0.12)',
         zIndex: 50,
         display: 'flex',
         flexDirection: 'column',
@@ -92,18 +122,18 @@ export const SourceDrawer: React.FC = () => {
         {/* Drawer Header */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px',
-          borderBottom: '1px solid #e2e8f0',
-          background: '#f8fafc',
+          padding: '18px 22px',
+          borderBottom: '1px solid #e5e7eb',
+          background: '#fcfdff',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: '32px', height: '32px',
-              borderRadius: '8px',
+              width: '30px', height: '30px',
+              borderRadius: '7px',
               background: selectedDocDetail?.source_type === 'url' ? '#dbeafe' : '#f0fdf4',
               color: selectedDocDetail?.source_type === 'url' ? '#1d4ed8' : '#10b981',
-              fontSize: '16px',
+              fontSize: '15px',
             }}>
               {selectedDocDetail?.source_type === 'url' ? '🔗' : '📄'}
             </div>
@@ -111,13 +141,16 @@ export const SourceDrawer: React.FC = () => {
               <div style={{ fontSize: '14px', fontWeight: '600', color: '#0f172a' }}>
                 {selectedDocDetail?.title || selectedDocId || 'Source Detail'}
               </div>
-              <div style={{ fontSize: '11px', color: '#64748b' }}>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                 {selectedDocTotalChunks > 0 ? `${selectedDocChunks.length} / ${selectedDocTotalChunks} chunks` : `${selectedDocChunks.length} chunks`}
               </div>
             </div>
           </div>
           <button
-            onClick={() => setDrawerOpen(false)}
+            onClick={() => {
+              setDrawerOpen(false);
+              setActiveCitation(null);
+            }}
             style={{
               background: 'none', border: 'none',
               color: '#64748b', fontSize: '20px', cursor: 'pointer',
@@ -134,11 +167,11 @@ export const SourceDrawer: React.FC = () => {
         {/* Metadata */}
         {selectedDocDetail && (
           <div style={{
-            padding: '12px 20px',
-            borderBottom: '1px solid #f1f5f9',
-            display: 'flex', gap: '16px', flexWrap: 'wrap',
-            fontSize: '12px', color: '#64748b',
-            background: '#fff',
+            padding: '12px 22px',
+            borderBottom: '1px solid #e5e7eb',
+            display: 'flex', gap: '12px', flexWrap: 'wrap',
+            fontSize: '11px', color: '#64748b',
+            background: '#f8fafc',
           }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <span style={{ color: '#94a3b8', fontSize: '11px' }}>📅</span>
@@ -168,10 +201,72 @@ export const SourceDrawer: React.FC = () => {
           </div>
         )}
 
+        {activeCitation && activeCitation.doc_id === selectedDocId && (
+          <div
+            data-testid="citation-detail-panel"
+            style={{
+            padding: '16px 22px',
+            borderBottom: '1px solid #dbeafe',
+            background: '#f8fbff',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+            }}>
+              <div style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: '#64748b',
+              }}>
+                Citation Detail
+              </div>
+              <div style={{
+                display: 'flex',
+                gap: '8px',
+                flexWrap: 'wrap',
+                fontSize: '11px',
+                color: '#64748b',
+              }}>
+                {(activeCitation.page_num != null || activeCitation.page != null) && (
+                  <span>Page {activeCitation.page_num ?? activeCitation.page}</span>
+                )}
+                {activeCitation.section && <span>{activeCitation.section}</span>}
+                {activeCitation.location && <span>{activeCitation.location}</span>}
+                {activeCitation.anchor && <span>{activeCitation.anchor}</span>}
+              </div>
+            </div>
+
+            <div data-testid="citation-detail-title" style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>
+              {activeCitation.title || activeCitation.source || selectedDocDetail?.title || selectedDocId}
+            </div>
+
+            {activeCitation.snippet && (
+              <div data-testid="citation-detail-snippet" style={{
+                fontSize: '12px',
+                lineHeight: '1.6',
+                color: '#475569',
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '10px 12px',
+              }}>
+                {activeCitation.snippet}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Chunk List */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: '12px', background: '#ffffff' }}>
           {backendStatus !== 'online' && (
-            <div style={{ padding: '32px', textAlign: 'center', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca' }}>
+            <div style={{ padding: '28px', textAlign: 'center', background: '#fef2f2', borderRadius: '10px', border: '1px solid #fecaca' }}>
               <div style={{ color: '#ef4444', fontSize: '24px', marginBottom: '8px' }}>🔌</div>
               <div style={{ color: '#dc2626', fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>Backend Offline</div>
               <div style={{ color: '#94a3b8', fontSize: '13px' }}>Start the backend or retry connection to load chunks</div>
@@ -179,7 +274,7 @@ export const SourceDrawer: React.FC = () => {
           )}
 
           {backendStatus === 'online' && loadingChunks && (
-            <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+            <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '10px' }}>
               <svg viewBox="0 0 24 24" width="24" height="24" style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }}>
                 <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
                 <path fill="currentColor" d="M12 2v4a6 6 0 006 6h4a10 10 0 01-10-10z"/>
@@ -189,7 +284,7 @@ export const SourceDrawer: React.FC = () => {
           )}
 
           {backendStatus === 'online' && !loadingChunks && selectedDocChunks.length === 0 && (
-            <div style={{ padding: '32px', textAlign: 'center', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <div style={{ padding: '28px', textAlign: 'center', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
               <div style={{ color: '#cbd5e1', fontSize: '24px', marginBottom: '8px' }}>📭</div>
               <div style={{ color: '#64748b', fontSize: '14px' }}>No chunks available</div>
             </div>
@@ -200,29 +295,30 @@ export const SourceDrawer: React.FC = () => {
             return (
               <div
                 key={chunk.chunk_id}
-                id={`chunk-drawer-${chunk.chunk_id}`}
+                data-chunk-id={chunk.chunk_id}
+                data-chunk-index={String(chunk.chunk_index)}
                 onClick={() => setHighlightedChunkId(chunk.chunk_id)}
                 style={{
-                  background: isHighlighted ? '#fffbeb' : '#f8fafc',
-                  border: isHighlighted ? '1px solid #fcd34d' : '1px solid #e2e8f0',
+                  background: isHighlighted ? '#fffbeb' : '#ffffff',
+                  border: isHighlighted ? '1px solid #fcd34d' : '1px solid #e5e7eb',
                   borderRadius: '10px',
-                  padding: '14px 16px',
+                  padding: '13px 14px',
                   cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: isHighlighted ? '0 0 0 2px rgba(252, 211, 77, 0.3)' : 'none'
+                  transition: 'border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease',
+                  boxShadow: isHighlighted ? '0 0 0 2px rgba(252, 211, 77, 0.18)' : 'none'
                 }}
                 onMouseEnter={e => {
                   if (!isHighlighted) {
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
+                    e.currentTarget.style.background = '#f8fafc';
+                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(15, 23, 42, 0.04)';
                     e.currentTarget.style.borderColor = '#cbd5e1';
                   }
                 }}
                 onMouseLeave={e => {
                   if (!isHighlighted) {
-                    e.currentTarget.style.transform = 'none';
+                    e.currentTarget.style.background = '#ffffff';
                     e.currentTarget.style.boxShadow = 'none';
-                    e.currentTarget.style.borderColor = '#e2e8f0';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
                   }
                 }}
               >
@@ -230,7 +326,7 @@ export const SourceDrawer: React.FC = () => {
                   <span style={{ fontWeight: '600', fontFamily: 'monospace' }}>#{chunk.chunk_index}</span>
                   {chunk.page && <span>Page {chunk.page}</span>}
                 </div>
-                <div style={{ fontSize: '13px', color: '#334155', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: '1.65', whiteSpace: 'pre-wrap' }}>
                   {chunk.preview_text.length > 200 ? chunk.preview_text.slice(0, 200) + '…' : chunk.preview_text}
                 </div>
               </div>

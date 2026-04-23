@@ -14,7 +14,7 @@ export const AgentInput: React.FC<{
   const [query, setQuery] = useState('');
   const { status, taskType, runId, setTaskType, artifacts, prepareRun, startRun, appendEvent, appendArtifact, finishRun, failRun, requestCancel, markCancelled, reset } = useAgentStore();
   const { status: backendStatus } = useAvailabilityStore();
-  const { selectedDocDetail } = useWorkspaceStore();
+  const { selectedDocIds, selectedDocDetails, clearSelectedDocs } = useWorkspaceStore();
 
   // Abort any in-progress stream on unmount / HMR
   useEffect(() => {
@@ -34,9 +34,11 @@ export const AgentInput: React.FC<{
 
     reset();
     prepareRun(query);
-    
+
+    const sources = selectedDocDetails.map((detail) => detail.source).filter(Boolean);
+
     const ctrl = ExecutionService.executeStream(
-      { query, task_type: taskType, source: selectedDocDetail?.source },
+      { query, task_type: taskType, sources },
       {
         onEvent: (event: ClientEvent) => {
           appendEvent(event);
@@ -138,9 +140,10 @@ export const AgentInput: React.FC<{
                 padding: '6px 16px',
                 fontSize: '12px',
                 fontWeight: taskType === m.id ? '600' : '500',
-                color: taskType === m.id ? '#1e293b' : '#64748b',
+                color: taskType === m.id ? '#2563eb' : '#64748b',
                 background: taskType === m.id ? '#fff' : 'transparent',
                 borderRadius: '6px',
+                borderBottom: taskType === m.id ? '2px solid #3b82f6' : '2px solid transparent',
                 cursor: isRunning || isCancelling ? 'not-allowed' : 'pointer',
                 boxShadow: taskType === m.id ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                 transition: 'all 0.15s ease'
@@ -154,6 +157,56 @@ export const AgentInput: React.FC<{
 
       {!isRunning && artifacts.length === 0 && (
         <ExamplePrompts taskType={taskType} onSelect={(text) => setQuery(text)} />
+      )}
+
+      {selectedDocIds.length > 0 && (
+        <div style={{
+          maxWidth: '760px',
+          margin: '0 auto',
+          width: '100%',
+          padding: '0 16px',
+          boxSizing: 'border-box'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            padding: '8px 16px',
+            borderRadius: '6px',
+            background: '#eff6ff',
+            borderLeft: '3px solid #3b82f6'
+          }}>
+            <span style={{
+              fontSize: '12px',
+              color: '#1e40af',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              {selectedDocIds.length === 1
+                ? `📄 ${selectedDocDetails[0]?.source || ''}`
+                : `📄 已选 ${selectedDocIds.length} 个文档`}
+            </span>
+            <button
+              type="button"
+              onClick={clearSelectedDocs}
+              title="Clear source scope"
+              style={{
+                border: 'none',
+                background: 'transparent',
+                color: '#1e40af',
+                cursor: 'pointer',
+                fontSize: '14px',
+                lineHeight: 1,
+                padding: 0,
+                flexShrink: 0
+              }}
+            >
+              ×
+            </button>
+          </div>
+        </div>
       )}
 
       <div style={{

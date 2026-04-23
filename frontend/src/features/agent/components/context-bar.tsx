@@ -22,7 +22,7 @@ interface ContextBarProps {
 
 export const ContextBar: React.FC<ContextBarProps> = ({ onSettingsClick }) => {
   const { taskType } = useAgentStore();
-  const { selectedDocId, selectedDocDetail } = useWorkspaceStore();
+  const { selectedDocIds, selectedDocId } = useWorkspaceStore();
   const { config, loadConfig, offline, loading } = useSettingsStore();
 
   useEffect(() => {
@@ -40,12 +40,14 @@ export const ContextBar: React.FC<ContextBarProps> = ({ onSettingsClick }) => {
   const runtimeBaseUrl = effectiveRuntime?.base_url || config?.base_url;
   const runtimeStatus = offline ? 'Backend offline' : runtimeState.label;
   const runtimeColor = offline ? '#ef4444' : runtimeState.color;
-  const scopedToSelectedSource = Boolean(selectedDocDetail?.source);
-  const sourceLabel = scopedToSelectedSource
+  const scopedToSelectedSource = selectedDocIds.length > 0;
+  const sourceLabel = selectedDocIds.length === 0
+    ? selectedDocId
+      ? 'Source open'
+      : 'No source selected'
+    : selectedDocIds.length === 1
     ? 'Scoped to 1 source'
-    : selectedDocId
-    ? 'Source open'
-    : 'No source selected';
+    : `Scoped to ${selectedDocIds.length} sources`;
 
   return (
     <div

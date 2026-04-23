@@ -131,6 +131,8 @@ _SENTENCE_TERMINATORS: frozenset[str] = frozenset(".!?;。！？；")
 CHUNK_MAX_TOKENS: int = 600
 CHUNK_MIN_TOKENS: int = 80
 CHUNK_OVERLAP_TOKENS: int = 80
+LIST_ITEM_OVERLAP_TOKENS: int = 40
+MINIMAL_OVERLAP_TOKENS: int = 20
 MAX_HEADING_CHARS: int = 200      # 瓒呰繃姝ら暱搴?heading 涔熷綋浣?paragraph 澶勭悊
 
 TABLE_LINE_RATIO: float = 0.3
@@ -714,6 +716,7 @@ def blocks_to_chunks(
     # ---- Helper: flush accumulated paragraph group ----
     para_buf: list[tuple[PDFBlock, str]] = []   # (block, cleaned_text)
     current_section = ""
+    section_content_counts: dict[str, int] = {}
     current_table_id: str | None = None
     first_page = 0
     last_page = 0
@@ -725,6 +728,34 @@ def blocks_to_chunks(
         cjk_chars = sum(len(w) for w in re.findall(r"[\u4e00-\u9fff]", text))
         english_words = len([w for w in words if re.match(r"[\w]", w)])
         return int(cjk_chars / 1.5) + english_words
+
+    def _overlap_for_block_type(block_type: BlockType) -> int:
+        if block_type == BlockType.PARAGRAPH:
+            return CHUNK_OVERLAP_TOKENS
+        if block_type == BlockType.LIST_ITEM:
+            return LIST_ITEM_OVERLAP_TOKENS
+        return MINIMAL_OVERLAP_TOKENS
+
+    def _overlap_for_buffer(buf: list[tuple[PDFBlock, str]]) -> int:
+        block_types = {b.block_type for b, _ in buf}
+        if BlockType.PARAGRAPH in block_types:
+            return _overlap_for_block_type(BlockType.PARAGRAPH)
+        if block_types == {BlockType.LIST_ITEM}:
+            return _overlap_for_block_type(BlockType.LIST_ITEM)
+        return min(
+            (_overlap_for_block_type(block_type) for block_type in block_types),
+            default=MINIMAL_OVERLAP_TOKENS,
+        )
+
+    def _with_section_lead(text: str, btype: BlockType) -> str:
+        section = current_section.strip()
+        if (
+            not section
+            or btype == BlockType.HEADING
+            or section_content_counts.get(section, 0) > 0
+        ):
+            return text
+        return f"[Section: {section}]\n{text}"
 
     def _flush_paragraphs() -> None:
         nonlocal chunks, order, para_buf, current_section, current_table_id, first_page, last_page
@@ -743,7 +774,8 @@ def blocks_to_chunks(
             # Sliding window fallback - prefer sentence boundaries, then soft char boundaries.
             # Convert token size to approximate character size for Chinese
             char_size = int(CHUNK_MAX_TOKENS * 1.5)
-            for sub in _sliding_window(combined, char_size, CHUNK_OVERLAP_TOKENS):
+            overlap = _overlap_for_buffer(para_buf)
+            for sub in _sliding_window(combined, char_size, overlap):
                 pages = _pages_for_text(sub, para_buf)
                 _emit_chunk(sub, BlockType.PARAGRAPH, min(pages), max(pages), current_table_id)
 
@@ -758,12 +790,14 @@ def blocks_to_chunks(
         table_id: str | None,
     ) -> None:
         nonlocal chunks, order
-        nonlocal current_section, current_table_id, first_page, last_page, seen_page1_title
+        nonlocal current_section, current_table_id, first_page, last_page, seen_page1_title, section_content_counts
         if not text.strip():
             return
         tok = _estimate_tokens(text)
         if tok < CHUNK_MIN_TOKENS:
             return
+        text = _with_section_lead(text, btype)
+        tok = _estimate_tokens(text)
         chunk_id = f"{doc_id}:{order}"
         location = f"page {p_start}" if p_start == p_end else f"pages {p_start}-{p_end}"
         ref = f"{title} > {current_section}" if current_section else f"{title} > page {p_start}"
@@ -792,6 +826,9 @@ def blocks_to_chunks(
         chunks.append((text, meta))
         if btype == BlockType.HEADING and p_start == 1 and _is_page1_title_like(text, page_num=1, block_index=0):
             seen_page1_title = True
+        if btype != BlockType.HEADING and current_section.strip():
+            section = current_section.strip()
+            section_content_counts[section] = section_content_counts.get(section, 0) + 1
         order += 1
 
     def _pages_for_text(sub: str, buf: list[tuple[PDFBlock, str]]) -> list[int]:

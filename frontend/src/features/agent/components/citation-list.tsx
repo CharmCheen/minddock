@@ -3,7 +3,7 @@ import { CitationItem } from '../../../core/types/api';
 import { useWorkspaceStore } from '../../workspace/store';
 
 export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citations }) => {
-  const { setSelectedDoc, setHighlightedChunkId } = useWorkspaceStore();
+  const { openCitationSource } = useWorkspaceStore();
   const [clickedIndex, setClickedIndex] = useState<number | null>(null);
 
   if (!citations || citations.length === 0) return null;
@@ -11,43 +11,37 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
   const handleCitationClick = (citation: CitationItem, index: number) => {
     setClickedIndex(index);
     setTimeout(() => setClickedIndex(null), 300);
+    openCitationSource(citation);
+  };
 
-    // chunk_index is the authoritative numeric index; chunk_id may be a compound id
-    const chunkIndex = citation.chunk_index != null
-      ? String(citation.chunk_index)
-      : citation.chunk_id?.split(':').pop() ?? null;
-
-    // Open drawer (true) so scroll effect in source-drawer.tsx can run
-    setSelectedDoc(citation.doc_id, null, true);
-    setHighlightedChunkId(chunkIndex);
+  const getCitationTitle = (citation: CitationItem): string => {
+    return citation.source || citation.title || citation.doc_id;
   };
 
   return (
     <div style={{
-      marginTop: '20px',
-      paddingTop: '16px',
-      borderTop: '1px solid #e2e8f0'
+      marginTop: '24px',
+      paddingTop: '18px',
+      borderTop: '1px solid #e5e7eb'
     }}>
       <div style={{
         display: 'flex',
         alignItems: 'center',
         gap: '8px',
-        fontSize: '12px',
+        fontSize: '11px',
         fontWeight: '600',
-        color: '#64748b',
+        color: '#94a3b8',
         marginBottom: '12px',
         textTransform: 'uppercase',
-        letterSpacing: '0.05em'
+        letterSpacing: '0.08em'
       }}>
-        <span style={{ fontSize: '13px' }}>🔗</span>
-        <span>References</span>
+        <span>Sources</span>
         <span style={{
-          fontSize: '11px',
-          color: '#64748b',
           background: '#f1f5f9',
+          color: '#64748b',
           padding: '1px 6px',
           borderRadius: '4px',
-          fontWeight: '500'
+          fontSize: '10px'
         }}>
           {citations.length}
         </span>
@@ -58,100 +52,92 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
             key={i}
             onClick={() => handleCitationClick(c, i)}
             style={{
-              background: clickedIndex === i ? '#eff6ff' : '#fff',
-              border: '1px solid',
-              borderColor: clickedIndex === i ? '#3b82f6' : '#e2e8f0',
-              borderRadius: '12px',
-              padding: '14px 16px',
-              cursor: 'pointer',
               display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-              transform: clickedIndex === i ? 'scale(0.99)' : 'scale(1)',
-              boxShadow: clickedIndex === i ? '0 2px 8px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0,0,0,0.04)'
+              alignItems: 'flex-start',
+              gap: '12px',
+              padding: '12px 14px',
+              background: clickedIndex === i ? '#eff6ff' : '#ffffff',
+              border: '1px solid',
+              borderColor: clickedIndex === i ? '#bfdbfe' : '#e5e7eb',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              transition: 'background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
+              boxShadow: clickedIndex === i ? '0 0 0 1px rgba(59, 130, 246, 0.08)' : 'none',
             }}
             onMouseOver={(e) => {
               if (clickedIndex !== i) {
-                e.currentTarget.style.borderColor = '#94a3b8';
                 e.currentTarget.style.background = '#f8fafc';
+                e.currentTarget.style.borderColor = '#cbd5e1';
               }
             }}
             onMouseOut={(e) => {
               if (clickedIndex !== i) {
-                e.currentTarget.style.borderColor = '#e2e8f0';
-                e.currentTarget.style.background = '#fff';
+                e.currentTarget.style.background = '#ffffff';
+                e.currentTarget.style.borderColor = '#e5e7eb';
               }
             }}
           >
-            {/* Header: Reference number and source */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{
+              flexShrink: 0,
+              width: '20px',
+              height: '20px',
+              background: '#e2e8f0',
+              color: '#475569',
+              borderRadius: '4px',
+              fontSize: '11px',
+              fontWeight: '700',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginTop: '1px'
+            }}>
+              {c.inline_ref || (i + 1)}
+            </span>
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: '13px',
+                fontWeight: '600',
+                color: '#1e293b',
+                marginBottom: '4px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                {getCitationTitle(c)}
+              </div>
+              {c.snippet && (
+                <div style={{
+                  fontSize: '12px',
+                  color: '#475569',
+                  lineHeight: '1.55',
+                  overflow: 'hidden',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                }}>
+                  {c.snippet}
+                </div>
+              )}
               <div style={{
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '22px',
-                height: '22px',
-                background: '#3b82f6',
-                color: '#fff',
-                borderRadius: '6px',
+                gap: '12px',
+                marginTop: '6px',
                 fontSize: '11px',
-                fontWeight: '600'
+                color: '#94a3b8'
               }}>
-                {c.inline_ref || (i + 1)}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{
-                  fontSize: '14px',
-                  color: '#1e293b',
-                  fontWeight: '600'
-                }}>
-                  {c.title || c.doc_id}
-                </span>
-                {c.source && (
+                {c.page_num && <span>p.{c.page_num}</span>}
+                {c.section && (
                   <span style={{
-                    fontSize: '12px',
-                    color: '#64748b'
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '200px'
                   }}>
-                    {c.source}
+                    {c.section}
                   </span>
                 )}
               </div>
-            </div>
-
-            {/* Snippet */}
-            {c.snippet && (
-              <div style={{
-                fontSize: '13px',
-                color: '#475569',
-                lineHeight: '1.6',
-                background: '#f8fafc',
-                padding: '10px 12px',
-                borderRadius: '6px',
-                borderLeft: '3px solid #cbd5e1',
-                fontStyle: 'italic'
-              }}>
-                "{c.snippet}"
-              </div>
-            )}
-
-            {/* Footer: Location info */}
-            <div style={{ display: 'flex', gap: '12px', fontSize: '11px', color: '#94a3b8' }}>
-              {c.page_num && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  📄 Page {c.page_num}
-                </span>
-              )}
-              {c.chunk_index !== undefined && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  📍 Chunk {c.chunk_index + 1}
-                </span>
-              )}
-              {c.section && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  📑 {c.section}
-                </span>
-              )}
             </div>
           </div>
         ))}

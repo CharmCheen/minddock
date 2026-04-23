@@ -107,6 +107,50 @@ function StatusBadges({ badges }: { badges: StatusBadge[] }) {
   );
 }
 
+function renderLightMarkdown(text: string): React.ReactNode {
+  return text.split('\n').map((line, i) => {
+    if (line.startsWith('## ')) {
+      return (
+        <div key={i} style={{
+          fontSize: '15px',
+          fontWeight: '700',
+          color: '#0f172a',
+          marginTop: '18px',
+          marginBottom: '8px'
+        }}>
+          {line.replace(/^## /, '')}
+        </div>
+      );
+    }
+    if (line.startsWith('### ')) {
+      return (
+        <div key={i} style={{
+          fontSize: '14px',
+          fontWeight: '600',
+          color: '#1e293b',
+          marginTop: '14px',
+          marginBottom: '6px'
+        }}>
+          {line.replace(/^### /, '')}
+        </div>
+      );
+    }
+    if (line.trim() === '') {
+      return <div key={i} style={{ height: '10px' }} />;
+    }
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    return (
+      <div key={i} style={{ marginBottom: '4px' }}>
+        {parts.map((part, j) =>
+          part.startsWith('**') && part.endsWith('**')
+            ? <strong key={j} style={{ color: '#0f172a' }}>{part.slice(2, -2)}</strong>
+            : part
+        )}
+      </div>
+    );
+  });
+}
+
 export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = ({ artifact }) => {
   const { kind, content, metadata, citations: artifactCitations } = artifact;
   const statusBadges = buildStatusBadges(metadata);
@@ -125,36 +169,27 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
   if (kind === 'text') {
     return (
       <div style={{
-        background: '#fff',
-        border: '1px solid #e2e8f0',
-        borderRadius: '12px',
-        padding: '20px 24px',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+        background: 'transparent',
+        border: 'none',
+        borderRadius: '0',
+        padding: '0',
+        boxShadow: 'none',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '18px',
       }}>
-        {/* Artifact Type Badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <span style={{
-            fontSize: '11px',
-            fontWeight: '600',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            color: '#3b82f6',
-            background: '#eff6ff',
-            padding: '3px 10px',
-            borderRadius: '6px'
-          }}>
-            Text Response
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <StatusBadges badges={statusBadges} />
         </div>
         <div style={{
           fontSize: '15px',
-          lineHeight: '1.8',
+          lineHeight: '1.75',
           color: '#334155',
-          whiteSpace: 'pre-wrap',
-          fontFamily: 'system-ui, -apple-system, sans-serif'
+          whiteSpace: 'normal',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          letterSpacing: '0.01em',
         }}>
-          {String(content.text || '')}
+          {renderLightMarkdown(String(content.text || ''))}
         </div>
         {citations && citations.length > 0 && <CitationList citations={citations} />}
       </div>

@@ -9,7 +9,7 @@ interface StreamCallbacks {
 interface ExecutionInput {
   query: string;
   task_type?: string;
-  source?: string | null;
+  sources?: string[];
 }
 
 const isAbortError = (err: unknown): boolean =>
@@ -45,9 +45,8 @@ export const ExecutionService = {
       citation_policy: "preferred"
     };
 
-    const source = input.source?.trim();
-    if (source) {
-      body.filters = { source };
+    if (input.sources && input.sources.length > 0) {
+      body.filters = { source: input.sources };
     }
 
     const startStream = async () => {

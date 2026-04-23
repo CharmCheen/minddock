@@ -110,7 +110,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   }),
 
   clearSelectedDocs: () => set((state) => {
-    const shouldClearSingleSelection = !state.drawerOpen && state.selectedDocIds.includes(state.selectedDocId ?? '');
+    const shouldClearSingleSelection = !state.drawerOpen && state.selectedDocId !== null;
     return {
       selectedDocIds: [],
       selectedDocDetails: [],

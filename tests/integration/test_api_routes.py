@@ -248,6 +248,82 @@ def test_chat_endpoint_without_api_key_uses_mock_llm_and_filters(monkeypatch) ->
     assert body["citations"][0]["page"] is None
 
 
+def test_unified_chat_refuses_assistant_meta_question_without_kb_retrieval() -> None:
+    from types import SimpleNamespace
+
+    from app.api import routes
+    from app.application.orchestrators import ChatOrchestrator
+    from app.runtime.models import RuntimeCapabilities
+
+    client = TestClient(app)
+
+    class _TrackedSearchService:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def retrieve(self, *, query: str, top_k: int, filters=None):
+            self.calls += 1
+            return [_chunk()]
+
+    class _FailingRuntime:
+        runtime_name = "test-runtime"
+        provider_name = "test-provider"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate(self, request):
+            self.calls += 1
+            raise AssertionError("out-of-scope query should not generate a KB answer")
+
+    search_service = _TrackedSearchService()
+    runtime = _FailingRuntime()
+    binding = SimpleNamespace(
+        adapter_kind="langchain",
+        selected_profile_id="default_cloud",
+        provider_kind="openai_compatible",
+        model_name="gpt-4o-mini",
+        resolved_capabilities=RuntimeCapabilities(supports_chat=True),
+        fallback_used=False,
+        selection_reason="preferred:default_cloud",
+    )
+    runtime_match = SimpleNamespace(binding=binding)
+
+    original_chat = routes.frontend_facade.chat
+    original_runtime_resolver = routes.frontend_facade.runtime_resolver
+    original_runtime_factory = routes.frontend_facade.runtime_factory
+    routes.frontend_facade.chat = ChatOrchestrator(search_service=search_service)
+    routes.frontend_facade.runtime_resolver = SimpleNamespace(resolve=lambda request: runtime_match)
+    routes.frontend_facade.runtime_factory = SimpleNamespace(create=lambda binding: runtime)
+    try:
+        response = client.post(
+            "/frontend/execute",
+            json={
+                "task_type": "chat",
+                "user_input": "你是什么模型",
+                "include_metadata": True,
+            },
+        )
+    finally:
+        routes.frontend_facade.chat = original_chat
+        routes.frontend_facade.runtime_resolver = original_runtime_resolver
+        routes.frontend_facade.runtime_factory = original_runtime_factory
+
+    assert response.status_code == 200
+    assert search_service.calls == 0
+    assert runtime.calls == 0
+    body = response.json()
+    assert body["metadata"]["support_status"] == "insufficient_evidence"
+    assert body["metadata"]["refusal_reason"] == "out_of_scope"
+    assert body["metadata"]["insufficient_evidence"] is True
+    assert body["citations"] == []
+    assert body["grounded_answer"]["support_status"] == "insufficient_evidence"
+    assert body["grounded_answer"]["refusal_reason"] == "out_of_scope"
+    assert body["artifacts"][0]["citations"] == []
+    assert body["artifacts"][0]["metadata"]["support_status"] == "insufficient_evidence"
+    assert body["artifacts"][0]["metadata"]["refusal_reason"] == "out_of_scope"
+
+
 def test_summarize_endpoint_without_api_key_returns_summary(monkeypatch) -> None:
     from app.api import routes
 
@@ -469,6 +545,78 @@ def test_unified_execute_endpoint_returns_artifacts_and_metadata(monkeypatch) ->
     assert body["events"] is None
 
 
+def test_unified_execute_chat_and_summarize_expose_runtime_fallback_and_grounding_metadata() -> None:
+    from types import SimpleNamespace
+
+    from app.api import routes
+    from app.application.orchestrators import ChatOrchestrator
+    from app.runtime.models import RuntimeCapabilities, RuntimeResponse
+
+    client = TestClient(app)
+
+    class _FakeSearchService:
+        def retrieve(self, *, query: str, top_k: int, filters=None):
+            return [_chunk()]
+
+    class _FallbackRuntime:
+        runtime_name = "langchain"
+        provider_name = "mock"
+
+        def generate(self, request):
+            return RuntimeResponse(
+                text="Fallback answer grounded in the retrieved chunk.",
+                runtime_name=self.runtime_name,
+                provider_name=self.provider_name,
+                used_fallback=True,
+            )
+
+    binding = SimpleNamespace(
+        adapter_kind="langchain",
+        selected_profile_id="default_cloud",
+        provider_kind="openai_compatible",
+        model_name="gpt-4o-mini",
+        resolved_capabilities=RuntimeCapabilities(supports_chat=True, supports_summarize=True),
+        fallback_used=False,
+        selection_reason="preferred:default_cloud",
+    )
+    runtime_match = SimpleNamespace(binding=binding)
+
+    original_chat = routes.frontend_facade.chat
+    original_runtime_resolver = routes.frontend_facade.runtime_resolver
+    original_runtime_factory = routes.frontend_facade.runtime_factory
+    routes.frontend_facade.chat = ChatOrchestrator(search_service=_FakeSearchService())
+    routes.frontend_facade.runtime_resolver = SimpleNamespace(resolve=lambda request: runtime_match)
+    routes.frontend_facade.runtime_factory = SimpleNamespace(create=lambda binding: _FallbackRuntime())
+    try:
+        responses = [
+            client.post(
+                "/frontend/execute",
+                json={
+                    "task_type": task_type,
+                    "user_input": "How does MindDock store chunks?",
+                    "include_metadata": True,
+                },
+            )
+            for task_type in ("chat", "summarize")
+        ]
+    finally:
+        routes.frontend_facade.chat = original_chat
+        routes.frontend_facade.runtime_resolver = original_runtime_resolver
+        routes.frontend_facade.runtime_factory = original_runtime_factory
+
+    for response in responses:
+        assert response.status_code == 200
+        body = response.json()
+        assert body["metadata"]["fallback_used"] is True
+        assert body["execution_summary"]["fallback_used"] is True
+        assert body["metadata"]["support_status"] == "supported"
+        artifact_metadata = body["artifacts"][0]["metadata"]
+        assert artifact_metadata["fallback_used"] is True
+        assert artifact_metadata["support_status"] == "supported"
+        assert artifact_metadata["insufficient_evidence"] is False
+        assert artifact_metadata["grounded_answer"]["support_status"] == "supported"
+
+
 def test_unified_execute_endpoint_supports_structured_json_artifact(monkeypatch) -> None:
     from app.api import routes
 
@@ -591,6 +739,100 @@ def test_unified_execute_endpoint_returns_compare_result(monkeypatch) -> None:
     assert body["compare_result"]["support_status"] == "supported"
     assert body["artifacts"][0]["metadata"]["compare_result"]["common_points"][0]["left_evidence"][0]["freshness"] == "fresh"
     assert body["artifacts"][1]["content"]["data"]["query"] == "Compare storage"
+
+
+def test_unified_execute_source_filter_constrains_compare_retrieval() -> None:
+    from app.api import routes
+    from app.services.compare_service import CompareService
+    from app.services.search_service import SearchService
+
+    client = TestClient(app)
+    captured_filters: list[RetrievalFilters | None] = []
+    all_hits = [
+        RetrievedChunk(
+            text="Selected document evidence about storage.",
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/selected.md",
+            source_type="file",
+            title="Selected",
+            distance=0.1,
+        ),
+        RetrievedChunk(
+            text="Other document evidence about storage.",
+            doc_id="d2",
+            chunk_id="c2",
+            source="kb/other.md",
+            source_type="file",
+            title="Other",
+            distance=0.2,
+        ),
+    ]
+
+    class _FilteringSearchService(SearchService):
+        def retrieve(self, *, query: str, top_k: int, filters=None):
+            captured_filters.append(filters)
+            if filters is None:
+                return all_hits[:top_k]
+            return [hit for hit in all_hits if hit.source in filters.sources][:top_k]
+
+    original_compare_service = routes.frontend_facade.chat.compare_service
+    routes.frontend_facade.chat.compare_service = CompareService(search_service=_FilteringSearchService())
+    try:
+        response = client.post(
+            "/frontend/execute",
+            json={
+                "task_type": "compare",
+                "user_input": "Compare storage",
+                "output_mode": "structured",
+                "filters": {"source": "kb/selected.md"},
+            },
+        )
+    finally:
+        routes.frontend_facade.chat.compare_service = original_compare_service
+
+    assert response.status_code == 200
+    assert captured_filters == [RetrievalFilters(sources=("kb/selected.md",))]
+    body = response.json()
+    assert body["metadata"]["filter_applied"] is True
+    assert body["metadata"]["retrieval_stats"]["retrieved_hits"] == 1
+    assert body["compare_result"]["support_status"] == "insufficient_evidence"
+    assert body["compare_result"]["refusal_reason"] == "insufficient_context"
+
+
+def test_unified_execute_stream_request_parses_source_filter(monkeypatch) -> None:
+    from app.api import routes
+    from app.application.events import ExecutionRun, ExecutionRunStatus
+
+    client = TestClient(app)
+    captured: dict[str, object] = {}
+
+    def fake_execute_run(request):
+        captured["filters"] = request.retrieval.filters
+        collector = EventCollector(run_id="run-filter", task_type="chat")
+        run = ExecutionRun(
+            run_id="run-filter",
+            request_summary=routes.frontend_facade._build_request_summary(request),
+            status=ExecutionRunStatus.COMPLETED,
+            events=collector.events,
+        )
+        routes.frontend_facade.run_registry.register(run, stream_mode="execute")
+        routes.frontend_facade.run_registry.mark_completed(run.run_id, None)
+        return run
+
+    monkeypatch.setattr(routes.frontend_facade, "execute_run", fake_execute_run)
+
+    response = client.post(
+        "/frontend/execute/stream",
+        json={
+            "task_type": "chat",
+            "user_input": "hello",
+            "filters": {"source": "kb/selected.md"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["filters"] == RetrievalFilters(sources=("kb/selected.md",))
 
 
 def test_unified_execute_endpoint_can_return_events_when_requested(monkeypatch) -> None:
@@ -1111,6 +1353,7 @@ def test_cancel_run_endpoint_sets_cancellation_requested(monkeypatch) -> None:
     body = response.json()
     assert body["cancellation_requested"] is True
     assert body["accepted"] is True
+    assert body["status"] == "cancelling"
 
 
 def test_cancel_completed_run_endpoint_reports_stable_semantics(monkeypatch) -> None:

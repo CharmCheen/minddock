@@ -35,8 +35,14 @@ export const useAvailabilityStore = create<AvailabilityState>((set, get) => ({
 
     set({ status: 'checking' });
     try {
-      await apiClient.get('/health', { timeout: 3000 });
-      set({ status: 'online', retryCount: 0, lastChecked: Date.now() });
+      const response = await apiClient.get('/health', { timeout: 3000 });
+      const status = response.data.status;
+      if (status === 'ok') {
+        set({ status: 'online', retryCount: 0, lastChecked: Date.now() });
+      } else {
+        // 'initializing' or unknown status - treat as not ready
+        throw new Error('Backend not ready');
+      }
     } catch {
       const { retryCount } = get();
       const nextCount = retryCount + 1;

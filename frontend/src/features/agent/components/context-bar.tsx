@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useAgentStore } from '../store';
 import { useWorkspaceStore } from '../../workspace/store';
 import { useSettingsStore } from '../../settings/store';
+import { deriveRuntimeStatus } from '../../settings/runtime-status';
 
 const MODE_LABELS: Record<string, string> = {
   chat: 'Chat',
@@ -21,7 +22,7 @@ interface ContextBarProps {
 
 export const ContextBar: React.FC<ContextBarProps> = ({ onSettingsClick }) => {
   const { taskType } = useAgentStore();
-  const { selectedDocId } = useWorkspaceStore();
+  const { selectedDocId, selectedDocDetail } = useWorkspaceStore();
   const { config, loadConfig, offline, loading } = useSettingsStore();
 
   useEffect(() => {
@@ -33,17 +34,18 @@ export const ContextBar: React.FC<ContextBarProps> = ({ onSettingsClick }) => {
 
   const modeColor = MODE_COLORS[taskType] || '#64748b';
   const modeLabel = MODE_LABELS[taskType] || taskType;
-  const isConfigured = Boolean(config?.enabled && config?.api_key_masked);
-  const isMissingKey = Boolean(config?.enabled && !config?.api_key_masked);
-  const runtimeLabel = config?.model || 'No model selected';
-  const runtimeStatus = offline
-    ? 'Backend offline'
-    : isConfigured
-    ? 'Configured'
-    : isMissingKey
-    ? 'Missing API key'
-    : 'Not configured';
-  const runtimeColor = offline ? '#ef4444' : isConfigured ? '#22c55e' : isMissingKey ? '#f59e0b' : '#94a3b8';
+  const runtimeState = deriveRuntimeStatus(config);
+  const effectiveRuntime = config?.effective_runtime;
+  const runtimeLabel = effectiveRuntime?.model_name || config?.model || 'No model selected';
+  const runtimeBaseUrl = effectiveRuntime?.base_url || config?.base_url;
+  const runtimeStatus = offline ? 'Backend offline' : runtimeState.label;
+  const runtimeColor = offline ? '#ef4444' : runtimeState.color;
+  const scopedToSelectedSource = Boolean(selectedDocDetail?.source);
+  const sourceLabel = scopedToSelectedSource
+    ? 'Scoped to 1 source'
+    : selectedDocId
+    ? 'Source open'
+    : 'No source selected';
 
   return (
     <div
@@ -77,8 +79,8 @@ export const ContextBar: React.FC<ContextBarProps> = ({ onSettingsClick }) => {
 
       <div style={{ width: '1px', height: '16px', background: '#334155' }} />
 
-      <span style={{ fontSize: '11px', color: selectedDocId ? '#cbd5e1' : '#64748b' }}>
-        {selectedDocId ? '1 source selected' : 'No source selected'}
+      <span style={{ fontSize: '11px', color: scopedToSelectedSource ? '#cbd5e1' : '#64748b' }}>
+        {sourceLabel}
       </span>
 
       <div style={{ width: '1px', height: '16px', background: '#334155' }} />
@@ -119,7 +121,7 @@ export const ContextBar: React.FC<ContextBarProps> = ({ onSettingsClick }) => {
         </span>
       </button>
 
-      {config?.base_url && (
+      {runtimeBaseUrl && (
         <>
           <div style={{ width: '1px', height: '16px', background: '#334155' }} />
           <span
@@ -133,7 +135,7 @@ export const ContextBar: React.FC<ContextBarProps> = ({ onSettingsClick }) => {
               whiteSpace: 'nowrap',
             }}
           >
-            {config.base_url}
+            {runtimeBaseUrl}
           </span>
         </>
       )}

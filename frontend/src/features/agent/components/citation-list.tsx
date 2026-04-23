@@ -11,20 +11,15 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
   const handleCitationClick = (citation: CitationItem, index: number) => {
     setClickedIndex(index);
     setTimeout(() => setClickedIndex(null), 300);
-    setSelectedDoc(citation.doc_id, {
-      doc_id: citation.doc_id,
-      title: citation.inline_ref || citation.doc_id,
-      category: 'reference',
-      ingest_status: 'ready',
-      uploaded_at: new Date().toISOString()
-    });
 
-    setTimeout(() => {
-      const chunkIndex = citation.chunk_id
-        ? citation.chunk_id.split(':').pop() ?? null
-        : String(citation.chunk_index ?? null);
-      setHighlightedChunkId(chunkIndex);
-    }, 0);
+    // chunk_index is the authoritative numeric index; chunk_id may be a compound id
+    const chunkIndex = citation.chunk_index != null
+      ? String(citation.chunk_index)
+      : citation.chunk_id?.split(':').pop() ?? null;
+
+    // Open drawer (true) so scroll effect in source-drawer.tsx can run
+    setSelectedDoc(citation.doc_id, null, true);
+    setHighlightedChunkId(chunkIndex);
   };
 
   return (

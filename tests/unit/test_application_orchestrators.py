@@ -4,10 +4,10 @@ from dataclasses import dataclass
 
 from app.application.artifacts import ArtifactKind, MermaidArtifact, SearchResultsArtifact, SkillResultArtifact, StructuredJsonArtifact, TextArtifact
 from app.application.events import ExecutionEventKind, ExecutionRunStatus
-from app.application.models import OutputMode, SkillPolicy, SkillPolicyMode, TaskType, UnifiedExecutionRequest
+from app.application.models import OutputMode, RetrievalOptions, SkillPolicy, SkillPolicyMode, TaskType, UnifiedExecutionRequest
 from app.application.orchestrators import ChatOrchestrator, FrontendFacade, KnowledgeBaseOrchestrator, SkillOrchestrator
 from app.application.run_control import RunRegistry, RunControlConfig
-from app.rag.retrieval_models import CitationRecord, ComparedPoint, EvidenceObject, GroundedAnswer, GroundedCompareResult, RetrievedChunk, SearchHitRecord, SearchResult
+from app.rag.retrieval_models import CitationRecord, ComparedPoint, EvidenceObject, GroundedAnswer, GroundedCompareResult, RetrievedChunk, RetrievalFilters, SearchHitRecord, SearchResult
 from app.runtime.factory import RuntimeFactory
 from app.runtime.models import (
     ExecutionPolicy,
@@ -345,6 +345,309 @@ def test_unified_execution_summarize_emits_mermaid_artifact_event(monkeypatch) -
 
     artifact_events = [event for event in run.events if event.kind == ExecutionEventKind.ARTIFACT_EMITTED]
     assert any(isinstance(event.payload.artifact, MermaidArtifact) for event in artifact_events)
+
+
+def test_chat_summary_request_routes_to_summarize(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            return {"hits": []}
+
+    def fail_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
+        raise AssertionError("summary intent should not run chat")
+
+    def fake_run_summarize_with_runtime(*, request, runtime, precomputed_hits=None):
+        assert request.task_type == TaskType.SUMMARIZE
+        assert request.task_options["mode"] == "basic"
+        return SummarizeServiceResult(
+            summary="summary response",
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=1, mode="basic"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fail_run_chat_with_runtime)
+    monkeypatch.setattr(chat_orchestrator, "run_summarize_with_runtime", fake_run_summarize_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="请总结一下知识库中的主要内容",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    assert response.task_type == TaskType.SUMMARIZE
+    assert response.primary_text() == "summary response"
+    assert response.metadata.mode == "basic"
+
+
+def test_fact_question_stays_on_chat_route() -> None:
+    facade = FrontendFacade()
+    request = UnifiedExecutionRequest(
+        task_type=TaskType.CHAT,
+        user_input="什么是RAG，它解决了什么问题",
+    )
+
+    routed = facade._route_chat_summary_request(request)
+
+    assert routed.task_type == TaskType.CHAT
+
+
+def test_summarize_uses_expanded_retrieval_pool(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+    observed_top_k: list[int] = []
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            observed_top_k.append(kwargs["top_k"])
+            return {"hits": []}
+
+    def fake_run_summarize_with_runtime(*, request, runtime, precomputed_hits=None):
+        return SummarizeServiceResult(
+            summary="summary response",
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=1, mode="basic"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(chat_orchestrator, "run_summarize_with_runtime", fake_run_summarize_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.SUMMARIZE,
+            user_input="summarize the knowledge base",
+            retrieval=RetrievalOptions(top_k=5),
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+        )
+    )
+
+    assert response.task_type == TaskType.SUMMARIZE
+    assert observed_top_k == [15]
+
+
+def test_chat_keeps_requested_retrieval_pool(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+    observed_top_k: list[int] = []
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            observed_top_k.append(kwargs["top_k"])
+            return {"hits": []}
+
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
+        return ChatServiceResult(
+            answer="chat response",
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=1, mode="grounded"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="what is RAG",
+            retrieval=RetrievalOptions(top_k=5),
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+        )
+    )
+
+    assert response.task_type == TaskType.CHAT
+    assert observed_top_k == [5]
+
+
+def test_single_source_general_chat_returns_scope_guardrail(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    class FailingPipeline:
+        def run(self, **kwargs):
+            raise AssertionError("scope guardrail should skip retrieval")
+
+    def fail_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
+        raise AssertionError("scope guardrail should skip generation")
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FailingPipeline())
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fail_run_chat_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="\u4ecb\u7ecdrag",
+            retrieval=RetrievalOptions(filters=RetrievalFilters(sources=("kb/doc.md",))),
+            include_metadata=True,
+        )
+    )
+
+    assert response.task_type == TaskType.CHAT
+    assert response.citations == ()
+    assert "单个文档" in response.primary_text()
+    assert response.metadata.mode == "scope_guardrail"
+    assert response.metadata.insufficient_evidence is True
+    assert response.metadata.refusal_reason == "out_of_scope"
+    assert response.metadata.issues[0].code == "scope_guardrail"
+    assert response.artifacts[0].metadata["scope_guardrail"] is True
+
+
+def test_single_source_global_summary_returns_scope_guardrail_after_routing(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    class FailingPipeline:
+        def run(self, **kwargs):
+            raise AssertionError("scope guardrail should skip retrieval")
+
+    def fail_run_summarize_with_runtime(*, request, runtime, precomputed_hits=None):
+        raise AssertionError("scope guardrail should skip summarization")
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FailingPipeline())
+    monkeypatch.setattr(chat_orchestrator, "run_summarize_with_runtime", fail_run_summarize_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="\u8bf7\u603b\u7ed3\u4e00\u4e0b\u77e5\u8bc6\u5e93\u4e2d\u7684\u4e3b\u8981\u5185\u5bb9",
+            retrieval=RetrievalOptions(filters=RetrievalFilters(sources=("kb/doc.md",))),
+            include_metadata=True,
+        )
+    )
+
+    assert response.task_type == TaskType.SUMMARIZE
+    assert "取消单文档范围" in response.primary_text()
+    assert response.metadata.mode == "scope_guardrail"
+    assert response.citations == ()
+
+
+def test_single_source_document_specific_question_bypasses_scope_guardrail(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+    observed_filters: list[RetrievalFilters | None] = []
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            observed_filters.append(kwargs["filters"])
+            return {"hits": []}
+
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
+        return ChatServiceResult(
+            answer="document-specific answer",
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=0, mode="grounded"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="\u8fd9\u7bc7\u6587\u6863\u8bb2\u4e86\u4ec0\u4e48",
+            retrieval=RetrievalOptions(filters=RetrievalFilters(sources=("kb/doc.md",))),
+            include_metadata=True,
+        )
+    )
+
+    assert response.primary_text() == "document-specific answer"
+    assert observed_filters == [RetrievalFilters(sources=("kb/doc.md",))]
+    assert response.metadata.mode != "scope_guardrail"
+
+
+def test_global_general_chat_bypasses_scope_guardrail(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+    observed_filters: list[RetrievalFilters | None] = []
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            observed_filters.append(kwargs["filters"])
+            return {"hits": []}
+
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
+        return ChatServiceResult(
+            answer="global answer",
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=0, mode="grounded"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="\u4ecb\u7ecdrag",
+            include_metadata=True,
+        )
+    )
+
+    assert response.primary_text() == "global answer"
+    assert observed_filters == [None]
+    assert response.metadata.mode != "scope_guardrail"
 
 
 def test_unified_execution_search_returns_search_results_artifact(monkeypatch) -> None:

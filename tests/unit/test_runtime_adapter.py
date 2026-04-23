@@ -7,7 +7,7 @@ from app.core.exceptions import (
     RuntimeProfileDisabledError,
     RuntimeProfileNotFoundError,
 )
-from app.runtime.adapters import LangChainAdapter
+from app.runtime.adapters import LangChainAdapter, _strip_visible_thinking
 from app.runtime.base import GenerationRuntime
 from app.runtime.factory import RuntimeFactory
 from app.runtime.models import (
@@ -83,6 +83,24 @@ def test_langchain_adapter_honors_override_provider() -> None:
 
     assert response.text == "override:storage:1"
     assert response.used_fallback is False
+
+
+def test_strip_visible_thinking_removes_complete_multiline_blocks() -> None:
+    text = """<think>
+I should reason privately.
+</think>
+
+Final answer grounded in evidence.
+<think>second hidden block</think>
+More answer."""
+
+    assert _strip_visible_thinking(text) == "Final answer grounded in evidence.\nMore answer."
+
+
+def test_strip_visible_thinking_keeps_incomplete_blocks() -> None:
+    text = "<think>unfinished reasoning\nFinal answer"
+
+    assert _strip_visible_thinking(text) == text
 
 
 class FakeRuntime(GenerationRuntime):

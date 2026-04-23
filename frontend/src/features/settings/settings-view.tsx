@@ -1,16 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { RuntimeFormValues, useSettingsStore } from './store';
+import { deriveRuntimeStatus } from './runtime-status';
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai_compatible: 'OpenAI-Compatible',
 };
-
-function runtimeState(config: ReturnType<typeof useSettingsStore.getState>['config']) {
-  if (!config) return { label: 'Missing', color: '#f59e0b' };
-  if (config.enabled && config.api_key_masked) return { label: 'Configured', color: '#22c55e' };
-  if (config.enabled && !config.api_key_masked) return { label: 'Missing API Key', color: '#f59e0b' };
-  return { label: 'Disabled', color: '#94a3b8' };
-}
 
 const fieldStyle: React.CSSProperties = {
   width: '100%',
@@ -58,9 +52,10 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
     updateFormValues(next);
   };
 
-  const status = runtimeState(config);
-  const providerLabel = PROVIDER_LABELS[config?.provider || form.provider] || 'OpenAI-Compatible';
-  const hasStoredKey = Boolean(config?.api_key_masked);
+  const status = deriveRuntimeStatus(config);
+  const effectiveRuntime = config?.effective_runtime;
+  const effectiveProviderLabel = PROVIDER_LABELS[effectiveRuntime?.provider_kind || ''] || effectiveRuntime?.provider_kind || 'Not configured';
+  const hasUsableKey = status.hasUsableKey;
   const canSave = isDirty && !saving;
   const canTest = Boolean(form.base_url.trim() && form.model.trim() && form.api_key.trim()) && !testing;
 
@@ -171,7 +166,7 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>
-                Current Runtime
+                Effective Runtime
               </span>
               <span
                 style={{
@@ -189,17 +184,19 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '5px 10px', fontSize: '13px' }}>
               <span style={{ color: '#64748b' }}>Provider Type</span>
-              <span>{providerLabel}</span>
+              <span>{effectiveProviderLabel}</span>
               <span style={{ color: '#64748b' }}>Base URL</span>
-              <span style={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>{config?.base_url || 'Not configured'}</span>
+              <span style={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>{effectiveRuntime?.base_url || 'Not configured'}</span>
               <span style={{ color: '#64748b' }}>Model</span>
-              <span>{config?.model || 'Not configured'}</span>
+              <span>{effectiveRuntime?.model_name || 'Not configured'}</span>
+              <span style={{ color: '#64748b' }}>Profile</span>
+              <span>{effectiveRuntime?.profile_id || 'Not configured'}</span>
               <span style={{ color: '#64748b' }}>API Key</span>
-              <span>{hasStoredKey ? '********' : 'Not configured'}</span>
+              <span>{hasUsableKey ? '********' : 'Not configured'}</span>
             </div>
           </div>
 
-          {!loading && !config?.api_key_masked && (
+          {!loading && status.kind === 'missing_key' && (
             <div
               style={{
                 marginTop: '12px',
@@ -226,6 +223,10 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
               }}
               style={{ marginTop: '18px', display: 'grid', gap: '14px' }}
             >
+              <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase' }}>
+                Saved Runtime Config
+              </div>
+
               <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: '#94a3b8' }}>
                 Provider Type
                 <select
@@ -256,7 +257,7 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                   type="password"
                   value={form.api_key}
                   onChange={(event) => patchForm({ api_key: event.target.value })}
-                  placeholder={hasStoredKey ? 'Configured - leave blank to keep current key' : 'Enter API key'}
+                  placeholder={hasUsableKey ? 'Configured - leave blank to keep current key' : 'Enter API key'}
                   autoComplete="off"
                   style={fieldStyle}
                 />

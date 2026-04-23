@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useAgentStore } from '../store';
 import { useAvailabilityStore } from '../../app/store/availability';
+import { useWorkspaceStore } from '../../workspace/store';
 import { ExamplePrompts } from './example-prompts';
 import { ExecutionService } from '../../../lib/api/services/execution';
 import { ClientArtifactPayload, ClientEvent } from '../../../core/types/api';
+import { cancelActiveRun } from '../cancellation';
 
 export const AgentInput: React.FC<{
   controller: AbortController | null;
   setController: (ctrl: AbortController | null) => void;
 }> = ({ controller, setController }) => {
   const [query, setQuery] = useState('');
-  const { status, taskType, setTaskType, artifacts, startRun, appendEvent, appendArtifact, finishRun, failRun, reset } = useAgentStore();
+  const { status, taskType, runId, setTaskType, artifacts, prepareRun, startRun, appendEvent, appendArtifact, finishRun, failRun, requestCancel, markCancelled, reset } = useAgentStore();
   const { status: backendStatus } = useAvailabilityStore();
+  const { selectedDocDetail } = useWorkspaceStore();
 
   // Abort any in-progress stream on unmount / HMR
   useEffect(() => {
@@ -30,9 +33,10 @@ export const AgentInput: React.FC<{
     }
 
     reset();
+    prepareRun(query);
     
     const ctrl = ExecutionService.executeStream(
-      { query, task_type: taskType },
+      { query, task_type: taskType, source: selectedDocDetail?.source },
       {
         onEvent: (event: ClientEvent) => {
           appendEvent(event);
@@ -73,14 +77,19 @@ export const AgentInput: React.FC<{
   };
 
   const handleCancel = () => {
-    if (controller) {
-      controller.abort();
-      setController(null);
-      failRun('Cancelled by user');
-    }
+    cancelActiveRun({
+      runId,
+      controller,
+      cancelRun: ExecutionService.cancelRun,
+      requestCancel,
+      markCancelled,
+      failRun,
+      setController,
+    });
   };
 
   const isRunning = status === 'running';
+  const isCancelling = status === 'cancelling';
 
   const modes = [
     { id: 'chat', label: 'Chat' },
@@ -97,6 +106,7 @@ export const AgentInput: React.FC<{
   const getPlaceholder = () => PLACEHOLDERS[taskType] || 'Ask the agent anything...';
 
   const getButtonLabel = () => {
+    if (isCancelling) return 'Cancelling';
     if (isRunning) return 'Stop';
     return taskType === 'chat' ? 'Send' : taskType === 'summarize' ? 'Summarize' : 'Compare';
   };
@@ -123,7 +133,7 @@ export const AgentInput: React.FC<{
             <div
               key={m.id}
               data-testid={`mode-${m.id}`}
-              onClick={() => !isRunning && setTaskType(m.id as any)}
+              onClick={() => !isRunning && !isCancelling && setTaskType(m.id as any)}
               style={{
                 padding: '6px 16px',
                 fontSize: '12px',
@@ -131,7 +141,7 @@ export const AgentInput: React.FC<{
                 color: taskType === m.id ? '#1e293b' : '#64748b',
                 background: taskType === m.id ? '#fff' : 'transparent',
                 borderRadius: '6px',
-                cursor: isRunning ? 'not-allowed' : 'pointer',
+                cursor: isRunning || isCancelling ? 'not-allowed' : 'pointer',
                 boxShadow: taskType === m.id ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                 transition: 'all 0.15s ease'
               }}
@@ -181,13 +191,14 @@ export const AgentInput: React.FC<{
           }}
           disabled={isRunning}
         />
-        {isRunning ? (
+        {isRunning || isCancelling ? (
           <button
             data-testid="agent-stop"
             onClick={handleCancel}
+            disabled={isCancelling}
             style={{
               padding: '0 20px',
-              cursor: 'pointer',
+              cursor: isCancelling ? 'not-allowed' : 'pointer',
               background: '#ef4444',
               color: '#fff',
               border: 'none',
@@ -200,7 +211,7 @@ export const AgentInput: React.FC<{
             onMouseOver={e => e.currentTarget.style.background = '#dc2626'}
             onMouseOut={e => e.currentTarget.style.background = '#ef4444'}
           >
-            Stop
+            {getButtonLabel()}
           </button>
         ) : (
           <button

@@ -107,6 +107,22 @@ _ALL_CAPS_SECTION_RE = re.compile(
     r"^\s*\d+\s*\|\s*[A-Z][A-Z\s\-]{2,}$"
 )
 
+_REFERENCE_SECTION_RE = re.compile(
+    r"^\s*(?:\d+[\.\s、-]*)?(?:References?|Bibliography|\u53c2\s*\u8003\s*\u6587\s*\u732e)\s*[:：]?\s*$",
+    re.IGNORECASE,
+)
+
+_SHORT_NUMBERED_TITLE_RE = re.compile(
+    r"^\s*(?:\d+(?:\.\d+)*|[IVXivx]+)[\.\s、-]+[^\n。.!?！？；;]{1,80}\s*$"
+)
+
+_AUTHOR_AFFILIATION_HINT_RE = re.compile(
+    r"@|University|College|School|Institute|Laboratory|Department|Center|Centre|\u5927\u5b66|\u5b66\u9662|\u7814\u7a76\u9662|\u5b9e\u9a8c\u5ba4",
+    re.IGNORECASE,
+)
+
+_SENTENCE_TERMINATORS: frozenset[str] = frozenset(".!?;。！？；")
+
 
 # ---------------------------------------------------------------------------
 # Configuration (闆嗕腑鍙皟鍙傛暟)
@@ -240,6 +256,16 @@ def _looks_like_multiline_allcaps_heading(raw_text: str) -> bool:
     return bool(re.fullmatch(r"[A-Z][A-Z\s\-]{2,}", lines[1]))
 
 
+def _looks_like_numbered_section_heading(text: str) -> bool:
+    stripped = re.sub(r"\s+", " ", text.strip())
+    if len(stripped) > 120 or stripped.endswith((".", "。", "!", "！", "?", "？", ";", "；")):
+        return False
+    return bool(
+        re.match(r"^\d+(?:\.\d+)*\s+[A-Z][A-Za-z][A-Za-z\s\-]{2,}$", stripped)
+        or re.match(r"^\d+(?:\.\d+)*\s+[\u4e00-\u9fff][^\n。！？；]{1,40}$", stripped)
+    )
+
+
 def _looks_like_inferred_abstract_start(
     text: str,
     *,
@@ -288,6 +314,9 @@ def _classify_block(
         return BlockType.CAPTION, 0
 
     if _ALL_CAPS_SECTION_RE.match(first_line):
+        return BlockType.HEADING, 1
+
+    if _looks_like_numbered_section_heading(first_line):
         return BlockType.HEADING, 1
 
     if _is_page1_title_like(first_line, page_num=page_num, block_index=block_index):
@@ -479,6 +508,143 @@ def _split_front_matter_heading(text: str) -> tuple[str, str] | None:
     return marker_part, body
 
 
+def _is_reference_section_marker(text: str) -> bool:
+    return bool(_REFERENCE_SECTION_RE.match(text.strip()))
+
+
+def _is_standalone_front_matter_marker(text: str) -> bool:
+    stripped = text.strip()
+    abstract = _ABSTRACT_MARKER_RE.match(stripped)
+    if abstract and not (abstract.group(1) or "").strip():
+        return True
+    keywords = _KEYWORDS_MARKER_RE.match(stripped)
+    if keywords and not (keywords.group(1) or "").strip():
+        return True
+    return False
+
+
+def _normalized_abstract_marker(text: str) -> str | None:
+    match = _ABSTRACT_MARKER_RE.match(text.strip())
+    if not match or (match.group(1) or "").strip():
+        return None
+    marker = text[: match.start(1)].replace("\u3000", " ").strip()
+    return marker.rstrip(":：").strip() or "Abstract"
+
+
+def _looks_like_author_or_affiliation_block(text: str, *, page: int) -> bool:
+    if page > 2:
+        return False
+    stripped = re.sub(r"\s+", " ", text.strip())
+    if not stripped:
+        return False
+    if stripped.endswith((".", "。", "!", "！", "?", "？", ";", "；")):
+        return False
+    affiliation_hits = len(_AUTHOR_AFFILIATION_HINT_RE.findall(stripped))
+    if len(stripped) <= 260 and affiliation_hits:
+        return True
+    if page == 1 and affiliation_hits >= 2:
+        return True
+
+    words = re.findall(r"[A-Z][A-Za-z'`-]+", stripped)
+    separators = stripped.count(",") + stripped.count(";") + stripped.count(" and ")
+    has_sentence_verbs = re.search(
+        r"\b(?:is|are|was|were|has|have|with|from|using|based|propose|introduce)\b",
+        stripped,
+        re.IGNORECASE,
+    )
+    return len(words) >= 3 and separators >= 1 and not has_sentence_verbs
+
+
+def _is_low_value_heading_text(text: str) -> bool:
+    stripped = re.sub(r"\s+", " ", text.strip())
+    if not stripped:
+        return True
+    if _is_reference_section_marker(stripped) or _is_standalone_front_matter_marker(stripped):
+        return True
+    if _caption_kind(stripped):
+        return True
+    if _SHORT_NUMBERED_TITLE_RE.match(stripped) and len(re.findall(r"[\w\u4e00-\u9fff]+", stripped)) <= 5:
+        return True
+    return False
+
+
+def _sentence_units(text: str) -> list[str]:
+    units: list[str] = []
+    start = 0
+    for idx, ch in enumerate(text):
+        if ch not in _SENTENCE_TERMINATORS:
+            continue
+        end = idx + 1
+        while end < len(text) and text[end] in "\"'”’）)]}":
+            end += 1
+        unit = text[start:end].strip()
+        if unit:
+            units.append(unit)
+        start = end
+    tail = text[start:].strip()
+    if tail:
+        units.append(tail)
+    return units
+
+
+def _char_windows_at_soft_boundaries(text: str, size: int, overlap: int) -> list[str]:
+    step = max(1, size - overlap)
+    windows: list[str] = []
+    for start in range(0, len(text), step):
+        end = min(start + size, len(text))
+        if end < len(text):
+            boundary = max(text.rfind(ch, start + int(size * 0.55), end) for ch in _SENTENCE_TERMINATORS)
+            if boundary > start:
+                end = boundary + 1
+        w = text[start:end].strip()
+        if w:
+            windows.append(w)
+        if end >= len(text):
+            break
+    return windows
+
+
+def _sentence_aware_sliding_window(text: str, size: int, overlap: int) -> list[str]:
+    units = _sentence_units(text)
+    if len(units) <= 1:
+        return _char_windows_at_soft_boundaries(text, size, overlap)
+
+    windows: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for unit in units:
+        unit_len = len(unit)
+        if unit_len > size:
+            if current:
+                windows.append(" ".join(current).strip())
+                current = []
+                current_len = 0
+            windows.extend(_char_windows_at_soft_boundaries(unit, size, overlap))
+            continue
+
+        projected = current_len + unit_len + (1 if current else 0)
+        if current and projected > size:
+            windows.append(" ".join(current).strip())
+            tail: list[str] = []
+            tail_len = 0
+            for prev in reversed(current):
+                prev_len = len(prev) + (1 if tail else 0)
+                if tail and tail_len + prev_len > overlap:
+                    break
+                tail.insert(0, prev)
+                tail_len += prev_len
+            current = tail
+            current_len = tail_len
+        current.append(unit)
+        current_len += unit_len + (1 if current_len else 0)
+
+    if current:
+        window = " ".join(current).strip()
+        if not windows or window != windows[-1]:
+            windows.append(window)
+    return [window for window in windows if window]
+
+
 # ---------------------------------------------------------------------------
 # Stage 3 鈥?Block 鈫?Chunk conversion
 # ---------------------------------------------------------------------------
@@ -533,6 +699,18 @@ def blocks_to_chunks(
             heading_level=b.heading_level,
         ))
 
+    # ---- Pass 2: truncate at reference / bibliography section ----
+    cutoff = len(cleaned)
+    for idx, b in enumerate(cleaned):
+        text = b.text.strip()
+        if _is_reference_section_marker(text):
+            cutoff = idx
+            break
+        if b.block_type == BlockType.HEADING and _is_reference_section_marker(text.splitlines()[0]):
+            cutoff = idx
+            break
+    cleaned = cleaned[:cutoff]
+
     # ---- Helper: flush accumulated paragraph group ----
     para_buf: list[tuple[PDFBlock, str]] = []   # (block, cleaned_text)
     current_section = ""
@@ -562,7 +740,7 @@ def blocks_to_chunks(
             pages = [b.page for b, _ in para_buf]
             _emit_chunk(combined, BlockType.PARAGRAPH, min(pages), max(pages), current_table_id)
         else:
-            # Sliding window fallback - split by characters (approximate tokens)
+            # Sliding window fallback - prefer sentence boundaries, then soft char boundaries.
             # Convert token size to approximate character size for Chinese
             char_size = int(CHUNK_MAX_TOKENS * 1.5)
             for sub in _sliding_window(combined, char_size, CHUNK_OVERLAP_TOKENS):
@@ -584,6 +762,8 @@ def blocks_to_chunks(
         if not text.strip():
             return
         tok = _estimate_tokens(text)
+        if tok < CHUNK_MIN_TOKENS:
+            return
         chunk_id = f"{doc_id}:{order}"
         location = f"page {p_start}" if p_start == p_end else f"pages {p_start}-{p_end}"
         ref = f"{title} > {current_section}" if current_section else f"{title} > page {p_start}"
@@ -622,16 +802,8 @@ def blocks_to_chunks(
         return pages or [buf[0][0].page] if buf else [1]
 
     def _sliding_window(text: str, size: int, overlap: int) -> list[str]:
-        """Character-level sliding window for oversized paragraphs."""
-        step = max(1, size - overlap)
-        windows: list[str] = []
-        for start in range(0, len(text), step):
-            w = text[start: start + size].strip()
-            if w:
-                windows.append(w)
-            if start + size >= len(text):
-                break
-        return windows
+        """Sentence-aware sliding window for oversized paragraphs."""
+        return _sentence_aware_sliding_window(text, size, overlap)
 
     i = 0
     while i < len(cleaned):
@@ -641,6 +813,9 @@ def blocks_to_chunks(
         if b.block_type == BlockType.HEADING:
             _flush_paragraphs()
 
+            if _is_reference_section_marker(b.text):
+                break
+
             # Front matter headings (Abstract / 鎽?瑕? often have the first sentence
             # merged into the same PDF block. Split them: emit heading marker as HEADING,
             # body content 鈫?paragraph buffer for natural accumulation with subsequent blocks.
@@ -649,7 +824,6 @@ def blocks_to_chunks(
                 heading_marker, body_text = result
                 # Normalize: replace ideographic spaces with regular spaces for consistency
                 normalized_marker = heading_marker.replace("\u3000", " ").strip()
-                _emit_chunk(normalized_marker, BlockType.HEADING, b.page, b.page, None)
                 # Track this as the current section so subsequent body paragraphs
                 # (which will be added to para_buf below) inherit the section title
                 current_section = normalized_marker
@@ -673,9 +847,17 @@ def blocks_to_chunks(
             heading_text = re.sub(r"^\d+\n", "", heading_text)
             heading_text = re.sub(r"^[\d０１２３４５６７８９]+(\.[\d]+)*[．.、\s]+", "", heading_text)  # numbered headings
             heading_text = re.sub(r"^[銆怽[銆奭.+[銆慭]]\s*$", "", heading_text)  # bracketed titles
-            current_section = heading_text.strip()
             if _is_page1_title_like(b.text, page_num=b.page, block_index=b.block_index):
                 seen_page1_title = True
+            abstract_marker = _normalized_abstract_marker(heading_text)
+            if abstract_marker:
+                current_section = abstract_marker
+                i += 1
+                continue
+            if _is_low_value_heading_text(heading_text):
+                i += 1
+                continue
+            current_section = heading_text.strip()
             # Emit heading as its own chunk if reasonably short
             tok = _estimate_tokens(b.text)
             if tok <= CHUNK_MAX_TOKENS:
@@ -724,9 +906,7 @@ def blocks_to_chunks(
                     }
                 )
                 chunks[-1] = (combined, updated_meta2)
-            else:
-                # Standalone caption
-                _emit_chunk(b.text, BlockType.CAPTION, b.page, b.page, table_id)
+            # Standalone captions are high-noise retrieval units; discard them.
             i += 1
             continue
 
@@ -738,10 +918,24 @@ def blocks_to_chunks(
 
         # PARAGRAPH (default)
         if b.block_type == BlockType.PARAGRAPH or b.block_type == BlockType.OTHER:
+            stripped = b.text.strip()
+            if _is_reference_section_marker(stripped):
+                break
+            if _is_standalone_front_matter_marker(stripped):
+                abstract_marker = _normalized_abstract_marker(stripped)
+                if abstract_marker:
+                    current_section = abstract_marker
+                i += 1
+                continue
+            if _caption_kind(stripped):
+                i += 1
+                continue
+            if _looks_like_author_or_affiliation_block(stripped, page=b.page):
+                i += 1
+                continue
             # Chinese title detection: emit immediately as heading (no markdown marker in PDF).
             # Pure Chinese, no sentence-ending punctuation, first block on page 1.
             if para_buf == [] and b.page == 1:
-                stripped = b.text.strip()
                 has_chinese = any("\u4e00" <= c <= "\u9fff" for c in stripped)
                 has_ascii_letter = any(c.isalpha() and c.isascii() for c in stripped)
                 has_end_punct = stripped.endswith(("\u3002", "\uff1f", "\uff01", "?", "!"))

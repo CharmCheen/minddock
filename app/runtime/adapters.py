@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from app.runtime.base import GenerationRuntime
 from app.runtime.models import RuntimeCapabilities, RuntimeRequest, RuntimeResponse
 from ports.llm import LLMProvider
 
 logger = logging.getLogger(__name__)
+
+_VISIBLE_THINK_BLOCK_RE = re.compile(r"<think\b[^>]*>.*?</think>\s*", re.IGNORECASE | re.DOTALL)
+
+
+def _strip_visible_thinking(text: str) -> str:
+    """Remove provider-emitted visible reasoning blocks from user-facing output."""
+
+    return _VISIBLE_THINK_BLOCK_RE.sub("", text).strip()
 
 
 class LangChainAdapter(GenerationRuntime):
@@ -66,7 +75,7 @@ class LangChainAdapter(GenerationRuntime):
         chain = request.prompt | self.llm | StrOutputParser()
         try:
             return RuntimeResponse(
-                text=str(chain.invoke(request.inputs)).strip(),
+                text=_strip_visible_thinking(str(chain.invoke(request.inputs))),
                 runtime_name=self.runtime_name,
                 provider_name=self.provider_name,
             )

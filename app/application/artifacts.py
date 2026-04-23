@@ -101,10 +101,10 @@ class ArtifactBuilder:
         self._counter = count(1)
 
     def build_chat_artifacts(self, result: ChatServiceResult) -> tuple[BaseArtifact, ...]:
-        grounded_metadata = {}
+        grounded_metadata = self._grounding_metadata(result.metadata)
         citations: tuple[dict[str, object], ...] = ()
         if result.grounded_answer is not None:
-            grounded_metadata = {"grounded_answer": result.grounded_answer.to_api_dict()}
+            grounded_metadata["grounded_answer"] = result.grounded_answer.to_api_dict()
             # Extract citations from evidence for frontend consumption
             if result.grounded_answer.evidence:
                 citations = tuple(
@@ -135,10 +135,10 @@ class ArtifactBuilder:
         )
 
     def build_summarize_artifacts(self, result: SummarizeServiceResult, *, output_mode: str) -> tuple[BaseArtifact, ...]:
-        grounded_metadata = {}
+        grounded_metadata = self._grounding_metadata(result.metadata)
         citations: tuple[dict[str, object], ...] = ()
         if result.grounded_answer is not None:
-            grounded_metadata = {"grounded_answer": result.grounded_answer.to_api_dict()}
+            grounded_metadata["grounded_answer"] = result.grounded_answer.to_api_dict()
             # Extract citations from evidence for frontend consumption
             if result.grounded_answer.evidence:
                 citations = tuple(
@@ -293,6 +293,18 @@ class ArtifactBuilder:
 
     def _next_id(self, prefix: str) -> str:
         return f"{prefix}-{next(self._counter)}"
+
+    @staticmethod
+    def _grounding_metadata(metadata) -> dict[str, object]:
+        result: dict[str, object] = {
+            "fallback_used": metadata.fallback_used,
+            "insufficient_evidence": metadata.insufficient_evidence,
+        }
+        if metadata.support_status is not None:
+            result["support_status"] = metadata.support_status
+        if metadata.refusal_reason is not None:
+            result["refusal_reason"] = metadata.refusal_reason
+        return result
 
     @staticmethod
     def _compare_summary_text(result: CompareServiceResult) -> str:

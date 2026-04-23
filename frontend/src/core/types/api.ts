@@ -83,18 +83,48 @@ export interface UnifiedExecutionRequestBody {
   task_type: string;
   user_input: string;
   top_k: number;
+  filters?: {
+    source?: string | string[];
+  };
   output_mode: string;
   citation_policy: string;
 }
 
-export interface SourceCatalogResponse {
+export interface SourceStateItem {
   doc_id: string;
-  title: string;
-  category: string;
+  source: string;
+  current_version: string | null;
+  content_hash: string | null;
+  last_ingested_at: string | null;
+  chunk_count: number;
   ingest_status: string | null;
-  uploaded_at: string;
-  domain?: string | null;
-  description?: string | null;
+}
+
+export interface SourceItem {
+  doc_id: string;
+  source: string;
+  source_type: string;
+  title: string;
+  chunk_count: number;
+  sections: string[];
+  pages: number[];
+  requested_url: string | null;
+  final_url: string | null;
+  source_state: SourceStateItem | null;
+  domain: string | null;
+  description: string | null;
+}
+
+export interface SourceCatalogResponse {
+  items: SourceItem[];
+  total: number;
+}
+
+export interface SourceDetailResponse {
+  found: boolean;
+  item: SourceItem | null;
+  representative_metadata: Record<string, unknown>;
+  admin_metadata: Record<string, unknown>;
 }
 
 export interface SourceChunkResponse {
@@ -128,12 +158,20 @@ export interface RuntimeConfigResponse {
   api_key_masked: boolean;
   enabled: boolean;
   config_source: string;
+  effective_runtime?: {
+    profile_id: string;
+    provider_kind: string;
+    model_name: string;
+    base_url: string | null;
+    source: string;
+    api_key_masked: boolean;
+  } | null;
 }
 
 export interface RuntimeConfigUpdateRequest {
   provider: string;
   base_url: string;
-  api_key: string;
+  api_key?: string;
   model: string;
   enabled: boolean;
 }
@@ -149,4 +187,12 @@ export interface RuntimeConfigTestResponse {
   success: boolean;
   message: string;
   error_kind: string | null;
+}
+
+export interface CancelRunResponse {
+  run_id: string;
+  status: string;
+  cancellation_requested: boolean;
+  accepted: boolean;
+  detail: string;
 }

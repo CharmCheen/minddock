@@ -1,9 +1,15 @@
-import { UnifiedExecutionRequestBody, ClientEvent } from '../../../core/types/api';
+import { UnifiedExecutionRequestBody, ClientEvent, CancelRunResponse } from '../../../core/types/api';
 
 interface StreamCallbacks {
   onEvent: (event: ClientEvent) => void;
   onError: (error: Error, isNetworkError?: boolean) => void;
   onDone: () => void;
+}
+
+interface ExecutionInput {
+  query: string;
+  task_type?: string;
+  source?: string | null;
 }
 
 const isAbortError = (err: unknown): boolean =>
@@ -13,7 +19,21 @@ const isBrowserNetworkError = (err: unknown): boolean =>
   err instanceof TypeError && err.message.toLowerCase().includes('failed to fetch');
 
 export const ExecutionService = {
-  executeStream(input: { query: string, task_type?: string }, callbacks: StreamCallbacks): AbortController {
+  async cancelRun(runId: string): Promise<CancelRunResponse> {
+    const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+    const response = await fetch(`${baseURL}/frontend/runs/${encodeURIComponent(runId)}/cancel`, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Cancel failed: ${response.statusText}`);
+    }
+
+    return response.json();
+  },
+
+  executeStream(input: ExecutionInput, callbacks: StreamCallbacks): AbortController {
     const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
     const controller = new AbortController();
 
@@ -24,6 +44,11 @@ export const ExecutionService = {
       output_mode: "text",
       citation_policy: "preferred"
     };
+
+    const source = input.source?.trim();
+    if (source) {
+      body.filters = { source };
+    }
 
     const startStream = async () => {
       try {
@@ -48,6 +73,7 @@ export const ExecutionService = {
         const reader = response.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let buffer = '';
+        let terminalSeen = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -55,9 +81,9 @@ export const ExecutionService = {
 
           buffer += decoder.decode(value, { stream: true });
           const chunks = buffer.split('\n\n');
-          
+
           buffer = chunks.pop() || ''; // Keep the incomplete chunk in buffer
-          
+
           for (const chunk of chunks) {
             if (!chunk.trim()) continue;
 
@@ -83,6 +109,9 @@ export const ExecutionService = {
                   data: parsedData.payload,
                   run_id: parsedData.run_id,
                 });
+                if (parsedData.kind === 'completed' || parsedData.kind === 'failed') {
+                  terminalSeen = true;
+                }
               } catch (e) {
                 console.warn('Failed to parse SSE payload', data, e);
               }
@@ -90,7 +119,11 @@ export const ExecutionService = {
           }
         }
 
-        
+        if (!terminalSeen) {
+          callbacks.onError(new Error('Stream ended before completion'), false);
+          return;
+        }
+
         callbacks.onDone();
       } catch (err: unknown) {
         if (isAbortError(err)) {

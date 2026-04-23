@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { SourceService } from '../../../lib/api/services/sources';
-import { SourceCatalogResponse } from '../../../core/types/api';
+import { SourceItem } from '../../../core/types/api';
 import { useWorkspaceStore } from '../store';
 import { useSettingsStore } from '../../settings/store';
 import { useAvailabilityStore } from '../../app/store/availability';
@@ -93,7 +93,7 @@ const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onAdded }) =
 };
 
 export const SourceList: React.FC = () => {
-  const [sources, setSources] = useState<SourceCatalogResponse[]>([]);
+  const [sources, setSources] = useState<SourceItem[]>([]);
   const [loading, setLoading] = useState(false); // start false, only true when actually loading
   const [addUrlOpen, setAddUrlOpen] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
@@ -273,9 +273,9 @@ export const SourceList: React.FC = () => {
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   width: '20px', height: '20px', borderRadius: '4px', flexShrink: 0,
-                  background: src.category === 'url' ? '#dbeafe' : '#f0fdf4', fontSize: '11px',
+                  background: src.source_type === 'url' ? '#dbeafe' : '#f0fdf4', fontSize: '11px',
                 }}>
-                  {src.category === 'url' ? '🔗' : '📄'}
+                  {src.source_type === 'url' ? '🔗' : '📄'}
                 </span>
                 <span style={{ fontSize: '13px', fontWeight: '500', color: '#1e293b', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {src.title || src.doc_id}
@@ -305,7 +305,7 @@ export const SourceList: React.FC = () => {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                  {src.category === 'url' && src.domain ? (
+                  {src.source_type === 'url' && src.domain ? (
                     <span style={{
                       display: 'inline-flex', alignItems: 'center',
                       background: '#dbeafe', color: '#1d4ed8',
@@ -319,20 +319,20 @@ export const SourceList: React.FC = () => {
                       background: '#f1f5f9', color: '#475569',
                       borderRadius: '4px', padding: '0 5px', fontSize: '10px', fontWeight: '500',
                     }}>
-                      📄 {src.category}
+                      📄 {src.source_type}
                     </span>
                   )}
                   <span style={{
                     display: 'inline-flex', alignItems: 'center',
-                    background: src.ingest_status === 'ready' ? '#dcfce7' : '#fef9c3',
-                    color: src.ingest_status === 'ready' ? '#15803d' : '#a16207',
+                    background: src.source_state?.ingest_status === 'ready' ? '#dcfce7' : '#fef9c3',
+                    color: src.source_state?.ingest_status === 'ready' ? '#15803d' : '#a16207',
                     borderRadius: '4px', padding: '0 5px', fontSize: '10px', fontWeight: '500',
                   }}>
-                    {src.ingest_status === 'ready' ? '●' : '○'} {src.ingest_status || 'unknown'}
+                    {src.source_state?.ingest_status === 'ready' ? '●' : '○'} {src.source_state?.ingest_status || 'unknown'}
                   </span>
                 </div>
 
-                {src.category === 'url' && (
+                {src.source_type === 'url' && (
                   <button
                     onClick={(e) => handleRefresh(src.doc_id, e)}
                     disabled={refreshingId === src.doc_id}

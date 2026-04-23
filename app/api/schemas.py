@@ -1679,6 +1679,17 @@ class RuntimeProfileListResponse(BaseModel):
         return cls(items=items, total=len(items))
 
 
+class EffectiveRuntimeResponse(BaseModel):
+    """Runtime profile that would be selected for a default frontend execution."""
+
+    profile_id: str
+    provider_kind: str
+    model_name: str
+    base_url: str | None = None
+    source: str
+    api_key_masked: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Active Runtime Config (Phase 1: OpenAI-compatible)
 # ---------------------------------------------------------------------------
@@ -1705,9 +1716,18 @@ class RuntimeConfigResponse(BaseModel):
             "'default' = no config, using system defaults"
         )
     )
+    effective_runtime: EffectiveRuntimeResponse | None = Field(
+        default=None,
+        description="Runtime profile currently selected by the execution resolver for default frontend runs.",
+    )
 
     @classmethod
-    def from_config(cls, config: "ActiveRuntimeConfig", config_source: str = "default") -> "RuntimeConfigResponse":
+    def from_config(
+        cls,
+        config: "ActiveRuntimeConfig",
+        config_source: str = "default",
+        effective_runtime: EffectiveRuntimeResponse | None = None,
+    ) -> "RuntimeConfigResponse":
         return cls(
             provider=config.provider,
             base_url=config.base_url,
@@ -1715,6 +1735,7 @@ class RuntimeConfigResponse(BaseModel):
             api_key_masked=config.api_key_source == "env",
             enabled=config.enabled,
             config_source=config_source,
+            effective_runtime=effective_runtime,
         )
 
 
@@ -1723,7 +1744,10 @@ class RuntimeConfigUpdateRequest(BaseModel):
 
     provider: str = Field(default="openai_compatible", description="Provider kind")
     base_url: str = Field(description="Base URL for the API endpoint")
-    api_key: str = Field(description="API key (will be stored and used for requests)")
+    api_key: str | None = Field(
+        default=None,
+        description="API key to use for this process. Omit or leave blank to keep the current process key.",
+    )
     model: str = Field(description="Model name identifier")
     enabled: bool = Field(default=True, description="Enable this configuration")
 

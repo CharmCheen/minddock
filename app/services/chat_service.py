@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -10,7 +11,7 @@ from typing import Optional
 from app.core.exceptions import ChatError
 from app.llm.factory import get_generation_runtime
 from app.llm.mock import INSUFFICIENT_EVIDENCE
-from app.rag.retrieval_models import GroundedAnswer
+from app.rag.retrieval_models import GroundedAnswer, RefusalReason, SupportStatus
 from app.rag.retrieval_models import RetrievalFilters
 from app.rag.postprocess import Compressor, Reranker, get_compressor, get_reranker
 from app.runtime import GenerationRuntime, RuntimeRequest
@@ -19,7 +20,10 @@ from app.services.grounded_generation import (
     build_citation,
     build_context,
     build_evidence,
+    evidence_matches_query,
     format_evidence_block,
+    is_out_of_scope_knowledge_query,
+    OUT_OF_SCOPE_ANSWER,
     select_grounded_hits,
 )
 from app.services.search_service import SearchService
@@ -27,6 +31,11 @@ from app.services.service_models import ChatServiceResult, RetrievalStats, Servi
 from ports.llm import LLMProvider
 
 logger = logging.getLogger(__name__)
+
+_LATIN_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
+_CJK_STOP_CHARS = frozenset("\u7684\u4e86\u662f\u4ec0\u4e48\u4e00\u4e0b\u8bf7\u4e2a\u548c\u4e0e\u53ca\u5176\u4e2d")
+_CHAT_DIRECTNESS_WEIGHT = 0.35
 
 
 @dataclass
@@ -45,6 +54,7 @@ class ChatService:
         top_k: int,
         filters: RetrievalFilters | None = None,
         precomputed_hits: Optional[list] = None,
+        debug: bool = False,
     ) -> ChatServiceResult:
         """Run the full RAG chat pipeline.
 
@@ -56,6 +66,21 @@ class ChatService:
         try:
             started = time.perf_counter()
             logger.info("Chat started: query_preview=%s top_k=%d", query[:60], top_k)
+            if is_out_of_scope_knowledge_query(query):
+                logger.info("Chat returning out-of-scope refusal before retrieval: query_preview=%s", query[:60])
+                return self._refusal_result(
+                    answer=OUT_OF_SCOPE_ANSWER,
+                    started=started,
+                    retrieval_ms=0.0,
+                    retrieved_hits=0,
+                    grounded_hits=0,
+                    returned_hits=0,
+                    empty_result=True,
+                    refusal_reason=RefusalReason.OUT_OF_SCOPE,
+                    issue_code="out_of_scope",
+                    issue_message="Question is outside knowledge-base grounded answering scope.",
+                    filters=filters,
+                )
 
             retrieval_started = time.perf_counter()
             if precomputed_hits is not None:
@@ -109,8 +134,25 @@ class ChatService:
                     context=None,
                 )
 
+            if not evidence_matches_query(query, grounded_hits):
+                logger.info("Chat returning insufficient evidence after relevance gate: query_preview=%s", query[:60])
+                return self._refusal_result(
+                    answer=INSUFFICIENT_EVIDENCE,
+                    started=started,
+                    retrieval_ms=retrieval_ms,
+                    retrieved_hits=len(hits),
+                    grounded_hits=len(grounded_hits),
+                    returned_hits=0,
+                    empty_result=False,
+                    refusal_reason=RefusalReason.NO_RELEVANT_EVIDENCE,
+                    issue_code="evidence_query_mismatch",
+                    issue_message="Retrieved evidence does not match the query closely enough for a grounded answer.",
+                    filters=filters,
+                )
+
             rerank_started = time.perf_counter()
             reranked_hits = self.reranker.rerank(query=query, hits=grounded_hits)
+            reranked_hits = self._rerank_direct_chat_evidence(query, reranked_hits)
             rerank_ms = round((time.perf_counter() - rerank_started) * 1000, 2)
             compress_started = time.perf_counter()
             compressed_hits = self.compressor.compress(query=query, hits=reranked_hits)
@@ -120,10 +162,16 @@ class ChatService:
                 "query": query,
                 "evidence_block": format_evidence_block(context),
             }
+            prompt = self._build_prompt()
+            if debug:
+                logger.debug(
+                    "Formatted chat prompt:\n%s",
+                    self._format_prompt_for_debug(prompt, prompt_inputs),
+                )
             generation_started = time.perf_counter()
             runtime_response = self.runtime.generate(
                 RuntimeRequest(
-                    prompt=self._build_prompt(),
+                    prompt=prompt,
                     inputs=prompt_inputs,
                     fallback_query=query,
                     fallback_evidence=context.to_evidence_items(),
@@ -163,6 +211,7 @@ class ChatService:
                     ),
                     runtime_mode=getattr(self.runtime, "runtime_name", type(self.runtime).__name__),
                     provider_mode=type(self.llm).__name__ if self.llm is not None else runtime_response.provider_name,
+                    fallback_used=runtime_response.used_fallback,
                     filter_applied=filters is not None,
                     retrieval_stats=RetrievalStats(
                         retrieved_hits=len(hits),
@@ -178,6 +227,61 @@ class ChatService:
             logger.exception("Chat failed: query_preview=%s", query[:60])
             raise ChatError(detail=f"Chat generation failed: {exc}") from exc
 
+    def _refusal_result(
+        self,
+        *,
+        answer: str,
+        started: float,
+        retrieval_ms: float,
+        retrieved_hits: int,
+        grounded_hits: int,
+        returned_hits: int,
+        empty_result: bool,
+        refusal_reason: RefusalReason,
+        issue_code: str,
+        issue_message: str,
+        filters: RetrievalFilters | None,
+    ) -> ChatServiceResult:
+        return ChatServiceResult(
+            answer=answer,
+            grounded_answer=GroundedAnswer(
+                answer=answer,
+                evidence=(),
+                support_status=SupportStatus.INSUFFICIENT_EVIDENCE,
+                refusal_reason=refusal_reason,
+            ),
+            citations=[],
+            metadata=UseCaseMetadata(
+                retrieved_count=0,
+                mode="grounded",
+                insufficient_evidence=True,
+                support_status=SupportStatus.INSUFFICIENT_EVIDENCE.value,
+                refusal_reason=refusal_reason.value,
+                empty_result=empty_result,
+                warnings=(issue_message,),
+                issues=(
+                    ServiceIssue(
+                        code=issue_code,
+                        message=issue_message,
+                        severity="info",
+                    ),
+                ),
+                timing=UseCaseTiming(
+                    total_ms=round((time.perf_counter() - started) * 1000, 2),
+                    retrieval_ms=retrieval_ms,
+                ),
+                runtime_mode=getattr(self.runtime, "runtime_name", type(self.runtime).__name__),
+                provider_mode=type(self.llm).__name__ if self.llm is not None else getattr(self.runtime, "provider_name", None),
+                filter_applied=filters is not None,
+                retrieval_stats=RetrievalStats(
+                    retrieved_hits=retrieved_hits,
+                    grounded_hits=grounded_hits,
+                    returned_hits=returned_hits,
+                ),
+            ),
+            context=None,
+        )
+
     def _build_prompt(self):
         try:
             from langchain_core.prompts import ChatPromptTemplate
@@ -190,8 +294,13 @@ class ChatService:
                     "system",
                     (
                         "You are MindDock's grounded answer assistant. "
-                        "Use only the provided evidence. "
-                        "If the evidence is insufficient, say so explicitly. "
+                        "Follow these rules strictly: "
+                        "1. Answer only from the provided evidence; do not add outside knowledge. "
+                        "2. If the evidence is missing, weak, contradictory, or not clearly aligned with the question, "
+                        "say the evidence is insufficient and briefly explain the gap. "
+                        "3. Synthesize all relevant evidence items; do not rely on the first item when other evidence "
+                        "adds, qualifies, or conflicts with it. "
+                        "4. If only part of the question is supported, answer that part and state what is not supported. "
                         "Keep the answer concise and factual."
                     ),
                 ),
@@ -201,3 +310,139 @@ class ChatService:
                 ),
             ]
         )
+
+    def _format_prompt_for_debug(self, prompt, inputs: dict[str, object]) -> str:
+        if hasattr(prompt, "format_prompt"):
+            return prompt.format_prompt(**inputs).to_string()
+        if hasattr(prompt, "format"):
+            return str(prompt.format(**inputs))
+        return f"{prompt}\n\nInputs:\n{inputs}"
+
+    def _rerank_direct_chat_evidence(self, query: str, hits: list) -> list:
+        """Nudge chat evidence toward passages that directly answer the question."""
+
+        if len(hits) <= 1:
+            return hits
+
+        rescored = []
+        for index, hit in enumerate(hits):
+            base_score = self._base_rerank_score(hit)
+            directness = self._directness_score(query, hit)
+            total = base_score + (_CHAT_DIRECTNESS_WEIGHT * directness)
+            rescored.append((total, base_score, -index, hit.with_updates(rerank_score=round(total, 6))))
+
+        rescored.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+        return [hit for _, _, _, hit in rescored]
+
+    def _base_rerank_score(self, hit) -> float:
+        if hit.rerank_score is not None:
+            return float(hit.rerank_score)
+        if hit.distance is None:
+            return 0.0
+        return 1.0 / (1.0 + max(float(hit.distance), 0.0))
+
+    def _directness_score(self, query: str, hit) -> float:
+        text = " ".join(
+            part.strip()
+            for part in (
+                hit.text,
+                getattr(hit, "title", ""),
+                getattr(hit, "section", ""),
+                getattr(hit, "location", ""),
+                getattr(hit, "ref", ""),
+            )
+            if part and part.strip()
+        )
+        query_tokens = _directness_tokens(query)
+        text_tokens = _directness_tokens(text)
+        if not query_tokens or not text_tokens:
+            lexical = 0.0
+        else:
+            overlap = query_tokens.intersection(text_tokens)
+            lexical = len(overlap) / max(len(query_tokens), 1)
+
+        normalized_query = query.lower()
+        normalized_text = text.lower()
+        cue_score = self._answer_cue_score(normalized_query, normalized_text)
+        noise_penalty = self._noise_penalty(normalized_text)
+        return max(0.0, lexical + cue_score - noise_penalty)
+
+    def _answer_cue_score(self, query: str, text: str) -> float:
+        score = 0.0
+        if _contains_any(query, ("\u6311\u6218", "\u56f0\u96be", "\u95ee\u9898", "challenge", "difficulty")):
+            if _contains_any(
+                text,
+                (
+                    "\u6311\u6218",
+                    "\u56f0\u96be",
+                    "\u95ee\u9898",
+                    "\u9650\u5236",
+                    "\u4e0d\u8db3",
+                    "challenge",
+                    "limitation",
+                    "issue",
+                    "problem",
+                    "difficulty",
+                ),
+            ):
+                score += 0.35
+        if _contains_any(query, ("\u89e3\u51b3", "\u4ec0\u4e48\u662f", "solve", "address")):
+            if _contains_any(
+                text,
+                (
+                    "\u89e3\u51b3",
+                    "\u7f13\u89e3",
+                    "solve",
+                    "address",
+                    "mitigate",
+                    "reduce",
+                    "hallucination",
+                    "outdated knowledge",
+                    "retrieval-augmented generation",
+                ),
+            ):
+                score += 0.3
+        if "rag" in query:
+            if _contains_any(
+                text,
+                (
+                    "retrieval-augmented generation",
+                    "retrieval augmented generation",
+                    "retriev",
+                    "generation",
+                ),
+            ):
+                score += 0.25
+            if "\u4ec0\u4e48\u662f" in query and "retrieval-augmented generation" in text:
+                score += 0.25
+                if _contains_any(text, (" is a ", " has emerged as ", " refers to ")):
+                    score += 0.15
+        return score
+
+    def _noise_penalty(self, text: str) -> float:
+        compact = "".join(ch for ch in text if not ch.isspace())
+        if not compact:
+            return 0.0
+        digit_ratio = sum(ch.isdigit() for ch in compact) / len(compact)
+        alpha_cjk_ratio = sum(ch.isalpha() or "\u4e00" <= ch <= "\u9fff" for ch in compact) / len(compact)
+        penalty = 0.0
+        if digit_ratio > 0.35:
+            penalty += 0.35
+        if alpha_cjk_ratio < 0.45:
+            penalty += 0.25
+        if "key words" in text or "keywords" in text:
+            penalty += 0.1
+        return penalty
+
+
+def _directness_tokens(text: str) -> set[str]:
+    tokens = {token.lower() for token in _LATIN_TOKEN_RE.findall(text) if len(token) > 1 or token.lower() == "rag"}
+    for match in _CJK_RE.findall(text):
+        chars = [char for char in match if char not in _CJK_STOP_CHARS]
+        tokens.update(chars)
+        tokens.update("".join(chars[index : index + 2]) for index in range(len(chars) - 1))
+    return {token for token in tokens if token}
+
+
+def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in text for needle in needles)

@@ -44,6 +44,14 @@ class LangChainChromaStore:
     def count(self) -> int:
         return self._store._collection.count()
 
+    def health_check(self) -> bool:
+        """Check if the ChromaDB collection is accessible."""
+        try:
+            self._store._collection.count()
+            return True
+        except Exception:
+            return False
+
     def upsert(
         self,
         ids: list[str],
@@ -277,6 +285,15 @@ def clear_vectorstore_cache() -> None:
             finally:
                 _VECTORSTORE_CACHE = None
     gc.collect()
+
+
+def health_check_vectorstore() -> bool:
+    """Check if the vectorstore is accessible. Returns True if ready, False otherwise."""
+    try:
+        store = get_vectorstore()
+        return store.health_check()
+    except Exception:
+        return False
 
 
 def _build_where(filters: RetrievalFilters | dict[str, object] | None) -> dict[str, str] | None:

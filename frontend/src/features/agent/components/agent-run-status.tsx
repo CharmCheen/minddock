@@ -21,8 +21,8 @@ export const AgentRunStatus: React.FC = () => {
     ? `${PHASE_LABELS[progressData.phase] ?? progressData.phase}: ${progressData.message ?? ''}`
     : '';
 
-  const statusColor = status === 'running' ? '#3b82f6' : status === 'completed' ? '#10b981' : status === 'failed' ? '#ef4444' : '#64748b';
-  const statusLabel = status === 'running' ? 'Running' : status === 'completed' ? 'Completed' : status === 'failed' ? 'Failed' : status;
+  const statusColor = status === 'running' ? '#3b82f6' : status === 'completed' ? '#10b981' : status === 'failed' ? '#ef4444' : status === 'cancelling' || status === 'cancelled' ? '#f59e0b' : '#64748b';
+  const statusLabel = status === 'running' ? 'Running' : status === 'completed' ? 'Completed' : status === 'failed' ? 'Failed' : status === 'cancelling' ? 'Cancelling' : status === 'cancelled' ? 'Cancelled' : status;
 
   return (
     <div style={{ padding: 0, fontSize: '12px', background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
@@ -32,7 +32,7 @@ export const AgentRunStatus: React.FC = () => {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          background: status === 'running' ? '#eff6ff' : status === 'failed' ? '#fef2f2' : status === 'completed' ? '#f0fdf4' : '#f8fafc',
+          background: status === 'running' ? '#eff6ff' : status === 'failed' ? '#fef2f2' : status === 'completed' ? '#f0fdf4' : status === 'cancelling' || status === 'cancelled' ? '#fffbeb' : '#f8fafc',
           borderLeft: `3px solid ${statusColor}`,
         }}
       >
@@ -55,6 +55,11 @@ export const AgentRunStatus: React.FC = () => {
           )}
           {status === 'failed' && error && (
             <span style={{ color: '#ef4444', fontSize: '12px', paddingLeft: '8px', borderLeft: '1px solid #fee2e2' }}>
+              {error}
+            </span>
+          )}
+          {(status === 'cancelling' || status === 'cancelled') && error && (
+            <span style={{ color: '#92400e', fontSize: '12px', paddingLeft: '8px', borderLeft: '1px solid #fde68a' }}>
               {error}
             </span>
           )}

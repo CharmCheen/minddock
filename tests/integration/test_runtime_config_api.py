@@ -14,6 +14,7 @@ Covers:
 
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -51,6 +52,52 @@ class TestGetRuntimeConfig:
         assert "api_key_masked" in data
         assert "enabled" in data
         assert "config_source" in data
+        assert "effective_runtime" in data
+
+    def test_effective_runtime_reflects_resolver_profile_not_saved_config(self, client, temp_config_file, monkeypatch):
+        from app.api import routes
+
+        config = ActiveRuntimeConfig(
+            provider="openai_compatible",
+            base_url="https://api.openai.com/v1",
+            api_key_source="none",
+            model="gpt-4o",
+            enabled=True,
+        )
+        temp_config_file.write_text(json.dumps(config.to_dict()))
+        monkeypatch.setenv("LLM_API_KEY", "sk-minimax-test")
+
+        runtime_match = SimpleNamespace(
+            binding=SimpleNamespace(
+                selected_profile_id="default_cloud",
+                provider_kind="openai_compatible",
+                model_name="MiniMax-M2.7",
+                selection_reason="auto:policy_score",
+            ),
+            profile=SimpleNamespace(
+                base_url="https://api.minimaxi.com/v1",
+                api_key_env="LLM_API_KEY",
+            ),
+        )
+        original_resolver = routes.frontend_facade.runtime_resolver
+        routes.frontend_facade.runtime_resolver = SimpleNamespace(resolve=lambda request: runtime_match)
+        try:
+            response = client.get("/frontend/runtime-config")
+        finally:
+            routes.frontend_facade.runtime_resolver = original_resolver
+
+        data = response.json()
+        assert data["base_url"] == "https://api.openai.com/v1"
+        assert data["model"] == "gpt-4o"
+        assert data["config_source"] == "active_config_disabled"
+        assert data["effective_runtime"] == {
+            "profile_id": "default_cloud",
+            "provider_kind": "openai_compatible",
+            "model_name": "MiniMax-M2.7",
+            "base_url": "https://api.minimaxi.com/v1",
+            "source": "auto:policy_score",
+            "api_key_masked": True,
+        }
 
     def test_api_key_is_never_returned_as_plaintext(self, client, temp_config_file):
         """Security: api_key must not appear in response JSON."""
@@ -257,6 +304,84 @@ class TestUpdateRuntimeConfig:
         assert os.environ.get("LLM_API_KEY") == "sk-env-key"
         assert os.environ.get("LLM_RUNTIME_BASE_URL") == "https://api.example.com/v1"
         assert os.environ.get("LLM_RUNTIME_MODEL") == "gpt-4o"
+
+    def test_save_blank_key_preserves_existing_process_key(self, client, temp_config_file, monkeypatch):
+        """Leaving api_key blank keeps the current in-process key when one exists."""
+        monkeypatch.setenv("LLM_API_KEY", "sk-existing-key")
+        temp_config_file.write_text(
+            json.dumps(
+                ActiveRuntimeConfig(
+                    provider="openai_compatible",
+                    base_url="https://old.example.com/v1",
+                    api_key_source="env",
+                    model="old-model",
+                    enabled=True,
+                ).to_dict()
+            )
+        )
+
+        response = client.put(
+            "/frontend/runtime-config",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://new.example.com/v1",
+                "api_key": "",
+                "model": "new-model",
+                "enabled": True,
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["api_key_masked"] is True
+        assert data["config_source"] == "active_config_env"
+        assert data["base_url"] == "https://new.example.com/v1"
+        assert data["model"] == "new-model"
+        assert os.environ["LLM_API_KEY"] == "sk-existing-key"
+        assert os.environ["LLM_RUNTIME_BASE_URL"] == "https://new.example.com/v1"
+        assert os.environ["LLM_RUNTIME_MODEL"] == "new-model"
+        stored = json.loads(temp_config_file.read_text())
+        assert stored["api_key_source"] == "env"
+        assert "sk-existing-key" not in json.dumps(stored)
+
+    def test_save_omitted_key_preserves_existing_process_key(self, client, temp_config_file, monkeypatch):
+        """Omitting api_key has the same keep-existing meaning as a blank field."""
+        monkeypatch.setenv("LLM_API_KEY", "sk-existing-key")
+
+        response = client.put(
+            "/frontend/runtime-config",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://new.example.com/v1",
+                "model": "new-model",
+                "enabled": True,
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["api_key_masked"] is True
+        assert os.environ["LLM_API_KEY"] == "sk-existing-key"
+        stored = json.loads(temp_config_file.read_text())
+        assert stored["api_key_source"] == "env"
+
+    def test_save_blank_key_without_existing_key_does_not_fake_configured_state(self, client, temp_config_file):
+        response = client.put(
+            "/frontend/runtime-config",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "",
+                "model": "gpt-4o",
+                "enabled": True,
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["api_key_masked"] is False
+        assert response.json()["config_source"] == "active_config_disabled"
+        assert "LLM_API_KEY" not in os.environ
+        stored = json.loads(temp_config_file.read_text())
+        assert stored["api_key_source"] == "none"
 
     def test_save_disabled_clears_env(self, client, temp_config_file, monkeypatch):
         """When saving with enabled=False, all env vars are cleared."""

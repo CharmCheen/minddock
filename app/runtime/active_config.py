@@ -85,7 +85,7 @@ def get_active_config() -> ActiveRuntimeConfig:
 def save_active_config(
     provider: str,
     base_url: str,
-    api_key: str,
+    api_key: str | None,
     model: str,
     enabled: bool,
 ) -> ActiveRuntimeConfig:
@@ -94,7 +94,10 @@ def save_active_config(
     Security (Phase 3): the api_key is NEVER written to disk.
     It is set in os.environ only. The file only records that a key exists (via api_key_source).
     """
-    api_key_source = "env" if (enabled and api_key) else "none"
+    normalized_api_key = None if api_key is None else api_key.strip()
+    current_env_key = os.environ.get("LLM_API_KEY", "").strip()
+    should_keep_existing_key = enabled and not normalized_api_key and bool(current_env_key)
+    api_key_source = "env" if (enabled and (normalized_api_key or should_keep_existing_key)) else "none"
 
     config = ActiveRuntimeConfig(
         provider=provider,
@@ -110,9 +113,9 @@ def save_active_config(
 
     # Bootstrap env vars so the registry uses them immediately (in-process, not persisted)
     if enabled:
-        if api_key:
-            os.environ["LLM_API_KEY"] = api_key
-        else:
+        if normalized_api_key:
+            os.environ["LLM_API_KEY"] = normalized_api_key
+        elif not should_keep_existing_key:
             os.environ.pop("LLM_API_KEY", None)
         if base_url:
             os.environ["LLM_RUNTIME_BASE_URL"] = base_url
@@ -142,9 +145,11 @@ def bootstrap_env_from_active_config() -> None:
     If LLM_API_KEY is already set in the shell environment, it takes precedence.
     """
     config = get_active_config()
-    if config.enabled:
+    if config.enabled and config.api_key_source == "env" and os.environ.get("LLM_API_KEY"):
         if config.base_url:
             os.environ["LLM_RUNTIME_BASE_URL"] = config.base_url
+        if config.model:
+            os.environ["LLM_RUNTIME_MODEL"] = config.model
         # NOTE: api_key is NOT read from the file. It must come from the shell env
         # or be re-entered via the Settings UI after a restart.
 

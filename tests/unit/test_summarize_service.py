@@ -62,6 +62,19 @@ def _chunk() -> RetrievedChunk:
     )
 
 
+def _chunk_from_source(source: str, index: int) -> RetrievedChunk:
+    return RetrievedChunk(
+        text=f"Evidence {index} from {source}.",
+        doc_id=source,
+        chunk_id=f"{source}:{index}",
+        source=source,
+        title=source,
+        section="Overview",
+        ref=f"{source} > Overview",
+        distance=0.2,
+    )
+
+
 def test_summarize_returns_summary_and_citations(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.services.summarize_service.run_retrieval_workflow",
@@ -163,3 +176,29 @@ def test_summarize_map_reduce_and_mermaid(monkeypatch) -> None:
     assert result.metadata.output_format == "mermaid"
     assert result.structured_output is not None
     assert result.structured_output.startswith("mindmap")
+
+
+def test_summarize_diversifies_precomputed_evidence_by_source() -> None:
+    runtime = FakeRuntime()
+    service = SummarizeService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=runtime,
+    )
+    hits = [
+        _chunk_from_source("a.md", 1),
+        _chunk_from_source("a.md", 2),
+        _chunk_from_source("a.md", 3),
+        _chunk_from_source("b.md", 1),
+        _chunk_from_source("c.md", 1),
+        _chunk_from_source("d.md", 1),
+    ]
+
+    result = service.summarize(topic="summarize all docs", top_k=6, precomputed_hits=hits)
+
+    sources = [citation.source for citation in result.citations]
+    assert len(sources) == 4
+    assert len(set(sources)) == 4
+    assert runtime.last_evidence is not None
+    assert len({str(item["source"]) for item in runtime.last_evidence}) == 4

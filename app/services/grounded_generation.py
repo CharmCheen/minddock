@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from app.rag.retrieval_models import (
     CitationRecord,
@@ -17,6 +18,57 @@ from app.rag.retrieval_models import (
 SNIPPET_LIMIT = 120
 MAX_EVIDENCE_DISTANCE = 1.5
 PARTIAL_SUPPORT_DISTANCE = 1.0
+OUT_OF_SCOPE_ANSWER = "This question is not answerable from the current knowledge base evidence."
+
+_OUT_OF_SCOPE_PATTERNS = (
+    "what model are you",
+    "which model are you",
+    "who are you",
+    "what are you",
+    "what can you do",
+    "your capabilities",
+    "introduce yourself",
+    "are you chatgpt",
+    "你是什么模型",
+    "你是什麼模型",
+    "你是谁",
+    "你是誰",
+    "你是什么",
+    "你是什麼",
+    "你能做什么",
+    "你能做什麼",
+    "你可以做什么",
+    "你可以做什麼",
+    "你的能力",
+    "你叫什么",
+    "你叫什麼",
+    "介绍一下你自己",
+    "自我介绍",
+)
+_QUERY_STOPWORDS = {
+    "about",
+    "are",
+    "can",
+    "could",
+    "does",
+    "for",
+    "from",
+    "how",
+    "into",
+    "the",
+    "their",
+    "there",
+    "this",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "with",
+    "you",
+    "your",
+}
 
 
 @dataclass(frozen=True)
@@ -36,6 +88,40 @@ def select_grounded_hits(hits: list[RetrievedChunk]) -> GroundedSelectionResult:
         if hit.distance is None or float(hit.distance) < MAX_EVIDENCE_DISTANCE
     ]
     return GroundedSelectionResult(hits=grounded_hits)
+
+
+def is_out_of_scope_knowledge_query(query: str) -> bool:
+    """Return true for obvious assistant/system meta questions, not KB questions."""
+
+    normalized = _normalize_query(query)
+    compact = normalized.replace(" ", "")
+    return any(pattern in normalized or pattern.replace(" ", "") in compact for pattern in _OUT_OF_SCOPE_PATTERNS)
+
+
+def evidence_matches_query(query: str, hits: list[RetrievedChunk]) -> bool:
+    """Conservative lexical sanity check to prevent unrelated hits becoming supported evidence."""
+
+    query_tokens = _query_tokens(query)
+    if len(query_tokens) < 2:
+        return True
+    evidence_parts: list[str] = []
+    for hit in hits:
+        evidence_parts.extend(
+            part
+            for part in (
+                hit.prompt_text(),
+                hit.title,
+                hit.section,
+                hit.source,
+                hit.ref,
+            )
+            if part
+        )
+    evidence_text = " ".join(evidence_parts).lower()
+    evidence_tokens: set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", evidence_text):
+        evidence_tokens.update(_token_variants(token))
+    return bool(query_tokens & evidence_tokens)
 
 
 def build_context(hits: list[RetrievedChunk]) -> ContextBlock:
@@ -127,3 +213,30 @@ def _metadata_text(hit: RetrievedChunk, key: str) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _normalize_query(query: str) -> str:
+    return " ".join(query.lower().strip().split())
+
+
+def _query_tokens(query: str) -> set[str]:
+    tokens: set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", query.lower()):
+        if len(token) < 3 or token in _QUERY_STOPWORDS:
+            continue
+        tokens.update(_token_variants(token))
+    return tokens
+
+
+def _token_variants(token: str) -> set[str]:
+    variants = {token}
+    if len(token) > 4 and token.endswith("es"):
+        variants.add(token[:-2])
+    if len(token) > 3 and token.endswith("s"):
+        variants.add(token[:-1])
+    if len(token) > 4 and token.endswith("ed"):
+        variants.add(token[:-1])
+        variants.add(token[:-2])
+    if len(token) > 5 and token.endswith("ing"):
+        variants.add(token[:-3])
+    return variants

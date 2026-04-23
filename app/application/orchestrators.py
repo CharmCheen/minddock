@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-from app.application.artifacts import ArtifactBuilder, ArtifactKind, ArtifactMapper
+from app.application.artifacts import ArtifactBuilder, ArtifactKind, ArtifactMapper, TextArtifact
 from app.application.client_events import EventProjector, get_event_projector
 from app.application.events import (
     ArtifactEmittedPayload,
@@ -49,16 +49,20 @@ from app.runtime import GenerationRuntime, RuntimeSelectionMode, RuntimeSelectio
 from app.runtime.factory import RuntimeFactory, get_runtime_factory
 from app.runtime.profiles import RuntimeProfileRegistry, get_runtime_profile_registry
 from app.runtime.resolver import RuntimeResolver, get_runtime_resolver
+from app.rag.retrieval_models import GroundedAnswer, RefusalReason, SupportStatus
 from app.services.catalog_service import CatalogService
 from app.services.chat_service import ChatService
 from app.services.compare_service import CompareService
+from app.services.grounded_generation import is_out_of_scope_knowledge_query
 from app.services.ingest_service import IngestService
 from app.services.search_service import SearchService
 from app.services.service_models import (
     ChatServiceResult,
     CompareServiceResult,
+    ServiceIssue,
     SkillInvocation,
     SummarizeServiceResult,
+    UseCaseMetadata,
 )
 from app.services.summarize_service import SummarizeService
 from app.skills import (
@@ -73,6 +77,84 @@ from app.skills import (
 )
 from app.skills.policy import SkillAccessDecision, SkillAccessEvaluator
 from app.workflows.unified_pipeline import RetrievalPipeline
+
+_SUMMARIZE_RETRIEVAL_POOL_MULTIPLIER = 3
+_SUMMARIZE_RETRIEVAL_POOL_MIN = 12
+_SUMMARIZE_RETRIEVAL_POOL_MAX = 24
+_SCOPE_GUARDRAIL_MESSAGE = (
+    "你当前只在单个文档内检索。这个问题更像是全库范围或通用概念问题，"
+    "当前文档未必适合回答它。\n\n"
+    "建议先取消单文档范围（Scoped to 1 source），再重新提问。"
+)
+_SINGLE_DOCUMENT_REFERENCES = (
+    "这篇文档",
+    "这篇论文",
+    "本文",
+    "该论文",
+    "该文",
+    "文中",
+    "本研究",
+    "这篇文章",
+    "当前文档",
+)
+_GENERAL_SCOPE_PREFIXES = (
+    "什么是",
+    "介绍",
+    "解释",
+    "请介绍",
+    "请解释",
+)
+_GLOBAL_SCOPE_PHRASES = (
+    "请总结一下知识库中的主要内容",
+    "知识库中的主要内容是什么",
+    "知识库中的主要内容",
+    "知识库主要内容",
+    "概括这些文档主要讨论了什么",
+    "概括这些文档",
+    "这些文档主要",
+    "这几篇文档主要",
+)
+_GENERAL_CONCEPT_SUFFIXES = (
+    "rag是什么",
+    "pkm是什么",
+)
+
+
+def _normalize_scope_query(text: str) -> str:
+    return "".join(text.strip().lower().split())
+
+
+def _has_single_document_reference(text: str) -> bool:
+    normalized = _normalize_scope_query(text)
+    return any(reference in normalized for reference in _SINGLE_DOCUMENT_REFERENCES)
+
+
+def _looks_like_general_or_global_query(text: str) -> bool:
+    normalized = _normalize_scope_query(text)
+    if not normalized:
+        return False
+    if any(normalized.startswith(prefix) for prefix in _GENERAL_SCOPE_PREFIXES):
+        return True
+    if any(phrase in normalized for phrase in _GLOBAL_SCOPE_PHRASES):
+        return True
+    return any(normalized.endswith(suffix) for suffix in _GENERAL_CONCEPT_SUFFIXES)
+
+
+def _single_scoped_source(request: UnifiedExecutionRequest) -> str | None:
+    filters = request.retrieval.filters
+    if filters is None:
+        return None
+    return filters.normalized_single_source()
+
+
+def _should_apply_scope_guardrail(request: UnifiedExecutionRequest) -> bool:
+    if request.task_type not in (TaskType.CHAT, TaskType.SUMMARIZE):
+        return False
+    if _single_scoped_source(request) is None:
+        return False
+    if _has_single_document_reference(request.user_input):
+        return False
+    return _looks_like_general_or_global_query(request.user_input)
 
 
 @dataclass
@@ -218,6 +300,7 @@ class ChatOrchestrator:
             top_k=request.retrieval.top_k,
             filters=request.retrieval.filters,
             precomputed_hits=precomputed_hits,
+            debug=request.debug,
         )
 
     def run_summarize_with_runtime(
@@ -408,6 +491,7 @@ class FrontendFacade:
     def execute_run(self, request: UnifiedExecutionRequest) -> ExecutionRun:
         """Execute one request while collecting a stable event stream."""
 
+        request = self._route_chat_summary_request(request)
         run = ExecutionRun(
             run_id=build_run_id(),
             request_summary=self._build_request_summary(request),
@@ -441,6 +525,8 @@ class FrontendFacade:
                     requires_runtime=plan.decision.requires_runtime,
                 ),
             )
+            if _should_apply_scope_guardrail(request):
+                return self._complete_scope_guardrail_run(run=run, request=request, collector=collector)
             runtime = None
             runtime_match = None
 
@@ -509,6 +595,7 @@ class FrontendFacade:
             skill_artifact_count = sum(1 for artifact in final_artifacts if artifact.kind == ArtifactKind.SKILL_RESULT)
             warnings = response.metadata.warnings
             issues = response.metadata.issues
+            fallback_used = response.metadata.fallback_used or (False if runtime_match is None else runtime_match.binding.fallback_used)
             metadata = replace(
                 response.metadata,
                 selected_runtime=selected_runtime,
@@ -532,7 +619,7 @@ class FrontendFacade:
                     )
                     for record, _ in skill_invocations
                 ),
-                fallback_used=False if runtime_match is None else runtime_match.binding.fallback_used,
+                fallback_used=fallback_used,
                 selection_reason=None if runtime_match is None else runtime_match.binding.selection_reason,
                 policy_applied=request.execution_policy.describe(),
             )
@@ -564,7 +651,7 @@ class FrontendFacade:
                 selected_provider_kind=selected_provider_kind,
                 selected_model_name=selected_model_name,
                 selected_capabilities=matched_capabilities,
-                fallback_used=False if runtime_match is None else runtime_match.binding.fallback_used,
+                fallback_used=fallback_used,
                 selection_reason=None if runtime_match is None else runtime_match.binding.selection_reason,
                 policy_applied=request.execution_policy.describe(),
                 execution_steps_executed=steps_executed,
@@ -625,6 +712,150 @@ class FrontendFacade:
                 self.event_projector.project_many(run.events, debug=False),
             )
             return run
+
+    def _retrieval_top_k_for_task(self, request: UnifiedExecutionRequest) -> int:
+        if request.task_type != TaskType.SUMMARIZE:
+            return request.retrieval.top_k
+        return min(
+            max(request.retrieval.top_k * _SUMMARIZE_RETRIEVAL_POOL_MULTIPLIER, _SUMMARIZE_RETRIEVAL_POOL_MIN),
+            _SUMMARIZE_RETRIEVAL_POOL_MAX,
+        )
+
+    def _complete_scope_guardrail_run(
+        self,
+        *,
+        run: ExecutionRun,
+        request: UnifiedExecutionRequest,
+        collector: EventCollector,
+    ) -> ExecutionRun:
+        source = _single_scoped_source(request) or "selected source"
+        issue = ServiceIssue(
+            code="scope_guardrail",
+            message="Single-source scope blocked a likely global or general query.",
+            severity="info",
+            source=source,
+        )
+        grounded = GroundedAnswer(
+            answer=_SCOPE_GUARDRAIL_MESSAGE,
+            support_status=SupportStatus.INSUFFICIENT_EVIDENCE,
+            refusal_reason=RefusalReason.OUT_OF_SCOPE,
+        )
+        metadata = UseCaseMetadata(
+            retrieved_count=0,
+            mode="scope_guardrail",
+            insufficient_evidence=True,
+            support_status=SupportStatus.INSUFFICIENT_EVIDENCE.value,
+            refusal_reason=RefusalReason.OUT_OF_SCOPE.value,
+            issues=(issue,),
+            filter_applied=True,
+            execution_steps_executed=(),
+            artifact_kinds_returned=(ArtifactKind.TEXT.value,),
+            primary_artifact_kind=ArtifactKind.TEXT.value,
+            artifact_count=1,
+            fallback_used=False,
+        )
+        artifact = TextArtifact(
+            artifact_id="text-scope-guardrail",
+            kind=ArtifactKind.TEXT,
+            title="scope_guardrail",
+            render_hint="markdown",
+            source_step_id="scope_guardrail",
+            metadata={
+                "fallback_used": False,
+                "insufficient_evidence": True,
+                "support_status": SupportStatus.INSUFFICIENT_EVIDENCE.value,
+                "refusal_reason": RefusalReason.OUT_OF_SCOPE.value,
+                "scope_guardrail": True,
+                "scoped_source": source,
+                "grounded_answer": grounded.to_api_dict(),
+            },
+            text=_SCOPE_GUARDRAIL_MESSAGE,
+        )
+        collector.emit(
+            kind=ExecutionEventKind.WARNING_EMITTED,
+            payload=WarningEmittedPayload(message=issue.message),
+        )
+        collector.emit(
+            kind=ExecutionEventKind.ARTIFACT_EMITTED,
+            payload=ArtifactEmittedPayload(artifact=artifact, artifact_index=1),
+            step_id=artifact.source_step_id,
+        )
+        collector.emit(
+            kind=ExecutionEventKind.RUN_COMPLETED,
+            payload=RunCompletedPayload(
+                artifact_count=1,
+                primary_artifact_kind=ArtifactKind.TEXT.value,
+                partial_failure=False,
+            ),
+        )
+        final_events = collector.events
+        response = UnifiedExecutionResponse(
+            task_type=request.task_type,
+            artifacts=(artifact,),
+            citations=(),
+            grounded_answer=grounded,
+            metadata=metadata,
+            execution_summary=ExecutionSummary(
+                execution_steps_executed=(),
+                artifact_kinds_returned=(ArtifactKind.TEXT.value,),
+                primary_artifact_kind=ArtifactKind.TEXT.value,
+                artifact_count=1,
+                fallback_used=False,
+                warnings=(),
+                issues=(issue,),
+            ),
+            run_id=run.run_id,
+            event_count=len(final_events),
+            events=final_events if request.include_events else (),
+        )
+        run.status = ExecutionRunStatus.COMPLETED
+        run.events = final_events
+        run.final_response = response
+        self.run_registry.mark_completed(run.run_id, response)
+        self.run_registry.record_projected_events(
+            run.run_id,
+            self.event_projector.project_many(final_events, debug=False),
+        )
+        return run
+
+    def _route_chat_summary_request(self, request: UnifiedExecutionRequest) -> UnifiedExecutionRequest:
+        if request.task_type != TaskType.CHAT:
+            return request
+        if request.task_options.get("disable_auto_summary_route"):
+            return request
+        if not self._looks_like_summary_request(request.user_input):
+            return request
+        task_options = {"mode": str(request.task_options.get("mode") or "basic"), **request.task_options}
+        return replace(request, task_type=TaskType.SUMMARIZE, task_options=task_options)
+
+    def _looks_like_summary_request(self, text: str) -> bool:
+        normalized = "".join(text.strip().lower().split())
+        if not normalized:
+            return False
+        summary_prefixes = (
+            "请总结",
+            "总结",
+            "概括",
+            "归纳",
+            "梳理",
+            "汇总",
+            "summarize",
+            "summaryof",
+        )
+        if any(normalized.startswith(prefix) for prefix in summary_prefixes):
+            return True
+        summary_phrases = (
+            "知识库中的主要内容",
+            "知识库主要内容",
+            "这些文档主要",
+            "这几篇文档主要",
+            "文档主要讲了什么",
+            "主要讨论了什么",
+            "主要讲了什么",
+            "整体讲了什么",
+            "总体内容",
+        )
+        return any(phrase in normalized for phrase in summary_phrases)
 
     def execute_chat_request(
         self,
@@ -780,7 +1011,8 @@ class FrontendFacade:
         # and is tested with a fake collection — we skip the unified pipeline to
         # avoid the real search service interfering with test fixtures.
         precomputed_retrieval_state: dict | None = None
-        if request.task_type in (TaskType.CHAT, TaskType.SUMMARIZE):
+        skip_chat_retrieval = request.task_type == TaskType.CHAT and is_out_of_scope_knowledge_query(request.user_input)
+        if request.task_type in (TaskType.CHAT, TaskType.SUMMARIZE) and not skip_chat_retrieval:
             pipeline = self.chat._retrieval_pipeline()
 
             def _emit_pipeline_event(payload: RetrievalPipelineProgressPayload | RetrievalPipelineCompletedPayload):
@@ -804,7 +1036,7 @@ class FrontendFacade:
 
             pipeline_state = pipeline.run(
                 query=request.user_input,
-                top_k=request.retrieval.top_k,
+                top_k=self._retrieval_top_k_for_task(request),
                 filters=request.retrieval.filters,
                 event_emitter=_emit_pipeline_event,
             )

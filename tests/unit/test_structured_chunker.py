@@ -21,6 +21,7 @@ from app.rag.structured_chunker import (
     HEADING_PATTERNS,
     TABLE_ID_RE,
     CHUNK_MAX_TOKENS,
+    _sentence_aware_sliding_window,
 )
 
 
@@ -114,6 +115,14 @@ def _make_pdf_blocks(pages_texts: list[str]) -> list[dict]:
             blocks.append({"type": 0, "lines": block_lines})
         result.append({"page": i, "blocks": blocks})
     return result
+
+
+def _long_cn(sentence: str, times: int = 70) -> str:
+    return sentence * times
+
+
+def _long_en(sentence: str, times: int = 45) -> str:
+    return " ".join(sentence for _ in range(times))
 
 
 # ---------------------------------------------------------------------------
@@ -210,10 +219,10 @@ def test_extract_blocks_classifies_list():
 
 
 def test_blocks_to_chunks_heading_isolated():
-    """标题作为独立 chunk 输出."""
+    """Short headings anchor section metadata but do not become standalone chunks."""
     pages = _make_pdf_blocks([
-        "## 第一章 介绍\n本文介绍 MindDock 系统。",
-        "## 第二章 相关工作\n相关工作涵盖 RAG 和向量检索。",
+        "## 第一章 介绍\n" + _long_cn("本文介绍 MindDock 系统如何组织知识、检索证据并生成答案。"),
+        "## 第二章 相关工作\n" + _long_cn("相关工作涵盖 RAG、向量检索、证据压缩和引用绑定等内容。"),
     ])
     chunks = structured_pdf_chunks(pages, doc_id="test", source="test.pdf",
                                    source_path="test.pdf", source_type="file",
@@ -221,16 +230,21 @@ def test_blocks_to_chunks_heading_isolated():
                                    content_hash="abc", last_ingested_at="2024-01-01")
 
     heading_chunks = [(t, m) for t, m in chunks if m.block_type == "heading"]
-    assert len(heading_chunks) == 2
-    # Each heading chunk should have section_title set
-    assert all(m.section_title for _, m in heading_chunks)
-    print(f"PASS: blocks_to_chunks_heading_isolated — got {len(chunks)} total chunks, {len(heading_chunks)} headings")
+    assert heading_chunks == []
+    para_sections = {m.section_title for _, m in chunks if m.block_type == "paragraph"}
+    assert "第一章 介绍" in para_sections
+    assert "第二章 相关工作" in para_sections
+    print(f"PASS: blocks_to_chunks_heading_isolated - got {len(chunks)} paragraph chunks")
 
 
 def test_blocks_to_chunks_paragraph_accumulation():
     """多个相邻 paragraph 合并为一个 chunk（不超过 CHUNK_MAX_TOKENS 时）."""
     pages = _make_pdf_blocks([
-        "第一段内容。\n第二段内容。\n第三段内容。",
+        _long_cn("第一段内容用于描述知识管理系统的检索过程。", 10)
+        + "\n"
+        + _long_cn("第二段内容补充说明证据组织和引用生成。", 10)
+        + "\n"
+        + _long_cn("第三段内容强调 chunk 需要保持完整语义。", 10),
     ])
     chunks = structured_pdf_chunks(pages, doc_id="test", source="test.pdf",
                                    source_path="test.pdf", source_type="file",
@@ -247,8 +261,13 @@ def test_blocks_to_chunks_paragraph_accumulation():
 
 def test_blocks_to_chunks_table_isolated():
     """TABLE_LIKE 块不会被混入正文 chunk."""
+    table_rows = "\n".join(f"方法{i} │ {0.80 + i / 100:.2f}" for i in range(1, 80))
     pages = _make_pdf_blocks([
-        "## 实验结果\n这是正文。\n方法 │ 准确率\nA │ 0.9\nB │ 0.95\n表格说明文字。",
+        "## 实验结果\n"
+        + _long_cn("这是正文，用于解释实验结果而不是表格内容。", 25)
+        + "\n方法 │ 准确率\n"
+        + table_rows
+        + "\n表格说明文字。",
     ])
     chunks = structured_pdf_chunks(pages, doc_id="test", source="test.pdf",
                                    source_path="test.pdf", source_type="file",
@@ -271,14 +290,14 @@ def test_blocks_to_chunks_table_isolated():
 def test_blocks_to_chunks_metadata_enriched():
     """Chunk metadata 包含新增字段."""
     pages = _make_pdf_blocks([
-        "## 背景\n内容。",
+        "## 背景\n" + _long_cn("内容说明系统背景、用户需求、检索流程和证据质量。", 25),
     ])
     chunks = structured_pdf_chunks(pages, doc_id="doc123", source="paper.pdf",
                                    source_path="paper.pdf", source_type="file",
                                    title="My Paper", source_version="v1",
                                    content_hash="hashX", last_ingested_at="2024-01-01T00:00:00Z")
 
-    assert len(chunks) == 2  # heading + paragraph
+    assert len(chunks) == 1
     for text, meta in chunks:
         assert meta.doc_id == "doc123"
         assert meta.source == "paper.pdf"
@@ -287,15 +306,16 @@ def test_blocks_to_chunks_metadata_enriched():
         assert meta.order_in_doc >= 0
         assert meta.char_count == len(text)
         assert meta.token_estimate > 0
-        assert meta.block_type in ("heading", "paragraph")
-        assert meta.section_title in ("背景", "")  # heading chunk has section_title
+        assert meta.block_type == "paragraph"
+        assert meta.section_title == "背景"
     print("PASS: blocks_to_chunks_metadata_enriched")
 
 
 def test_blocks_to_chunks_section_tracking():
     """section_title 在 heading 切换时正确更新."""
     pages = _make_pdf_blocks([
-        "## 第一节\n内容A。\n## 第二节\n内容B。",
+        "## 第一节\n" + _long_cn("内容A说明第一节的研究背景和系统设计。")
+        + "\n## 第二节\n" + _long_cn("内容B说明第二节的实验设置和质量评估。"),
     ])
     chunks = structured_pdf_chunks(pages, doc_id="test", source="test.pdf",
                                    source_path="test.pdf", source_type="file",
@@ -314,8 +334,9 @@ def test_blocks_to_chunks_section_tracking():
 
 def test_captions_merged_with_table():
     """caption 块应与前一个 table 块合并（或单独输出）."""
+    table_rows = "\n".join(f"模型{i} │ {0.70 + i / 100:.2f}" for i in range(1, 90))
     pages = _make_pdf_blocks([
-        "## 实验\n方法 │ 结果\nCNN │ 0.89\n表1 实验结果。",
+        "## 实验\n方法 │ 结果\n" + table_rows + "\n表1 实验结果。",
     ])
     chunks = structured_pdf_chunks(pages, doc_id="test", source="test.pdf",
                                    source_path="test.pdf", source_type="file",
@@ -324,11 +345,8 @@ def test_captions_merged_with_table():
 
     table_chunks = [(t, m) for t, m in chunks if m.block_type == "table"]
     assert len(table_chunks) >= 1
-    # If merged, the table chunk should contain "表1"
-    # If not merged, there should be a caption chunk
-    caption_or_merged = any("表1" in t for t, _ in table_chunks) or \
-                        any(m.block_type == "caption" for _, m in chunks)
-    assert caption_or_merged
+    assert any("表1" in t for t, _ in table_chunks)
+    assert not any(m.block_type == "caption" for _, m in chunks)
     print(f"PASS: captions_merged_with_table")
 
 
@@ -444,6 +462,16 @@ def test_extract_blocks_classifies_pipe_style_heading():
     print("PASS: extract_blocks_classifies_pipe_style_heading")
 
 
+def test_extract_blocks_classifies_numbered_section_heading():
+    blocks = [
+        {"type": 0, "lines": [{"spans": [{"text": "2 Related Work"}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": "1 引言"}]}]},
+    ]
+    result = extract_blocks_from_page(2, blocks)
+    assert [b.block_type for b in result] == [BlockType.HEADING, BlockType.HEADING]
+    print("PASS: extract_blocks_classifies_numbered_section_heading")
+
+
 def test_extract_blocks_classifies_multiline_numeric_heading():
     blocks = [
         {
@@ -461,7 +489,7 @@ def test_extract_blocks_classifies_multiline_numeric_heading():
 
 
 def test_blocks_to_chunks_multiline_heading_section_title():
-    """Multiline heading '1\\nINTRODUCTION' should have section_title='INTRODUCTION' (not '1\\nINTRODUCTION')."""
+    """Multiline heading should anchor following body section without becoming a tiny chunk."""
     blocks = [
         {
             "type": 0,
@@ -470,6 +498,7 @@ def test_blocks_to_chunks_multiline_heading_section_title():
                 {"spans": [{"text": "INTRODUCTION"}]},
             ],
         },
+        {"type": 0, "lines": [{"spans": [{"text": _long_en("Large language models require retrieval to ground answers in source evidence.")}]}]},
     ]
     extracted = extract_blocks_from_page(2, blocks)
     chunks = blocks_to_chunks(
@@ -483,11 +512,10 @@ def test_blocks_to_chunks_multiline_heading_section_title():
         content_hash="abc",
         last_ingested_at="2024-01-01",
     )
-    heading_chunk = next((m for t, m in chunks if "INTRODUCTION" in t and m.block_type == "heading"), None)
-    assert heading_chunk is not None, "Heading chunk not found"
-    assert heading_chunk.section_title == "INTRODUCTION", (
-        f"Expected section_title='INTRODUCTION', got {heading_chunk.section_title!r}"
-    )
+    assert not any(m.block_type == "heading" for _, m in chunks)
+    body_chunk = next((m for t, m in chunks if "Large language models" in t), None)
+    assert body_chunk is not None
+    assert body_chunk.section_title == "INTRODUCTION", f"Expected section_title='INTRODUCTION', got {body_chunk.section_title!r}"
     print("PASS: test_blocks_to_chunks_multiline_heading_section_title")
 
 
@@ -495,8 +523,8 @@ def test_blocks_to_chunks_page1_english_title_and_inferred_abstract():
     blocks = [
         {"type": 0, "lines": [{"spans": [{"text": "A Survey of Personalization: From RAG to Agent"}]}]},
         {"type": 0, "lines": [{"spans": [{"text": "XIAOPENG LI, City University of Hong Kong"}]}]},
-        {"type": 0, "lines": [{"spans": [{"text": "Personalization has become an essential capability in modern AI systems, enabling customized interactions that align with individual user preferences and contexts."}]}]},
-        {"type": 0, "lines": [{"spans": [{"text": "Recent research has increasingly concentrated on Retrieval-Augmented Generation frameworks and their evolution into more advanced agent architectures."}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": _long_en("Personalization has become an essential capability in modern AI systems, enabling customized interactions that align with individual user preferences and contexts.", 20)}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": _long_en("Recent research has increasingly concentrated on Retrieval-Augmented Generation frameworks and their evolution into more advanced agent architectures.", 20)}]}]},
         {"type": 0, "lines": [{"spans": [{"text": "Additional Key Words and Phrases: Large Language Model, Retrieval-Augmented Generation"}]}]},
     ]
     extracted = extract_blocks_from_page(1, blocks)
@@ -513,10 +541,10 @@ def test_blocks_to_chunks_page1_english_title_and_inferred_abstract():
     )
 
     title_chunk = next((m for t, m in chunks if "A Survey of Personalization" in t), None)
-    assert title_chunk is not None and title_chunk.block_type == "heading"
+    assert title_chunk is None
 
     author_chunk = next((m for t, m in chunks if "XIAOPENG LI" in t), None)
-    assert author_chunk is not None and author_chunk.block_type == "paragraph"
+    assert author_chunk is None
 
     abstract_chunk = next((m for t, m in chunks if "Personalization has become" in t), None)
     assert abstract_chunk is not None
@@ -528,7 +556,7 @@ def test_blocks_to_chunks_page1_english_title_and_inferred_abstract():
 def test_blocks_to_chunks_chinese_abstract_marker_inherits_section():
     blocks = [
         {"type": 0, "lines": [{"spans": [{"text": "摘 要：近年来，边缘智能发展迅速。"}]}]},
-        {"type": 0, "lines": [{"spans": [{"text": "边缘协同推理可以减少云边通信开销并提升响应速度。"}]}]},
+        {"type": 0, "lines": [{"spans": [{"text": _long_cn("边缘协同推理可以减少云边通信开销并提升响应速度。", 80)}]}]},
     ]
     extracted = extract_blocks_from_page(1, blocks)
     chunks = blocks_to_chunks(
@@ -545,45 +573,28 @@ def test_blocks_to_chunks_chinese_abstract_marker_inherits_section():
 
     heading_chunk = next((m for t, m in chunks if "摘" in t and m.block_type == "heading"), None)
     body_chunk = next((m for t, m in chunks if "边缘协同推理" in t), None)
-    assert heading_chunk is not None
+    assert heading_chunk is None
     assert body_chunk is not None
     assert body_chunk.section_title in {"摘 要", "摘要"}
     print("PASS: blocks_to_chunks_chinese_abstract_marker_inherits_section")
 
 
 def test_blocks_to_chunks_front_matter_split():
-    """Front matter heading block: marker→heading chunk, body→paragraph chunk with correct section_title."""
-    # Block 0: Chinese title (first block on page 1, no ending punct → HEADING via Chinese title detection)
-    # Block 1: Author/affiliation (short, has author markers → not Chinese title)
-    # Block 2: English title (title-case, known title → HEADING)
-    # Block 3: English author block
-    # Block 4: Abstract heading merged with first sentence → split
-    # Block 5-7: English abstract body paragraphs
-    # Block 8: Key words heading
-    # Block 9: 摘　要 heading merged with first sentence → split
-    # Block 10-12: Chinese abstract body paragraphs
-    # Block 13: 关键词 heading
+    """Front matter labels and author lists are not emitted as standalone chunks."""
     pages = _make_pdf_blocks([
-        # Page 1
-        "面向边缘智能的协同推理综述",  # Block 0: Chinese title
-        "王 睿\n齐建鹏\n陈 亮\n杨 龙\n（北京科技大学）",  # Block 1: Author
-        "Survey of Collaborative Inference for Edge Intelligence",  # Block 2: English title
-        "Wang Rui, Qi Jianpeng, Chen Liang, and Yang Long",  # Block 3: English author
-        # Block 4: Abstract heading + first sentence (merged in PDF)
+        "面向边缘智能的协同推理综述",
+        "王 睿\n齐建鹏\n陈 亮\n杨 龙\n（北京科技大学）",
+        "Survey of Collaborative Inference for Edge Intelligence",
+        "Wang Rui, Qi Jianpeng, Chen Liang, and Yang Long",
         "Abstract At present, the continuous change of information technology.",
-        # Block 5-7: English abstract body
-        "Along with the dramatic explosion of data, mainstream cloud computing.",
-        "Solutions face challenges like poor real-time performance.",
-        "Edge intelligence has emerged as a promising approach.",
-        # Block 8: Key words
+        _long_en("Along with the dramatic explosion of data, mainstream cloud computing faces pressure from latency and bandwidth.", 20),
+        _long_en("Solutions face challenges like poor real-time performance and excessive cloud-edge communication overhead.", 20),
+        _long_en("Edge intelligence has emerged as a promising approach for bringing inference closer to users.", 20),
         "Key words edge computing; edge intelligence; machine learning",
-        # Block 9: 摘　要 heading + first sentence (merged)
         "摘　要　近年来，信息技术的不断变革伴随数据量的急剧爆发，使主流的云计算解决方案面临实时性差、带宽受限等问题。",
-        # Block 10-12: Chinese abstract body
-        "边缘智能的出现与快速发展有效缓解了此类问题。",
-        "用户需求处理下沉到边缘，避免了海量数据在网络中的流动。",
-        "通过对边缘智能发展的趋势分析，得出结论。",
-        # Block 13: 关键词
+        _long_cn("边缘智能的出现与快速发展有效缓解了此类问题。", 45),
+        _long_cn("用户需求处理下沉到边缘，避免了海量数据在网络中的流动。", 45),
+        _long_cn("通过对边缘智能发展的趋势分析，得出结论。", 45),
         "关键词 边缘计算；边缘智能；机器学习；边缘协同推理",
     ])
 
@@ -601,23 +612,10 @@ def test_blocks_to_chunks_front_matter_split():
 
     chunk_info = [(t, m.block_type, m.section_title) for t, m in chunks]
 
-    # 1. Chinese title → HEADING chunk (no merge with author)
-    title_chunks = [(t, bt, s) for t, bt, s in chunk_info if "边缘智能" in t and bt == "heading"]
-    assert len(title_chunks) >= 1, f"Chinese title not found as heading: {chunk_info[:5]}"
-    assert not any("王" in t for t, bt, s in title_chunks), "Author leaked into title chunk"
+    assert not any(bt == "heading" for _, bt, _ in chunk_info)
+    assert not any("Wang Rui" in t or "北京科技大学" in t for t, _, _ in chunk_info)
+    assert not any(t.strip() in {"Abstract", "摘 要"} for t, _, _ in chunk_info)
 
-    # 2. Author block → separate from title
-    author_chunks = [(t, bt, s) for t, bt, s in chunk_info if "王" in t or "睿" in t]
-    assert len(author_chunks) >= 1, f"Author block not found: {chunk_info[:5]}"
-    # Author should not be merged with title
-    for t, bt, s in author_chunks:
-        assert "边缘智能" not in t, f"Title leaked into author: {t[:50]!r}"
-
-    # 3. Abstract heading → its own HEADING chunk with "Abstract" text
-    abstract_heading_chunks = [(t, bt, s) for t, bt, s in chunk_info if t.strip() == "Abstract"]
-    assert len(abstract_heading_chunks) >= 1, f"Abstract heading not found: {chunk_info[:8]}"
-
-    # 4. English abstract body → paragraph chunk, section_title = "Abstract"
     en_body_chunks = [
         (t, bt, s) for t, bt, s in chunk_info
         if ("Along with" in t or "Solutions face" in t or "Edge intelligence" in t)
@@ -627,11 +625,6 @@ def test_blocks_to_chunks_front_matter_split():
     for t, bt, s in en_body_chunks:
         assert s == "Abstract", f"English abstract body section_title={s!r}, expected 'Abstract'"
 
-    # 5. 摘 要 heading → its own HEADING chunk (normalized to ASCII space)
-    zhai_heading_chunks = [(t, bt, s) for t, bt, s in chunk_info if t.strip() == "摘 要"]
-    assert len(zhai_heading_chunks) >= 1, f"摘 要 heading not found: {chunk_info}"
-
-    # 6. Chinese abstract body → paragraph chunk, section_title = "摘 要"
     zh_body_chunks = [
         (t, bt, s) for t, bt, s in chunk_info
         if ("边缘智能" in t or "用户需求" in t or "趋势分析" in t)
@@ -641,15 +634,72 @@ def test_blocks_to_chunks_front_matter_split():
     for t, bt, s in zh_body_chunks:
         assert s == "摘 要", f"Chinese abstract body section_title={s!r}, expected '摘 要'"
 
-    # 7. Key words / 关键词 → separate heading chunks
-    keyword_chunks = [
-        (t, bt, s) for t, bt, s in chunk_info
-        if ("Key words" in t or "关键词" in t) and bt == "heading"
-    ]
-    assert len(keyword_chunks) >= 2, f"Expected 2 keyword headings, found: {keyword_chunks}"
+    assert not any("Key words" in t or "关键词" in t for t, _, _ in chunk_info)
 
     print(f"PASS: blocks_to_chunks_front_matter_split")
     print(f"  All {len(chunks)} chunks: {[(t[:30] if len(t) > 30 else t, bt, s) for t, bt, s in chunk_info]}")
+
+
+def test_sentence_aware_window_keeps_sentence_endings():
+    text = " ".join(f"Sentence {i} explains retrieval augmented generation." for i in range(80))
+    windows = _sentence_aware_sliding_window(text, size=220, overlap=40)
+    assert len(windows) > 1
+    assert all(window.endswith(".") for window in windows)
+    assert not any(window.startswith("xplains") or window.startswith("etrieval") for window in windows)
+    print("PASS: sentence_aware_window_keeps_sentence_endings")
+
+
+def test_references_section_truncates_following_blocks():
+    blocks = [
+        PDFBlock(BlockType.HEADING, "Introduction", 1, 0, 1),
+        PDFBlock(BlockType.PARAGRAPH, _long_en("RAG retrieves evidence before generation to reduce hallucination.", 50), 1, 1),
+        PDFBlock(BlockType.HEADING, "References", 8, 0, 1),
+        PDFBlock(BlockType.PARAGRAPH, "Lewis Patrick, Perez Ethan, Piktus Aleksandra, Petroni Fabio.", 8, 1),
+    ]
+    chunks = blocks_to_chunks(
+        blocks,
+        doc_id="test",
+        source="test.pdf",
+        source_path="test.pdf",
+        source_type="file",
+        title="Test",
+        source_version="v1",
+        content_hash="abc",
+        last_ingested_at="2024-01-01",
+    )
+    all_text = "\n".join(text for text, _ in chunks)
+    assert "RAG retrieves evidence" in all_text
+    assert "Lewis Patrick" not in all_text
+    print("PASS: references_section_truncates_following_blocks")
+
+
+def test_standalone_author_and_caption_blocks_are_filtered():
+    blocks = [
+        PDFBlock(
+            BlockType.PARAGRAPH,
+            "Alice Wang, City University of Hong Kong, Hong Kong Bob Chen, University of Science and Technology of China, China Carol Li, Institute of Computing, Beijing",
+            1,
+            0,
+        ),
+        PDFBlock(BlockType.CAPTION, "Fig. 1. Overview of the proposed framework.", 2, 1),
+        PDFBlock(BlockType.PARAGRAPH, _long_en("Retrieval augmented generation combines search results with language model generation for grounded responses.", 50), 2, 2),
+    ]
+    chunks = blocks_to_chunks(
+        blocks,
+        doc_id="test",
+        source="test.pdf",
+        source_path="test.pdf",
+        source_type="file",
+        title="Test",
+        source_version="v1",
+        content_hash="abc",
+        last_ingested_at="2024-01-01",
+    )
+    all_text = "\n".join(text for text, _ in chunks)
+    assert "Alice Wang" not in all_text
+    assert "Fig. 1" not in all_text
+    assert "Retrieval augmented generation" in all_text
+    print("PASS: standalone_author_and_caption_blocks_are_filtered")
 
 
 def run_all():
@@ -674,10 +724,14 @@ def run_all():
         test_split_front_matter_heading_no_split_no_marker,
         test_extract_blocks_classifies_caption_variants_and_plain_reference,
         test_extract_blocks_classifies_pipe_style_heading,
+        test_extract_blocks_classifies_numbered_section_heading,
         test_extract_blocks_classifies_multiline_numeric_heading,
         test_blocks_to_chunks_page1_english_title_and_inferred_abstract,
         test_blocks_to_chunks_chinese_abstract_marker_inherits_section,
         test_blocks_to_chunks_front_matter_split,
+        test_sentence_aware_window_keeps_sentence_endings,
+        test_references_section_truncates_following_blocks,
+        test_standalone_author_and_caption_blocks_are_filtered,
     ]
     passed = 0
     failed = 0

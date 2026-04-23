@@ -20,8 +20,96 @@ function normalizeToCitationItem(item: any): CitationItem {
   };
 }
 
+type StatusBadge = {
+  label: string;
+  color: string;
+  background: string;
+  border: string;
+};
+
+const SUPPORT_LABELS: Record<string, string> = {
+  supported: 'Supported',
+  partially_supported: 'Partial',
+  insufficient_evidence: 'Insufficient',
+  conflicting_evidence: 'Conflicting',
+};
+
+function humanizeStatus(value: string): string {
+  return value
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function buildStatusBadges(metadata: Record<string, unknown> | undefined): StatusBadge[] {
+  if (!metadata) return [];
+
+  const grounded = metadata.grounded_answer as Record<string, unknown> | undefined;
+  const supportStatus = String(metadata.support_status || grounded?.support_status || '');
+  const refusalReason = metadata.refusal_reason || grounded?.refusal_reason;
+  const fallbackUsed = metadata.fallback_used === true;
+  const insufficientEvidence = metadata.insufficient_evidence === true || supportStatus === 'insufficient_evidence';
+  const badges: StatusBadge[] = [];
+
+  if (fallbackUsed) {
+    badges.push({
+      label: 'Fallback',
+      color: '#b45309',
+      background: '#fffbeb',
+      border: '#fde68a',
+    });
+  }
+
+  if (supportStatus) {
+    badges.push({
+      label: SUPPORT_LABELS[supportStatus] || humanizeStatus(supportStatus),
+      color: insufficientEvidence ? '#b91c1c' : supportStatus === 'supported' ? '#15803d' : '#0369a1',
+      background: insufficientEvidence ? '#fef2f2' : supportStatus === 'supported' ? '#f0fdf4' : '#eff6ff',
+      border: insufficientEvidence ? '#fecaca' : supportStatus === 'supported' ? '#bbf7d0' : '#bfdbfe',
+    });
+  }
+
+  if (refusalReason) {
+    badges.push({
+      label: `Refusal: ${humanizeStatus(String(refusalReason))}`,
+      color: '#b91c1c',
+      background: '#fef2f2',
+      border: '#fecaca',
+    });
+  }
+
+  return badges;
+}
+
+function StatusBadges({ badges }: { badges: StatusBadge[] }) {
+  if (badges.length === 0) return null;
+
+  return (
+    <>
+      {badges.map((badge) => (
+        <span
+          key={badge.label}
+          style={{
+            fontSize: '11px',
+            fontWeight: '600',
+            color: badge.color,
+            background: badge.background,
+            border: `1px solid ${badge.border}`,
+            padding: '3px 10px',
+            borderRadius: '6px',
+          }}
+        >
+          {badge.label}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = ({ artifact }) => {
   const { kind, content, metadata, citations: artifactCitations } = artifact;
+  const statusBadges = buildStatusBadges(metadata);
 
   // Extract citations from multiple possible locations
   let citations: CitationItem[] | undefined;
@@ -57,6 +145,7 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
           }}>
             Text Response
           </span>
+          <StatusBadges badges={statusBadges} />
         </div>
         <div style={{
           fontSize: '15px',

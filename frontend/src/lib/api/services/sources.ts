@@ -1,28 +1,31 @@
 import { apiClient } from '../client';
-import { SourceCatalogResponse, SourceChunkWrapperResponse } from '../../../core/types/api';
+import { SourceDetailResponse, SourceChunkWrapperResponse, SourceItem } from '../../../core/types/api';
 
 export interface SourceServiceOptions {
   signal?: AbortSignal;
 }
 
 interface SourceCatalogWrapperResponse {
-  items: SourceCatalogResponse[];
+  items: SourceItem[];
   total: number;
 }
 
 export const SourceService = {
-  async getSources(options?: SourceServiceOptions): Promise<SourceCatalogResponse[]> {
+  async getSources(options?: SourceServiceOptions): Promise<SourceItem[]> {
     const { data } = await apiClient.get<SourceCatalogWrapperResponse>('/sources', {
       signal: options?.signal,
     });
     return data.items || [];
   },
 
-  async getSource(docId: string, options?: SourceServiceOptions): Promise<SourceCatalogResponse> {
-    const { data } = await apiClient.get<SourceCatalogResponse>(`/sources/${docId}`, {
+  async getSource(docId: string, options?: SourceServiceOptions): Promise<SourceItem> {
+    const { data } = await apiClient.get<SourceDetailResponse>(`/sources/${docId}`, {
       signal: options?.signal,
     });
-    return data;
+    if (!data.found || !data.item) {
+      throw new Error(`Source not found: ${docId}`);
+    }
+    return data.item;
   },
 
   async deleteSource(docId: string, options?: SourceServiceOptions): Promise<void> {

@@ -101,11 +101,11 @@ export const SourceDrawer: React.FC = () => {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               width: '32px', height: '32px',
               borderRadius: '8px',
-              background: selectedDocDetail?.category === 'url' ? '#dbeafe' : '#f0fdf4',
-              color: selectedDocDetail?.category === 'url' ? '#1d4ed8' : '#10b981',
+              background: selectedDocDetail?.source_type === 'url' ? '#dbeafe' : '#f0fdf4',
+              color: selectedDocDetail?.source_type === 'url' ? '#1d4ed8' : '#10b981',
               fontSize: '16px',
             }}>
-              {selectedDocDetail?.category === 'url' ? '🔗' : '📄'}
+              {selectedDocDetail?.source_type === 'url' ? '🔗' : '📄'}
             </div>
             <div>
               <div style={{ fontSize: '14px', fontWeight: '600', color: '#0f172a' }}>
@@ -144,7 +144,8 @@ export const SourceDrawer: React.FC = () => {
               <span style={{ color: '#94a3b8', fontSize: '11px' }}>📅</span>
               {(() => {
                 try {
-                  return new Date(selectedDocDetail.uploaded_at).toLocaleDateString();
+                  const ts = selectedDocDetail?.source_state?.last_ingested_at;
+                  return ts ? new Date(ts).toLocaleDateString() : '—';
                 } catch {
                   return '—';
                 }
@@ -158,11 +159,11 @@ export const SourceDrawer: React.FC = () => {
             )}
             <span style={{
               display: 'inline-flex', alignItems: 'center',
-              background: selectedDocDetail.ingest_status === 'ready' ? '#dcfce7' : '#fef9c3',
-              color: selectedDocDetail.ingest_status === 'ready' ? '#15803d' : '#a16207',
+              background: selectedDocDetail.source_state?.ingest_status === 'ready' ? '#dcfce7' : '#fef9c3',
+              color: selectedDocDetail.source_state?.ingest_status === 'ready' ? '#15803d' : '#a16207',
               borderRadius: '5px', padding: '1px 7px', fontSize: '11px', fontWeight: '500',
             }}>
-              {selectedDocDetail.ingest_status === 'ready' ? '● ready' : '○ ' + (selectedDocDetail.ingest_status || 'unknown')}
+              {selectedDocDetail.source_state?.ingest_status === 'ready' ? '● ready' : '○ ' + (selectedDocDetail.source_state?.ingest_status || 'unknown')}
             </span>
           </div>
         )}

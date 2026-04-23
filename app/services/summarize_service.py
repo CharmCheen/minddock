@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 import logging
 import time
 from dataclasses import dataclass, field
@@ -29,6 +29,9 @@ from app.workflows.langgraph_pipeline import run_retrieval_workflow
 from ports.llm import LLMProvider
 
 logger = logging.getLogger(__name__)
+
+_SUMMARY_EVIDENCE_LIMIT = 4
+_SUMMARY_PER_SOURCE_CAP = 2
 
 
 @dataclass
@@ -139,8 +142,9 @@ class SummarizeService:
             rerank_started = time.perf_counter()
             reranked_hits = self.reranker.rerank(query=topic, hits=grounded_hits)
             rerank_ms = round((time.perf_counter() - rerank_started) * 1000, 2)
+            covered_hits = self._diversify_summary_hits(reranked_hits)
             compress_started = time.perf_counter()
-            compressed_hits = self.compressor.compress(query=topic, hits=reranked_hits)
+            compressed_hits = self.compressor.compress(query=topic, hits=covered_hits)
             compress_ms = round((time.perf_counter() - compress_started) * 1000, 2)
             context = build_context(compressed_hits)
             citations = [build_citation(hit) for hit in compressed_hits]
@@ -150,13 +154,15 @@ class SummarizeService:
 
             generation_started = time.perf_counter()
             if mode == "map_reduce":
-                summary = self._summarize_map_reduce(
+                summary, fallback_used = self._summarize_map_reduce(
                     topic=topic,
                     grouped_hits=grouped_hits,
                     fallback_hits=compressed_hits,
                 )
             else:
-                summary = self._summarize_basic(topic=topic, context=context)
+                runtime_response = self._generate_basic_summary(topic=topic, context=context)
+                summary = runtime_response.text
+                fallback_used = runtime_response.used_fallback
             generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
 
             structured_output = None
@@ -194,6 +200,7 @@ class SummarizeService:
                     ),
                     runtime_mode=getattr(self.runtime, "runtime_name", type(self.runtime).__name__),
                     provider_mode=type(self.llm).__name__ if self.llm is not None else getattr(self.runtime, "provider_name", None),
+                    fallback_used=fallback_used,
                     filter_applied=filters is not None,
                     retrieval_stats=RetrievalStats(
                         retrieved_hits=len(workflow_state.hits),
@@ -208,6 +215,45 @@ class SummarizeService:
         except Exception as exc:
             logger.exception("Summarize failed: topic_preview=%s", topic[:60])
             raise SummarizeError(detail=f"Summarization failed: {exc}") from exc
+
+    def _diversify_summary_hits(self, hits: list[RetrievedChunk]) -> list[RetrievedChunk]:
+        if len(hits) <= _SUMMARY_EVIDENCE_LIMIT:
+            return hits
+
+        selected: list[RetrievedChunk] = []
+        selected_chunk_ids: set[str] = set()
+        source_counts: Counter[str] = Counter()
+
+        def _source_key(hit: RetrievedChunk) -> str:
+            return hit.source or hit.doc_id or hit.chunk_id
+
+        def _try_add(hit: RetrievedChunk, *, cap: int | None = None) -> bool:
+            if hit.chunk_id in selected_chunk_ids:
+                return False
+            source = _source_key(hit)
+            if cap is not None and source_counts[source] >= cap:
+                return False
+            selected.append(hit)
+            selected_chunk_ids.add(hit.chunk_id)
+            source_counts[source] += 1
+            return True
+
+        for hit in hits:
+            if len(selected) >= _SUMMARY_EVIDENCE_LIMIT:
+                break
+            _try_add(hit, cap=1)
+
+        for hit in hits:
+            if len(selected) >= _SUMMARY_EVIDENCE_LIMIT:
+                break
+            _try_add(hit, cap=_SUMMARY_PER_SOURCE_CAP)
+
+        for hit in hits:
+            if len(selected) >= _SUMMARY_EVIDENCE_LIMIT:
+                break
+            _try_add(hit)
+
+        return selected
 
     def _group_hits_by_doc(self, hits: list[RetrievedChunk]) -> list[DocumentEvidenceGroup]:
         grouped: dict[str, list[RetrievedChunk]] = defaultdict(list)
@@ -226,6 +272,9 @@ class SummarizeService:
         ]
 
     def _summarize_basic(self, topic: str, context: ContextBlock) -> str:
+        return self._generate_basic_summary(topic=topic, context=context).text
+
+    def _generate_basic_summary(self, topic: str, context: ContextBlock):
         summary_query = (
             "Summarize the topic using only the provided evidence. "
             "Keep it concise, grounded, and synthesis-oriented.\n"
@@ -239,7 +288,7 @@ class SummarizeService:
                 fallback_evidence=context.to_evidence_items(),
                 llm_override=self.llm,
             )
-        ).text
+        )
 
     def _summarize_map_reduce(
         self,
@@ -247,13 +296,14 @@ class SummarizeService:
         topic: str,
         grouped_hits: list[DocumentEvidenceGroup],
         fallback_hits: list[RetrievedChunk],
-    ) -> str:
+    ) -> tuple[str, bool]:
         partial_summaries: list[str] = []
+        fallback_used = False
         for group in grouped_hits:
             group_context: ContextBlock = group.context
             if not group_context.chunks:
                 continue
-            partial = self.runtime.generate(
+            runtime_response = self.runtime.generate(
                 RuntimeRequest(
                     prompt=self._build_map_prompt(),
                     inputs={
@@ -265,11 +315,15 @@ class SummarizeService:
                     fallback_evidence=group_context.to_evidence_items(),
                     llm_override=self.llm,
                 )
-            ).text
+            )
+            fallback_used = fallback_used or runtime_response.used_fallback
+            partial = runtime_response.text
             partial_summaries.append(partial)
 
         if not partial_summaries:
-            partial_summaries = [self._summarize_basic(topic=topic, context=build_context(fallback_hits))]
+            runtime_response = self._generate_basic_summary(topic=topic, context=build_context(fallback_hits))
+            fallback_used = fallback_used or runtime_response.used_fallback
+            partial_summaries = [runtime_response.text]
 
         reduce_evidence = [
             {
@@ -283,7 +337,7 @@ class SummarizeService:
             }
             for index, summary in enumerate(partial_summaries, start=1)
         ]
-        return self.runtime.generate(
+        runtime_response = self.runtime.generate(
             RuntimeRequest(
                 prompt=self._build_reduce_prompt(),
                 inputs={
@@ -294,7 +348,8 @@ class SummarizeService:
                 fallback_evidence=reduce_evidence,
                 llm_override=self.llm,
             )
-        ).text
+        )
+        return runtime_response.text, fallback_used or runtime_response.used_fallback
 
     def _build_basic_prompt(self):
         try:

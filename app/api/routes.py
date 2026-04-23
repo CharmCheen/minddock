@@ -1,6 +1,7 @@
 """HTTP routes for all service endpoints."""
 
 import logging
+import os
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
@@ -40,6 +41,7 @@ from app.api.schemas import (
     RunEventListResponse,
     RunSummaryResponse,
     RuntimeConfigResponse,
+    EffectiveRuntimeResponse,
     RuntimeConfigUpdateRequest,
     RuntimeConfigTestRequest,
     RuntimeConfigTestResponse,
@@ -62,10 +64,33 @@ from app.application.client_events import ClientEventKind
 from app.core.config import get_settings
 from app.core.exceptions import RunNotFoundError, SkillNotFoundError, SkillNotPublicError
 from app.core.logging import TRACE_LEVEL_NUM
+from app.rag.vectorstore import health_check_vectorstore
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 frontend_facade = get_frontend_facade()
+
+
+def _resolve_effective_runtime_response() -> EffectiveRuntimeResponse | None:
+    """Project the resolver-selected default execution profile for status displays."""
+
+    try:
+        from app.runtime.models import RuntimeSelectionRequest
+
+        result = frontend_facade.runtime_resolver.resolve(RuntimeSelectionRequest(task_type=TaskType.CHAT.value))
+    except Exception:
+        logger.exception("Failed to resolve effective runtime status")
+        return None
+
+    profile = result.profile
+    return EffectiveRuntimeResponse(
+        profile_id=result.binding.selected_profile_id,
+        provider_kind=result.binding.provider_kind,
+        model_name=result.binding.model_name,
+        base_url=profile.base_url,
+        source=result.binding.selection_reason or "runtime_profile",
+        api_key_masked=bool(profile.api_key_env and os.environ.get(profile.api_key_env)),
+    )
 
 
 @router.get("/", summary="Service info")
@@ -82,6 +107,13 @@ def root() -> dict[str, str]:
 def health() -> dict[str, str]:
     settings = get_settings()
     logger.log(TRACE_LEVEL_NUM, "Health endpoint called")
+    db_ready = health_check_vectorstore()
+    if not db_ready:
+        return {
+            "status": "initializing",
+            "service": settings.app_name,
+            "version": settings.app_version,
+        }
     return {
         "status": "ok",
         "service": settings.app_name,
@@ -349,7 +381,7 @@ def list_runtime_profiles() -> RuntimeProfileListResponse:
 def get_runtime_config() -> RuntimeConfigResponse:
     from app.runtime.active_config import get_active_config, get_effective_runtime_status
     config = get_active_config()
-    return RuntimeConfigResponse.from_config(config, get_effective_runtime_status())
+    return RuntimeConfigResponse.from_config(config, get_effective_runtime_status(), _resolve_effective_runtime_response())
 
 
 @router.put(
@@ -375,7 +407,7 @@ def update_runtime_config(body: RuntimeConfigUpdateRequest) -> RuntimeConfigResp
     # Invalidate the cached profile registry so the next request re-reads env
     get_runtime_profile_registry.cache_clear()
 
-    return RuntimeConfigResponse.from_config(config, get_effective_runtime_status())
+    return RuntimeConfigResponse.from_config(config, get_effective_runtime_status(), _resolve_effective_runtime_response())
 
 
 @router.post(
@@ -484,7 +516,7 @@ def reset_runtime_config() -> RuntimeConfigResponse:
     # Invalidate cached registry
     get_runtime_profile_registry.cache_clear()
 
-    return RuntimeConfigResponse.from_config(config, get_effective_runtime_status())
+    return RuntimeConfigResponse.from_config(config, get_effective_runtime_status(), _resolve_effective_runtime_response())
 
 
 @router.get("/frontend/skills", response_model=SkillListResponse, summary="List frontend-discoverable skills")

@@ -36,6 +36,7 @@ _LATIN_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
 _CJK_STOP_CHARS = frozenset("\u7684\u4e86\u662f\u4ec0\u4e48\u4e00\u4e0b\u8bf7\u4e2a\u548c\u4e0e\u53ca\u5176\u4e2d")
 _CHAT_DIRECTNESS_WEIGHT = 0.35
+_CHAT_PRE_COMPRESS_SOURCE_CAP = 2
 
 
 @dataclass
@@ -153,10 +154,15 @@ class ChatService:
             rerank_started = time.perf_counter()
             reranked_hits = self.reranker.rerank(query=query, hits=grounded_hits)
             reranked_hits = self._rerank_direct_chat_evidence(query, reranked_hits)
+            reranked_hits = self._apply_precompress_source_cap(
+                reranked_hits,
+                _CHAT_PRE_COMPRESS_SOURCE_CAP,
+            )
             rerank_ms = round((time.perf_counter() - rerank_started) * 1000, 2)
             compress_started = time.perf_counter()
             compressed_hits = self.compressor.compress(query=query, hits=reranked_hits)
             compress_ms = round((time.perf_counter() - compress_started) * 1000, 2)
+            compressed_hits = self._dedupe_compressed_chat_hits(compressed_hits)
             context = build_context(compressed_hits)
             prompt_inputs = {
                 "query": query,
@@ -333,6 +339,95 @@ class ChatService:
 
         rescored.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
         return [hit for _, _, _, hit in rescored]
+
+    def _chat_source_key(self, hit) -> str:
+        extra_metadata = getattr(hit, "extra_metadata", {}) or {}
+        return (
+            getattr(hit, "source", None)
+            or getattr(hit, "doc_id", None)
+            or getattr(hit, "source_id", None)
+            or extra_metadata.get("source")
+            or extra_metadata.get("source_id")
+            or extra_metadata.get("doc_id")
+            or ""
+        )
+
+    def _apply_precompress_source_cap(self, hits: list, cap: int) -> list:
+        """Keep rank order stable while moving same-source overflow behind the capped front segment."""
+        if len(hits) <= cap:
+            return hits
+
+        source_counts: dict[str, int] = {}
+        result = []
+        overflow = []
+
+        for hit in hits:
+            source = self._chat_source_key(hit)
+            count = source_counts.get(source, 0)
+            if count < cap:
+                result.append(hit)
+                source_counts[source] = count + 1
+            else:
+                overflow.append(hit)
+
+        return result + overflow
+
+    def _chat_evidence_text(self, hit) -> str:
+        return (
+            getattr(hit, "compressed_text", None)
+            or getattr(hit, "text", None)
+            or getattr(hit, "original_text", None)
+            or ""
+        )
+
+    def _chat_doc_key(self, hit) -> str:
+        extra_metadata = getattr(hit, "extra_metadata", {}) or {}
+        return (
+            getattr(hit, "doc_id", None)
+            or getattr(hit, "source", None)
+            or getattr(hit, "source_id", None)
+            or extra_metadata.get("doc_id")
+            or extra_metadata.get("source")
+            or extra_metadata.get("source_id")
+            or ""
+        )
+
+    def _normalize_evidence_text(self, text: str) -> str:
+        normalized = re.sub(r"[^\w\s\u4e00-\u9fff]", " ", text.lower())
+        return " ".join(normalized.split())
+
+    def _is_light_duplicate(self, kept_hit, candidate_hit) -> bool:
+        kept_text = self._normalize_evidence_text(self._chat_evidence_text(kept_hit))
+        candidate_text = self._normalize_evidence_text(self._chat_evidence_text(candidate_hit))
+        if not kept_text or not candidate_text:
+            return False
+        if kept_text == candidate_text:
+            return True
+
+        same_document = self._chat_doc_key(kept_hit) == self._chat_doc_key(candidate_hit)
+        same_source = self._chat_source_key(kept_hit) == self._chat_source_key(candidate_hit)
+        if not (same_document or same_source):
+            return False
+
+        shorter, longer = sorted((kept_text, candidate_text), key=len)
+        if len(shorter) >= 80 and shorter in longer and len(shorter) / max(len(longer), 1) >= 0.8:
+            return True
+
+        kept_tokens = set(kept_text.split())
+        candidate_tokens = set(candidate_text.split())
+        if len(kept_tokens) < 8 or len(candidate_tokens) < 8:
+            return False
+        overlap = len(kept_tokens & candidate_tokens) / max(min(len(kept_tokens), len(candidate_tokens)), 1)
+        return overlap >= 0.92
+
+    def _dedupe_compressed_chat_hits(self, hits: list) -> list:
+        """Remove only obvious duplicates from compressed chat hits before context assembly."""
+        kept = []
+        for hit in hits:
+            if any(self._is_light_duplicate(kept_hit, hit) for kept_hit in kept):
+                continue
+            kept.append(hit)
+        return kept
 
     def _base_rerank_score(self, hit) -> float:
         if hit.rerank_score is not None:

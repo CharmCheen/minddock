@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import warnings
 from dataclasses import dataclass
 from functools import lru_cache
@@ -73,14 +74,33 @@ class SentenceTransformerEmbedding(EmbeddingBackend):
 
     def __init__(self, model_name: str) -> None:
         from sentence_transformers import SentenceTransformer
+        import torch
 
-        self._model = SentenceTransformer(model_name)
+        use_gpu = torch.cuda.is_available()
+        if use_gpu:
+            os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True,max_split_size_mb:128")
+            try:
+                self._model = SentenceTransformer(
+                    model_name,
+                    device="cuda",
+                    model_kwargs={"torch_dtype": torch.float16},
+                )
+            except Exception:
+                self._model = SentenceTransformer(model_name, device="cpu")
+        else:
+            self._model = SentenceTransformer(model_name, device="cpu")
+
         self.vector_size = self._model.get_sentence_embedding_dimension() or DEFAULT_VECTOR_SIZE
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        encoded = self._model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
+        encoded = self._model.encode(
+            texts,
+            batch_size=8,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        )
         return encoded.tolist()
 
 

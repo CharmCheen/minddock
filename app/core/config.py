@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 KB_DIR = "knowledge_base"
 CHROMA_DIR = "data/chroma"
-EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
+EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 LOG_DIR = "logs"
 LLM_BASE_URL = "https://api.openai.com/v1"
 LLM_MODEL = "gpt-4o-mini"

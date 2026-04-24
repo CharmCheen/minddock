@@ -179,6 +179,13 @@ class CitationItem(BaseModel):
     section: str | None = None
     location: str | None = None
     ref: str | None = None
+    hit_chunk_id: str | None = None
+    window_chunk_ids: list[str] = Field(default_factory=list)
+    page_start: int | None = None
+    page_end: int | None = None
+    section_title: str | None = None
+    block_types: list[str] = Field(default_factory=list)
+    table_id: str | None = None
 
     @classmethod
     def from_record(cls, record: CitationRecord | Mapping[str, object]) -> "CitationItem":
@@ -200,6 +207,13 @@ class EvidenceItem(BaseModel):
     source_version: str | None = None
     content_hash: str | None = None
     freshness: Literal["fresh", "stale_possible", "invalidated"] = "fresh"
+    hit_chunk_id: str | None = None
+    window_chunk_ids: list[str] = Field(default_factory=list)
+    page_start: int | None = None
+    page_end: int | None = None
+    section_title: str | None = None
+    block_types: list[str] = Field(default_factory=list)
+    table_id: str | None = None
 
     @classmethod
     def from_record(cls, record: EvidenceObject | Mapping[str, object] | CitationRecord) -> "EvidenceItem":

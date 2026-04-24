@@ -14,6 +14,7 @@ from app.llm.mock import INSUFFICIENT_EVIDENCE
 from app.rag.retrieval_models import GroundedAnswer, RefusalReason, SupportStatus
 from app.rag.retrieval_models import RetrievalFilters
 from app.rag.postprocess import Compressor, Reranker, get_compressor, get_reranker
+from app.rag.vectorstore import get_neighbor_chunks
 from app.runtime import GenerationRuntime, RuntimeRequest
 from app.services.grounded_generation import (
     assess_grounding,
@@ -21,6 +22,7 @@ from app.services.grounded_generation import (
     build_context,
     build_evidence,
     evidence_matches_query,
+    expand_evidence_windows,
     format_evidence_block,
     is_out_of_scope_knowledge_query,
     OUT_OF_SCOPE_ANSWER,
@@ -158,9 +160,13 @@ class ChatService:
                 reranked_hits,
                 _CHAT_PRE_COMPRESS_SOURCE_CAP,
             )
+            windowed_hits = expand_evidence_windows(
+                reranked_hits,
+                neighbor_loader=self._load_evidence_neighbors,
+            )
             rerank_ms = round((time.perf_counter() - rerank_started) * 1000, 2)
             compress_started = time.perf_counter()
-            compressed_hits = self.compressor.compress(query=query, hits=reranked_hits)
+            compressed_hits = self.compressor.compress(query=query, hits=windowed_hits)
             compress_ms = round((time.perf_counter() - compress_started) * 1000, 2)
             compressed_hits = self._dedupe_compressed_chat_hits(compressed_hits)
             context = build_context(compressed_hits)
@@ -192,7 +198,7 @@ class ChatService:
 
             logger.info(
                 "Chat completed: query_preview=%s grounded=%d reranked=%d compressed=%d",
-                query[:60], len(grounded_hits), len(reranked_hits), len(compressed_hits),
+                query[:60], len(grounded_hits), len(windowed_hits), len(compressed_hits),
             )
             return ChatServiceResult(
                 answer=answer,
@@ -222,7 +228,7 @@ class ChatService:
                     retrieval_stats=RetrievalStats(
                         retrieved_hits=len(hits),
                         grounded_hits=len(grounded_hits),
-                        reranked_hits=len(reranked_hits),
+                        reranked_hits=len(windowed_hits),
                         returned_hits=len(compressed_hits),
                     ),
                 ),
@@ -323,6 +329,9 @@ class ChatService:
         if hasattr(prompt, "format"):
             return str(prompt.format(**inputs))
         return f"{prompt}\n\nInputs:\n{inputs}"
+
+    def _load_evidence_neighbors(self, hit, before: int, after: int) -> list:
+        return get_neighbor_chunks(hit, before=before, after=after)
 
     def _rerank_direct_chat_evidence(self, query: str, hits: list) -> list:
         """Nudge chat evidence toward passages that directly answer the question."""

@@ -242,6 +242,126 @@ def test_chat_expands_internal_candidate_pool_but_returns_requested_top_k() -> N
     assert result.metadata.retrieval_stats.returned_hits == 3
 
 
+def test_chat_prioritizes_markdown_sources_for_explicit_local_docs_query() -> None:
+    hits = [
+        RetrievedChunk(
+            text="A survey discusses RAG pipeline multi-step reasoning over web sources.",
+            doc_id="paper",
+            chunk_id="paper:41",
+            source="15_arxiv_2501.pdf",
+            distance=0.05,
+        ),
+        RetrievedChunk(
+            text="The local RAG pipeline steps are ingestion, chunking, embedding, retrieval, and generation.",
+            doc_id="rag",
+            chunk_id="rag:0",
+            source="rag_pipeline.md",
+            section="Overview",
+            distance=0.2,
+        ),
+        RetrievedChunk(
+            text="The local API docs explain that chat retrieves chunks before generating answers.",
+            doc_id="api",
+            chunk_id="api:2",
+            source="api_usage.md",
+            section="Chat Endpoint",
+            distance=0.3,
+        ),
+    ]
+    runtime = FakeRuntime()
+    service = ChatService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=runtime,
+    )
+
+    result = service.chat(
+        query="What are the main steps in the RAG pipeline according to the local docs?",
+        top_k=2,
+        precomputed_hits=hits,
+    )
+
+    assert [citation.source for citation in result.citations] == ["rag_pipeline.md", "api_usage.md"]
+    assert all(citation.source.endswith(".md") for citation in result.citations)
+    assert len(result.citations) == 2
+
+
+def test_chat_does_not_prioritize_markdown_for_plain_pdf_query() -> None:
+    hits = [
+        RetrievedChunk(
+            text="The Milvus paper presents a vector data management system for large-scale similarity search.",
+            doc_id="milvus",
+            chunk_id="milvus:0",
+            source="19_SIGMOD21_Milvus.pdf",
+            distance=0.05,
+        ),
+        RetrievedChunk(
+            text="The local RAG pipeline docs describe ingestion, retrieval, and generation.",
+            doc_id="rag",
+            chunk_id="rag:0",
+            source="rag_pipeline.md",
+            distance=0.2,
+        ),
+    ]
+    service = ChatService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(
+        query="What is the main topic of the Milvus paper?",
+        top_k=2,
+        precomputed_hits=hits,
+    )
+
+    assert result.citations[0].source == "19_SIGMOD21_Milvus.pdf"
+
+
+def test_chat_respects_explicit_source_filter_over_local_docs_heuristic() -> None:
+    service = ChatService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+    hits = [
+        RetrievedChunk(text="Local docs explain the RAG pipeline.", doc_id="rag", chunk_id="rag:0", source="rag_pipeline.md"),
+        RetrievedChunk(text="Milvus paper evidence.", doc_id="milvus", chunk_id="milvus:0", source="19_SIGMOD21_Milvus.pdf"),
+    ]
+
+    prioritized = service._prioritize_local_doc_hits(
+        "What does this say according to the local docs?",
+        hits,
+        RetrievalFilters(sources=("19_SIGMOD21_Milvus.pdf",)),
+    )
+
+    assert prioritized == hits
+
+
+def test_chat_falls_back_when_local_docs_query_has_no_markdown_candidates() -> None:
+    hits = [
+        RetrievedChunk(text="A PDF discusses RAG pipelines.", doc_id="p1", chunk_id="p1:0", source="paper_a.pdf"),
+        RetrievedChunk(text="Another PDF discusses retrieval steps.", doc_id="p2", chunk_id="p2:0", source="paper_b.pdf"),
+    ]
+    service = ChatService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    prioritized = service._prioritize_local_doc_hits(
+        "What are the RAG pipeline steps according to the local docs?",
+        hits,
+        None,
+    )
+
+    assert prioritized == hits
+
+
 def test_chat_reranks_direct_answer_evidence_ahead_of_generic_context() -> None:
     query = "\u4ec0\u4e48\u662fRAG\uff0c\u5b83\u89e3\u51b3\u4e86\u4ec0\u4e48\u95ee\u9898"
     generic = RetrievedChunk(

@@ -40,6 +40,28 @@ _CJK_STOP_CHARS = frozenset("\u7684\u4e86\u662f\u4ec0\u4e48\u4e00\u4e0b\u8bf7\u4
 _CHAT_DIRECTNESS_WEIGHT = 0.35
 _CHAT_PRE_COMPRESS_SOURCE_CAP = 2
 _CHAT_CANDIDATE_POOL_CAP = 32
+_LOCAL_DOC_INTENT_PHRASES = (
+    "local docs",
+    "local doc",
+    "local document",
+    "local documents",
+    "local file",
+    "local files",
+    "local documentation",
+    "project docs",
+    "project doc",
+    "project document",
+    "project documents",
+    "current docs",
+    "current doc",
+    "current document",
+    "current documents",
+    "本地文档",
+    "当前文档",
+    "这些文档",
+    "项目文档",
+    "本地文件",
+)
 
 
 @dataclass
@@ -158,6 +180,7 @@ class ChatService:
             rerank_started = time.perf_counter()
             reranked_hits = self.reranker.rerank(query=query, hits=grounded_hits)
             reranked_hits = self._rerank_direct_chat_evidence(query, reranked_hits)
+            reranked_hits = self._prioritize_local_doc_hits(query, reranked_hits, filters)
             reranked_hits = self._apply_precompress_source_cap(
                 reranked_hits,
                 _CHAT_PRE_COMPRESS_SOURCE_CAP,
@@ -340,6 +363,36 @@ class ChatService:
         if top_k <= 0:
             return top_k
         return min(max(top_k * 4, top_k + 12), _CHAT_CANDIDATE_POOL_CAP)
+
+    def _prioritize_local_doc_hits(self, query: str, hits: list, filters: RetrievalFilters | None) -> list:
+        if not hits or not self._has_local_docs_intent(query):
+            return hits
+        if filters is not None and filters.sources:
+            return hits
+
+        local_hits = [hit for hit in hits if self._is_local_markdown_source(hit)]
+        if not local_hits:
+            return hits
+        return local_hits
+
+    def _has_local_docs_intent(self, query: str) -> bool:
+        normalized = " ".join(query.lower().split())
+        if not normalized:
+            return False
+        return any(phrase in normalized for phrase in _LOCAL_DOC_INTENT_PHRASES)
+
+    def _is_local_markdown_source(self, hit) -> bool:
+        candidates = [
+            getattr(hit, "source", ""),
+            getattr(hit, "title", ""),
+            str((getattr(hit, "extra_metadata", {}) or {}).get("source_path") or ""),
+            str((getattr(hit, "extra_metadata", {}) or {}).get("source") or ""),
+        ]
+        return any(self._has_markdown_extension(candidate) for candidate in candidates)
+
+    def _has_markdown_extension(self, value: str) -> bool:
+        normalized = value.strip().lower()
+        return normalized.endswith(".md") or normalized.endswith(".markdown")
 
     def _rerank_direct_chat_evidence(self, query: str, hits: list) -> list:
         """Nudge chat evidence toward passages that directly answer the question."""

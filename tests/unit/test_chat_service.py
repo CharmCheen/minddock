@@ -13,11 +13,13 @@ class FakeSearchService:
     def __init__(self, hits: list[RetrievedChunk]) -> None:
         self._hits = hits
         self.last_filters: RetrievalFilters | None = None
+        self.last_top_k: int | None = None
         self.calls = 0
 
     def retrieve(self, query: str, top_k: int, filters: RetrievalFilters | None = None) -> list[RetrievedChunk]:
         self.calls += 1
         self.last_filters = filters
+        self.last_top_k = top_k
         return self._hits[:top_k]
 
 
@@ -211,6 +213,33 @@ def test_chat_returns_answer_and_citations_for_grounded_hits() -> None:
     assert search_service.last_filters == RetrievalFilters(sources=("kb/doc.md",), section="Storage")
     assert "where is data stored" in str(runtime.last_inputs)
     assert "MindDock stores chunks in Chroma." in str(runtime.last_inputs)
+
+
+def test_chat_expands_internal_candidate_pool_but_returns_requested_top_k() -> None:
+    hits = [
+        RetrievedChunk(
+            text=f"MindDock stores chunk {index} in Chroma for grounded retrieval.",
+            doc_id=f"d{index}",
+            chunk_id=f"c{index}",
+            source=f"doc{index}.md",
+            distance=0.1 + (index * 0.01),
+        )
+        for index in range(20)
+    ]
+    search_service = FakeSearchService(hits)
+    runtime = FakeRuntime()
+    service = ChatService(
+        search_service=search_service,
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=runtime,
+    )
+
+    result = service.chat(query="where does MindDock store chunks", top_k=3)
+
+    assert search_service.last_top_k == 15
+    assert len(result.citations) == 3
+    assert result.metadata.retrieval_stats.returned_hits == 3
 
 
 def test_chat_reranks_direct_answer_evidence_ahead_of_generic_context() -> None:

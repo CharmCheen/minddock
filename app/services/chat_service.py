@@ -39,6 +39,7 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
 _CJK_STOP_CHARS = frozenset("\u7684\u4e86\u662f\u4ec0\u4e48\u4e00\u4e0b\u8bf7\u4e2a\u548c\u4e0e\u53ca\u5176\u4e2d")
 _CHAT_DIRECTNESS_WEIGHT = 0.35
 _CHAT_PRE_COMPRESS_SOURCE_CAP = 2
+_CHAT_CANDIDATE_POOL_CAP = 32
 
 
 @dataclass
@@ -90,7 +91,8 @@ class ChatService:
                 hits = precomputed_hits
                 retrieval_ms = 0.0
             else:
-                hits = self.search_service.retrieve(query=query, top_k=top_k, filters=filters)
+                candidate_top_k = self._candidate_top_k(top_k)
+                hits = self.search_service.retrieve(query=query, top_k=candidate_top_k, filters=filters)
                 retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
             grounded_selection = select_grounded_hits(hits)
             grounded_hits = grounded_selection.hits
@@ -160,6 +162,7 @@ class ChatService:
                 reranked_hits,
                 _CHAT_PRE_COMPRESS_SOURCE_CAP,
             )
+            reranked_hits = reranked_hits[:top_k]
             windowed_hits = expand_evidence_windows(
                 reranked_hits,
                 neighbor_loader=self._load_evidence_neighbors,
@@ -332,6 +335,11 @@ class ChatService:
 
     def _load_evidence_neighbors(self, hit, before: int, after: int) -> list:
         return get_neighbor_chunks(hit, before=before, after=after)
+
+    def _candidate_top_k(self, top_k: int) -> int:
+        if top_k <= 0:
+            return top_k
+        return min(max(top_k * 4, top_k + 12), _CHAT_CANDIDATE_POOL_CAP)
 
     def _rerank_direct_chat_evidence(self, query: str, hits: list) -> list:
         """Nudge chat evidence toward passages that directly answer the question."""

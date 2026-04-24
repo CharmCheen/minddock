@@ -17,6 +17,31 @@ function normalizeToCitationItem(item: any): CitationItem {
     section: item.section ?? null,
     location: item.location ?? null,
     ref: item.ref ?? null,
+    hit_chunk_id: item.hit_chunk_id ?? item.chunk_id ?? null,
+    window_chunk_ids: Array.isArray(item.window_chunk_ids)
+      ? item.window_chunk_ids
+      : item.hit_chunk_id || item.chunk_id
+        ? [item.hit_chunk_id || item.chunk_id]
+        : [],
+    page_start: item.page_start ?? item.page ?? item.page_num ?? null,
+    page_end: item.page_end ?? item.page ?? item.page_num ?? null,
+    section_title: item.section_title ?? item.section ?? null,
+    block_types: Array.isArray(item.block_types) ? item.block_types : [],
+    table_id: item.table_id ?? null,
+    hit_order_in_doc: item.hit_order_in_doc ?? null,
+    hit_block_type: item.hit_block_type ?? null,
+    hit_page: item.hit_page ?? item.page ?? item.page_num ?? null,
+    is_windowed: Boolean(item.is_windowed),
+    is_hit_only_fallback: Boolean(item.is_hit_only_fallback),
+    citation_label: item.citation_label ?? null,
+    evidence_preview: item.evidence_preview ?? null,
+    window_chunk_count: item.window_chunk_count ?? (Array.isArray(item.window_chunk_ids) ? item.window_chunk_ids.length : 0),
+    hit_in_window: item.hit_in_window ?? (
+      Array.isArray(item.window_chunk_ids) && (item.hit_chunk_id || item.chunk_id)
+        ? item.window_chunk_ids.includes(item.hit_chunk_id || item.chunk_id)
+        : false
+    ),
+    evidence_window_reason: item.evidence_window_reason ?? null,
   };
 }
 

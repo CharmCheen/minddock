@@ -91,6 +91,10 @@ def test_table_hit_binds_adjacent_caption() -> None:
     assert expanded[0].extra_metadata["window_chunk_ids"] == ["doc1:0", "doc1:1"]
     assert citation["table_id"] == "tbl-1"
     assert citation["block_types"] == ["caption", "table"]
+    assert citation["citation_label"] == "Table / Caption · p.2"
+    assert citation["is_windowed"] is True
+    assert citation["hit_in_window"] is True
+    assert citation["window_chunk_count"] == 2
 
 
 def test_overlapping_windows_are_merged_and_deduped() -> None:
@@ -149,3 +153,9 @@ def test_missing_metadata_or_loader_failure_falls_back_to_hit_only() -> None:
     assert len(expanded) == 1
     assert expanded[0].text == "Only hit."
     assert expanded[0].extra_metadata["window_chunk_ids"] == ["doc1:x"]
+
+    citation = build_citation(expanded[0]).to_api_dict()
+    assert citation["hit_chunk_id"] == "doc1:x"
+    assert citation["window_chunk_ids"] == ["doc1:x"]
+    assert citation["hit_in_window"] is True
+    assert citation["is_hit_only_fallback"] is True

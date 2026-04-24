@@ -18,6 +18,8 @@ from app.rag.retrieval_models import (
 )
 
 SNIPPET_LIMIT = 120
+EVIDENCE_PREVIEW_LIMIT = 220
+CITATION_LABEL_SECTION_LIMIT = 48
 MAX_EVIDENCE_DISTANCE = 1.5
 PARTIAL_SUPPORT_DISTANCE = 1.0
 OUT_OF_SCOPE_ANSWER = "This question is not answerable from the current knowledge base evidence."
@@ -162,6 +164,7 @@ def build_citation(hit: RetrievedChunk) -> CitationRecord:
     """Build a traceable citation record from a retrieved chunk."""
 
     text = hit.citation_text().strip().replace("\n", " ")
+    window_metadata = _citation_window_metadata(hit, text=text)
     return CitationRecord(
         doc_id=hit.doc_id,
         chunk_id=hit.chunk_id,
@@ -173,13 +176,7 @@ def build_citation(hit: RetrievedChunk) -> CitationRecord:
         section=hit.section or None,
         location=hit.location or None,
         ref=hit.ref or hit.title or hit.source or None,
-        hit_chunk_id=_metadata_text(hit, "hit_chunk_id") or hit.chunk_id,
-        window_chunk_ids=_metadata_text_tuple(hit, "window_chunk_ids"),
-        page_start=_metadata_int(hit, "page_start") or hit.page,
-        page_end=_metadata_int(hit, "page_end") or hit.page,
-        section_title=_metadata_text(hit, "section_title") or hit.section or None,
-        block_types=_metadata_text_tuple(hit, "block_types"),
-        table_id=_metadata_text(hit, "table_id"),
+        **window_metadata,
     )
 
 
@@ -188,6 +185,7 @@ def build_evidence(hit: RetrievedChunk) -> EvidenceObject:
 
     text = hit.citation_text().strip().replace("\n", " ")
     score = hit.rerank_score if hit.rerank_score is not None else hit.distance
+    window_metadata = _citation_window_metadata(hit, text=text)
     return EvidenceObject(
         doc_id=hit.doc_id,
         chunk_id=hit.chunk_id,
@@ -198,13 +196,7 @@ def build_evidence(hit: RetrievedChunk) -> EvidenceObject:
         score=score,
         source_version=_metadata_text(hit, "source_version"),
         content_hash=_metadata_text(hit, "content_hash") or _metadata_text(hit, "hash"),
-        hit_chunk_id=_metadata_text(hit, "hit_chunk_id") or hit.chunk_id,
-        window_chunk_ids=_metadata_text_tuple(hit, "window_chunk_ids"),
-        page_start=_metadata_int(hit, "page_start") or hit.page,
-        page_end=_metadata_int(hit, "page_end") or hit.page,
-        section_title=_metadata_text(hit, "section_title") or hit.section or None,
-        block_types=_metadata_text_tuple(hit, "block_types"),
-        table_id=_metadata_text(hit, "table_id"),
+        **window_metadata,
     )
 
 
@@ -269,6 +261,101 @@ def _metadata_text_tuple(hit: RetrievedChunk, key: str) -> tuple[str, ...]:
         return tuple(str(item).strip() for item in value if str(item).strip())
     normalized = str(value).strip()
     return (normalized,) if normalized else ()
+
+
+def _citation_window_metadata(hit: RetrievedChunk, *, text: str) -> dict[str, object]:
+    hit_chunk_id = _metadata_text(hit, "hit_chunk_id") or hit.chunk_id
+    window_chunk_ids = _metadata_text_tuple(hit, "window_chunk_ids")
+    if not window_chunk_ids and hit_chunk_id:
+        window_chunk_ids = (hit_chunk_id,)
+    page_start = _metadata_int(hit, "page_start") or hit.page
+    page_end = _metadata_int(hit, "page_end") or hit.page
+    section_title = _metadata_text(hit, "section_title") or hit.section or None
+    block_types = _metadata_text_tuple(hit, "block_types")
+    if not block_types:
+        hit_block_type = _metadata_text(hit, "block_type")
+        block_types = (hit_block_type,) if hit_block_type else ()
+    evidence_window_reason = _metadata_text(hit, "evidence_window_reason")
+    window_chunk_count = len(window_chunk_ids)
+    hit_in_window = bool(hit_chunk_id and hit_chunk_id in window_chunk_ids)
+    is_hit_only_fallback = bool(
+        hit_in_window
+        and window_chunk_count == 1
+        and (evidence_window_reason in {None, "hit_only"} or window_chunk_ids[0] == hit_chunk_id)
+    )
+    is_windowed = bool(evidence_window_reason and evidence_window_reason != "hit_only" and window_chunk_count > 1)
+    hit_page = _metadata_int(hit, "hit_page") or hit.page or page_start
+    hit_order_in_doc = _metadata_int(hit, "order_in_doc")
+    hit_block_type = _metadata_text(hit, "block_type")
+    return {
+        "hit_chunk_id": hit_chunk_id,
+        "window_chunk_ids": window_chunk_ids,
+        "page_start": page_start,
+        "page_end": page_end,
+        "section_title": section_title,
+        "block_types": block_types,
+        "table_id": _metadata_text(hit, "table_id"),
+        "hit_order_in_doc": hit_order_in_doc,
+        "hit_block_type": hit_block_type,
+        "hit_page": hit_page,
+        "is_windowed": is_windowed,
+        "is_hit_only_fallback": is_hit_only_fallback,
+        "citation_label": _build_citation_label(
+            page_start=page_start,
+            page_end=page_end,
+            section_title=section_title,
+            block_types=block_types,
+        ),
+        "evidence_preview": _build_evidence_preview(text),
+        "window_chunk_count": window_chunk_count,
+        "hit_in_window": hit_in_window,
+        "evidence_window_reason": evidence_window_reason,
+    }
+
+
+def _build_citation_label(
+    *,
+    page_start: int | None,
+    page_end: int | None,
+    section_title: str | None,
+    block_types: tuple[str, ...],
+) -> str | None:
+    page_label = _page_label(page_start, page_end)
+    normalized_block_types = {block_type.strip().lower() for block_type in block_types}
+    if normalized_block_types & {"table", "caption"}:
+        return "Table / Caption" + (f" · {page_label}" if page_label else "")
+    section_label = _truncate_label(section_title)
+    if section_label and page_label:
+        return f"{section_label} · {page_label}"
+    return section_label or page_label
+
+
+def _page_label(page_start: int | None, page_end: int | None) -> str | None:
+    if page_start is None and page_end is None:
+        return None
+    if page_start is None:
+        return f"p.{page_end}"
+    if page_end is None or page_end == page_start:
+        return f"p.{page_start}"
+    return f"pp.{page_start}-{page_end}"
+
+
+def _truncate_label(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = " ".join(value.split())
+    if len(normalized) <= CITATION_LABEL_SECTION_LIMIT:
+        return normalized
+    return normalized[: CITATION_LABEL_SECTION_LIMIT - 3].rstrip() + "..."
+
+
+def _build_evidence_preview(text: str) -> str | None:
+    normalized = " ".join(text.split())
+    if not normalized:
+        return None
+    if len(normalized) <= EVIDENCE_PREVIEW_LIMIT:
+        return normalized
+    return normalized[: EVIDENCE_PREVIEW_LIMIT - 3].rstrip() + "..."
 
 
 def _build_window(hit: RetrievedChunk, neighbor_loader: NeighborLoader) -> EvidenceWindow:

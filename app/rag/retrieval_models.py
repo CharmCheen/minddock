@@ -75,6 +75,16 @@ class CitationRecord:
     section_title: str | None = None
     block_types: tuple[str, ...] = ()
     table_id: str | None = None
+    hit_order_in_doc: int | None = None
+    hit_block_type: str | None = None
+    hit_page: int | None = None
+    is_windowed: bool = False
+    is_hit_only_fallback: bool = False
+    citation_label: str | None = None
+    evidence_preview: str | None = None
+    window_chunk_count: int = 0
+    hit_in_window: bool = False
+    evidence_window_reason: str | None = None
 
     def to_api_dict(self) -> dict[str, object]:
         return {
@@ -95,6 +105,16 @@ class CitationRecord:
             "section_title": self.section_title,
             "block_types": list(self.block_types),
             "table_id": self.table_id,
+            "hit_order_in_doc": self.hit_order_in_doc,
+            "hit_block_type": self.hit_block_type,
+            "hit_page": self.hit_page,
+            "is_windowed": self.is_windowed,
+            "is_hit_only_fallback": self.is_hit_only_fallback,
+            "citation_label": self.citation_label,
+            "evidence_preview": self.evidence_preview,
+            "window_chunk_count": self.window_chunk_count,
+            "hit_in_window": self.hit_in_window,
+            "evidence_window_reason": self.evidence_window_reason,
         }
 
 
@@ -145,6 +165,16 @@ class EvidenceObject:
     section_title: str | None = None
     block_types: tuple[str, ...] = ()
     table_id: str | None = None
+    hit_order_in_doc: int | None = None
+    hit_block_type: str | None = None
+    hit_page: int | None = None
+    is_windowed: bool = False
+    is_hit_only_fallback: bool = False
+    citation_label: str | None = None
+    evidence_preview: str | None = None
+    window_chunk_count: int = 0
+    hit_in_window: bool = False
+    evidence_window_reason: str | None = None
 
     def to_api_dict(self) -> dict[str, object]:
         return {
@@ -165,6 +195,16 @@ class EvidenceObject:
             "section_title": self.section_title,
             "block_types": list(self.block_types),
             "table_id": self.table_id,
+            "hit_order_in_doc": self.hit_order_in_doc,
+            "hit_block_type": self.hit_block_type,
+            "hit_page": self.hit_page,
+            "is_windowed": self.is_windowed,
+            "is_hit_only_fallback": self.is_hit_only_fallback,
+            "citation_label": self.citation_label,
+            "evidence_preview": self.evidence_preview,
+            "window_chunk_count": self.window_chunk_count,
+            "hit_in_window": self.hit_in_window,
+            "evidence_window_reason": self.evidence_window_reason,
         }
 
 

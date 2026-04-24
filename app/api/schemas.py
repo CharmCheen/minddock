@@ -186,6 +186,16 @@ class CitationItem(BaseModel):
     section_title: str | None = None
     block_types: list[str] = Field(default_factory=list)
     table_id: str | None = None
+    hit_order_in_doc: int | None = None
+    hit_block_type: str | None = None
+    hit_page: int | None = None
+    is_windowed: bool = False
+    is_hit_only_fallback: bool = False
+    citation_label: str | None = None
+    evidence_preview: str | None = None
+    window_chunk_count: int = 0
+    hit_in_window: bool = False
+    evidence_window_reason: str | None = None
 
     @classmethod
     def from_record(cls, record: CitationRecord | Mapping[str, object]) -> "CitationItem":
@@ -214,20 +224,25 @@ class EvidenceItem(BaseModel):
     section_title: str | None = None
     block_types: list[str] = Field(default_factory=list)
     table_id: str | None = None
+    hit_order_in_doc: int | None = None
+    hit_block_type: str | None = None
+    hit_page: int | None = None
+    is_windowed: bool = False
+    is_hit_only_fallback: bool = False
+    citation_label: str | None = None
+    evidence_preview: str | None = None
+    window_chunk_count: int = 0
+    hit_in_window: bool = False
+    evidence_window_reason: str | None = None
 
     @classmethod
     def from_record(cls, record: EvidenceObject | Mapping[str, object] | CitationRecord) -> "EvidenceItem":
         if isinstance(record, EvidenceObject):
             return cls(**record.to_api_dict())
         if isinstance(record, CitationRecord):
-            return cls(
-                doc_id=record.doc_id,
-                chunk_id=record.chunk_id,
-                source=record.source,
-                snippet=record.snippet,
-                page=record.page,
-                anchor=record.anchor,
-            )
+            data = record.to_api_dict()
+            allowed = set(cls.model_fields)
+            return cls(**{key: value for key, value in data.items() if key in allowed})
         return cls(**dict(record))
 
 

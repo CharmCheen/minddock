@@ -267,33 +267,11 @@ class GroundedAnswerItem(BaseModel):
                 refusal_reason=None if record.refusal_reason is None else record.refusal_reason.value,
             )
         data = dict(record)
-        grounded = GroundedAnswer(
-            answer=str(data.get("answer", "")),
-            evidence=tuple(
-                EvidenceObject(
-                    doc_id=str(item.get("doc_id", "")),
-                    chunk_id=str(item.get("chunk_id", "")),
-                    source=str(item.get("source", "")),
-                    snippet=str(item.get("snippet", "")),
-                    page=item.get("page"),
-                    anchor=item.get("anchor"),
-                    score=item.get("score"),
-                    source_version=item.get("source_version"),
-                    content_hash=item.get("content_hash"),
-                    freshness=EvidenceFreshness(str(item.get("freshness") or "fresh")),
-                )
-                for item in data.get("evidence", [])
-            ),
-            support_status=SupportStatus(str(data.get("support_status") or "supported")),
-            refusal_reason=None
-            if data.get("refusal_reason") is None
-            else RefusalReason(str(data.get("refusal_reason"))),
-        )
         return cls(
-            answer=grounded.answer,
-            evidence=[EvidenceItem.from_record(item) for item in grounded.evidence],
-            support_status=grounded.support_status.value,
-            refusal_reason=None if grounded.refusal_reason is None else grounded.refusal_reason.value,
+            answer=str(data.get("answer", "")),
+            evidence=[EvidenceItem.from_record(item) for item in data.get("evidence", [])],
+            support_status=str(data.get("support_status") or "supported"),
+            refusal_reason=None if data.get("refusal_reason") is None else str(data.get("refusal_reason")),
         )
 
 
@@ -345,21 +323,13 @@ class CompareResultItem(BaseModel):
                 refusal_reason=None if record.refusal_reason is None else record.refusal_reason.value,
             )
         data = dict(record)
-        compare = GroundedCompareResult(
-            query=str(data.get("query", "")),
-            common_points=tuple(_compared_point_from_mapping(item) for item in data.get("common_points", [])),
-            differences=tuple(_compared_point_from_mapping(item) for item in data.get("differences", [])),
-            conflicts=tuple(_compared_point_from_mapping(item) for item in data.get("conflicts", [])),
-            support_status=SupportStatus(str(data.get("support_status") or "supported")),
-            refusal_reason=None if data.get("refusal_reason") is None else RefusalReason(str(data.get("refusal_reason"))),
-        )
         return cls(
-            query=compare.query,
-            common_points=[ComparedPointItem.from_record(item) for item in compare.common_points],
-            differences=[ComparedPointItem.from_record(item) for item in compare.differences],
-            conflicts=[ComparedPointItem.from_record(item) for item in compare.conflicts],
-            support_status=compare.support_status.value,
-            refusal_reason=None if compare.refusal_reason is None else compare.refusal_reason.value,
+            query=str(data.get("query", "")),
+            common_points=[ComparedPointItem.from_record(item) for item in data.get("common_points", [])],
+            differences=[ComparedPointItem.from_record(item) for item in data.get("differences", [])],
+            conflicts=[ComparedPointItem.from_record(item) for item in data.get("conflicts", [])],
+            support_status=str(data.get("support_status") or "supported"),
+            refusal_reason=None if data.get("refusal_reason") is None else str(data.get("refusal_reason")),
         )
 
 

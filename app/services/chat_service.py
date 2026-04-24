@@ -138,7 +138,7 @@ class ChatService:
 
             retrieval_started = time.perf_counter()
             if precomputed_hits is not None:
-                hits = precomputed_hits
+                hits = self._inject_structured_reference_candidates(query, list(precomputed_hits), filters)
                 retrieval_ms = 0.0
             else:
                 candidate_top_k = self._candidate_top_k(top_k)

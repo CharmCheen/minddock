@@ -356,6 +356,8 @@ def execute_frontend_task_stream(
                 heartbeat_interval_seconds=frontend_facade.run_registry.config.heartbeat_interval_seconds,
             )
             for evt in hb_events:
+                if evt.kind != ClientEventKind.HEARTBEAT:
+                    continue
                 if evt.sequence not in yielded_sequences:
                     yield serialize_client_event_sse(evt)
                     yielded_sequences.add(evt.sequence)

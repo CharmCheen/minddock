@@ -48,6 +48,26 @@ class SearchService:
         )
         return hits
 
+    def retrieve_structured_reference_candidates(
+        self,
+        query: str,
+        top_k: int,
+        filters: RetrievalFilters | None = None,
+    ) -> list[RetrievedChunk]:
+        """Retrieve a small lexical candidate set for explicit table/figure references."""
+
+        if top_k <= 0:
+            return []
+        try:
+            return self._get_hybrid_service().retrieve_lexical_candidates(
+                query=query,
+                top_k=top_k,
+                filters=filters,
+            )
+        except Exception:
+            logger.exception("Structured reference lexical retrieval failed: query_preview=%s", query[:60])
+            return []
+
     def search(self, query: str, top_k: int, filters: RetrievalFilters | None = None) -> SearchServiceResult:
         """Execute search and return a formal search result."""
 

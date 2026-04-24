@@ -40,6 +40,10 @@ _CJK_STOP_CHARS = frozenset("\u7684\u4e86\u662f\u4ec0\u4e48\u4e00\u4e0b\u8bf7\u4
 _CHAT_DIRECTNESS_WEIGHT = 0.35
 _CHAT_PRE_COMPRESS_SOURCE_CAP = 2
 _CHAT_CANDIDATE_POOL_CAP = 32
+_STRUCTURED_REF_LEXICAL_K = 5
+_STRUCTURED_REF_RE = re.compile(
+    r"(?i)(?:\b(?:table|figure|fig\.?|algorithm)\s*(?:\d+|[ivxlcdm]+)\b|\bappendix\s+[a-z0-9]+\b|(?:表|图|算法)\s*[0-9一二三四五六七八九十]+|附录\s*[A-Za-z0-9一二三四五六七八九十]+)"
+)
 _LOCAL_DOC_INTENT_PHRASES = (
     "local docs",
     "local doc",
@@ -115,6 +119,7 @@ class ChatService:
             else:
                 candidate_top_k = self._candidate_top_k(top_k)
                 hits = self.search_service.retrieve(query=query, top_k=candidate_top_k, filters=filters)
+                hits = self._inject_structured_reference_candidates(query, hits, filters)
                 retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
             grounded_selection = select_grounded_hits(hits)
             grounded_hits = grounded_selection.hits
@@ -180,6 +185,7 @@ class ChatService:
             rerank_started = time.perf_counter()
             reranked_hits = self.reranker.rerank(query=query, hits=grounded_hits)
             reranked_hits = self._rerank_direct_chat_evidence(query, reranked_hits)
+            reranked_hits = self._prioritize_structured_reference_hits(query, reranked_hits)
             reranked_hits = self._prioritize_local_doc_hits(query, reranked_hits, filters)
             reranked_hits = self._apply_precompress_source_cap(
                 reranked_hits,
@@ -363,6 +369,65 @@ class ChatService:
         if top_k <= 0:
             return top_k
         return min(max(top_k * 4, top_k + 12), _CHAT_CANDIDATE_POOL_CAP)
+
+    def _inject_structured_reference_candidates(
+        self,
+        query: str,
+        hits: list,
+        filters: RetrievalFilters | None,
+    ) -> list:
+        if not self._has_structured_reference_intent(query):
+            return hits
+
+        retrieve_structured = getattr(self.search_service, "retrieve_structured_reference_candidates", None)
+        if retrieve_structured is None:
+            return hits
+
+        lexical_hits = retrieve_structured(
+            query=query,
+            top_k=_STRUCTURED_REF_LEXICAL_K,
+            filters=filters,
+        )
+        if not lexical_hits:
+            return hits
+
+        lexical_ids = {getattr(hit, "chunk_id", "") for hit in lexical_hits if getattr(hit, "chunk_id", "")}
+        merged = [
+            self._mark_structured_reference_hit(hit) if getattr(hit, "chunk_id", "") in lexical_ids else hit
+            for hit in hits
+        ]
+        seen = {getattr(hit, "chunk_id", "") for hit in merged if getattr(hit, "chunk_id", "")}
+        for hit in lexical_hits:
+            chunk_id = getattr(hit, "chunk_id", "")
+            if chunk_id and chunk_id in seen:
+                continue
+            merged.append(self._mark_structured_reference_hit(hit))
+            if chunk_id:
+                seen.add(chunk_id)
+        return merged
+
+    def _has_structured_reference_intent(self, query: str) -> bool:
+        return bool(_STRUCTURED_REF_RE.search(query))
+
+    def _mark_structured_reference_hit(self, hit):
+        extra_metadata = dict(getattr(hit, "extra_metadata", {}) or {})
+        extra_metadata["retrieval_reason"] = "structured_ref_lexical"
+        return hit.with_updates(extra_metadata=extra_metadata)
+
+    def _prioritize_structured_reference_hits(self, query: str, hits: list) -> list:
+        if not hits or not self._has_structured_reference_intent(query):
+            return hits
+
+        structured_hits = [
+            hit
+            for hit in hits
+            if (getattr(hit, "extra_metadata", {}) or {}).get("retrieval_reason") == "structured_ref_lexical"
+        ]
+        if not structured_hits:
+            return hits
+        structured_ids = {getattr(hit, "chunk_id", "") for hit in structured_hits}
+        remaining = [hit for hit in hits if getattr(hit, "chunk_id", "") not in structured_ids]
+        return structured_hits + remaining
 
     def _prioritize_local_doc_hits(self, query: str, hits: list, filters: RetrievalFilters | None) -> list:
         if not hits or not self._has_local_docs_intent(query):

@@ -306,6 +306,29 @@ class HybridRetrievalService:
         )
         return result
 
+    def retrieve_lexical_candidates(
+        self,
+        query: str,
+        top_k: int,
+        filters=None,
+    ) -> list[RetrievedChunk]:
+        """Return complete BM25 candidates for narrow lexical injection use cases."""
+
+        if top_k <= 0:
+            return []
+        self._ensure_bm25_ready()
+        if self._bm25_index is None:
+            return []
+
+        max_lexical = min(max(top_k * 8, top_k), len(self._bm25_index._chunk_ids))
+        bm25_results = self._bm25_index.search(query, max_lexical)
+        chunk_ids = [self._bm25_index.get_chunk_id(pos) for pos, _ in bm25_results]
+        if not chunk_ids:
+            return []
+
+        chunks_by_rank = self._vectorstore.get_chunks_by_ids(chunk_ids, filters=filters)
+        return chunks_by_rank[:top_k]
+
 
 def get_hybrid_retrieval_service(
     vectorstore,

@@ -3,6 +3,7 @@
 import logging
 
 from app.llm.mock import INSUFFICIENT_EVIDENCE
+from app.rag.postprocess import HeuristicReranker
 from app.rag.retrieval_models import RetrievedChunk, RetrievalFilters
 from app.runtime import RuntimeRequest, RuntimeResponse
 from app.services.chat_service import ChatService
@@ -10,17 +11,47 @@ from app.services.service_models import ChatServiceResult
 
 
 class FakeSearchService:
-    def __init__(self, hits: list[RetrievedChunk]) -> None:
+    def __init__(self, hits: list[RetrievedChunk], structured_hits: list[RetrievedChunk] | None = None) -> None:
         self._hits = hits
+        self._structured_hits = structured_hits or []
         self.last_filters: RetrievalFilters | None = None
         self.last_top_k: int | None = None
+        self.last_structured_filters: RetrievalFilters | None = None
+        self.last_structured_top_k: int | None = None
         self.calls = 0
+        self.structured_calls = 0
 
     def retrieve(self, query: str, top_k: int, filters: RetrievalFilters | None = None) -> list[RetrievedChunk]:
         self.calls += 1
         self.last_filters = filters
         self.last_top_k = top_k
         return self._hits[:top_k]
+
+    def retrieve_structured_reference_candidates(
+        self,
+        query: str,
+        top_k: int,
+        filters: RetrievalFilters | None = None,
+    ) -> list[RetrievedChunk]:
+        self.structured_calls += 1
+        self.last_structured_filters = filters
+        self.last_structured_top_k = top_k
+        if filters is not None:
+            return [
+                hit
+                for hit in self._structured_hits
+                if filters.matches_metadata(
+                    {
+                        "source": hit.source,
+                        "source_type": hit.source_type,
+                        "section": hit.section,
+                        "title": hit.title,
+                        "page": hit.page,
+                        **hit.extra_metadata,
+                    }
+                )
+            ][:top_k]
+        return self._structured_hits[:top_k]
 
 
 class PassthroughReranker:
@@ -240,6 +271,184 @@ def test_chat_expands_internal_candidate_pool_but_returns_requested_top_k() -> N
     assert search_service.last_top_k == 15
     assert len(result.citations) == 3
     assert result.metadata.retrieval_stats.returned_hits == 3
+
+
+def test_chat_injects_structured_reference_lexical_candidate_before_rerank() -> None:
+    dense_hits = [
+        RetrievedChunk(
+            text="Experiments compare Milvus throughput with several systems.",
+            doc_id="milvus",
+            chunk_id="exp",
+            source="19_SIGMOD21_Milvus.pdf",
+            section="EXPERIMENTS",
+            distance=0.05,
+        ),
+        RetrievedChunk(
+            text="The abstract says Milvus provides more functionalities than competitors.",
+            doc_id="milvus",
+            chunk_id="abstract",
+            source="19_SIGMOD21_Milvus.pdf",
+            section="Abstract",
+            distance=0.1,
+        ),
+    ]
+    table_hit = RetrievedChunk(
+        text="Table 1 highlights the main differences between Milvus and other systems.",
+        doc_id="milvus",
+        chunk_id="table1",
+        source="19_SIGMOD21_Milvus.pdf",
+        section="INTRODUCTION",
+        page=1,
+        distance=None,
+    )
+    search_service = FakeSearchService(dense_hits, structured_hits=[table_hit])
+    service = ChatService(
+        search_service=search_service,
+        reranker=HeuristicReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(
+        query="What differences are summarized in Table 1 of the Milvus paper?",
+        top_k=2,
+    )
+
+    assert search_service.structured_calls == 1
+    assert search_service.last_structured_top_k == 5
+    assert any(citation.chunk_id == "table1" for citation in result.citations)
+    assert len(result.citations) <= 2
+
+
+def test_chat_does_not_inject_structured_reference_for_plain_query() -> None:
+    search_service = FakeSearchService(
+        [
+            RetrievedChunk(
+                text="The Milvus paper presents a vector data management system.",
+                doc_id="milvus",
+                chunk_id="milvus",
+                source="19_SIGMOD21_Milvus.pdf",
+                distance=0.05,
+            )
+        ],
+        structured_hits=[
+            RetrievedChunk(
+                text="Table 1 highlights differences.",
+                doc_id="milvus",
+                chunk_id="table1",
+                source="19_SIGMOD21_Milvus.pdf",
+            )
+        ],
+    )
+    service = ChatService(
+        search_service=search_service,
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(query="What is the main topic of the Milvus paper?", top_k=1)
+
+    assert search_service.structured_calls == 0
+    assert result.citations[0].chunk_id == "milvus"
+
+
+def test_chat_does_not_inject_for_table_without_number() -> None:
+    search_service = FakeSearchService(
+        [
+            RetrievedChunk(
+                text="The paper compares systems in experiments.",
+                doc_id="milvus",
+                chunk_id="dense",
+                source="19_SIGMOD21_Milvus.pdf",
+                distance=0.05,
+            )
+        ],
+        structured_hits=[
+            RetrievedChunk(
+                text="Table 1 highlights differences.",
+                doc_id="milvus",
+                chunk_id="table1",
+                source="19_SIGMOD21_Milvus.pdf",
+            )
+        ],
+    )
+    service = ChatService(
+        search_service=search_service,
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(query="What does the paper table compare?", top_k=1)
+
+    assert search_service.structured_calls == 0
+    assert result.citations[0].chunk_id == "dense"
+
+
+def test_chat_structured_reference_injection_respects_source_filter() -> None:
+    filters = RetrievalFilters(sources=("some_other.pdf",))
+    search_service = FakeSearchService(
+        [
+            RetrievedChunk(
+                text="Some other PDF discusses Table 1 differences.",
+                doc_id="other",
+                chunk_id="other",
+                source="some_other.pdf",
+                distance=0.05,
+            )
+        ],
+        structured_hits=[
+            RetrievedChunk(
+                text="Table 1 highlights the main differences between Milvus and other systems.",
+                doc_id="milvus",
+                chunk_id="table1",
+                source="19_SIGMOD21_Milvus.pdf",
+            )
+        ],
+    )
+    service = ChatService(
+        search_service=search_service,
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(
+        query="What differences are summarized in Table 1?",
+        top_k=1,
+        filters=filters,
+    )
+
+    assert search_service.structured_calls == 1
+    assert search_service.last_structured_filters == filters
+    assert result.citations[0].chunk_id == "other"
+
+
+def test_chat_structured_reference_injection_falls_back_when_lexical_unavailable() -> None:
+    search_service = FakeSearchService(
+        [
+            RetrievedChunk(
+                text="Dense evidence discusses Figure 14 results.",
+                doc_id="milvus",
+                chunk_id="dense",
+                source="19_SIGMOD21_Milvus.pdf",
+                distance=0.05,
+            )
+        ],
+        structured_hits=[],
+    )
+    service = ChatService(
+        search_service=search_service,
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(query="What does Figure 14 show?", top_k=1)
+
+    assert search_service.structured_calls == 1
+    assert result.citations[0].chunk_id == "dense"
 
 
 def test_chat_prioritizes_markdown_sources_for_explicit_local_docs_query() -> None:

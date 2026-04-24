@@ -87,6 +87,29 @@ class LangChainChromaStore:
         result = self._store.get(where={"doc_id": doc_id}, include=[])
         return list(result.get("ids") or [])
 
+    def get_chunks_by_ids(
+        self,
+        chunk_ids: list[str],
+        filters: RetrievalFilters | None = None,
+    ) -> list[RetrievedChunk]:
+        """Return complete chunks for ids, preserving the requested id order."""
+
+        ordered_ids = [chunk_id for chunk_id in dict.fromkeys(chunk_ids) if chunk_id]
+        if not ordered_ids:
+            return []
+
+        result = self._store._collection.get(ids=ordered_ids, include=["documents", "metadatas"])
+        ids = result.get("ids") or []
+        documents = result.get("documents") or []
+        metadatas = result.get("metadatas") or []
+        by_id: dict[str, RetrievedChunk] = {}
+        for chunk_id, document, metadata in zip(ids, documents, metadatas, strict=True):
+            metadata = dict(metadata or {})
+            by_id[str(chunk_id)] = RetrievedChunk.from_raw(str(document or ""), metadata, None)
+
+        hits = [by_id[chunk_id] for chunk_id in ordered_ids if chunk_id in by_id]
+        return _apply_post_filters(hits, filters)
+
     def delete_ids(self, ids: list[str]) -> int:
         if not ids:
             return 0

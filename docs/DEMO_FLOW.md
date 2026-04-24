@@ -1,256 +1,175 @@
-# Demo Flow
+# MindDock 最终答辩演示流程
 
-## Purpose
+本文档用于答辩现场的演示彩排。详细逐句脚本见 [FINAL_DEMO_SCRIPT.md](FINAL_DEMO_SCRIPT.md)，最终 10 条体验验收见 [FINAL_VALIDATION_V3.md](FINAL_VALIDATION_V3.md)。
 
-This document is the recommended defense-ready walkthrough for MindDock.
+## 演示目标
 
-Target flow:
+展示 MindDock 已形成一个可运行的个人知识库 RAG 系统闭环：
 
-1. build the knowledge base
-2. search
-3. question answering
-4. topic summarization
-5. structured Mermaid output
-6. document compare
-7. incremental maintenance
+1. 文档导入与索引
+2. 检索与问答
+3. grounded answer
+4. 可验证 citation
+5. source catalog / source drawer
+6. source scope
+7. 摘要与对比
 
-## Demo Preparation
+## 演示前准备
 
-Before presenting:
-
-1. Ensure at least one `.md`, `.txt`, or `.pdf` file exists under `knowledge_base/`
-2. The repository already includes `knowledge_base/example.md` for a fresh-clone demo
-3. Rebuild the knowledge base once
-4. Start the FastAPI service
-5. Optionally start the watcher in a second terminal
-
-Recommended commands:
+建议提前完成：
 
 ```powershell
-conda env create -f environment.yml
 conda activate minddock
 python -m app.demo ingest
+```
+
+确认 source 可用：
+
+```powershell
+python -m app.demo sources
+```
+
+启动后端：
+
+```powershell
 python -m app.demo serve
 ```
 
-Optional watcher terminal:
+启动前端：
 
 ```powershell
-conda activate minddock
-python -m app.demo watch
+cd frontend
+npm run dev
 ```
 
-## Step 1: Full Ingest
+浏览器打开：
 
-Command:
+```text
+http://localhost:5173
+```
+
+## 推荐演示顺序
+
+### 1. Source Catalog
+
+操作：
+
+- 打开前端 source 列表，或运行：
 
 ```powershell
-python -m app.demo ingest
+python -m app.demo sources
 ```
 
-What to say:
+说明：
 
-- this step performs a full rebuild of the local knowledge base
-- documents are split into chunks, embedded, and stored in Chroma
-- this is the safe baseline before a defense demo
-- the bundled `knowledge_base/example.md` is enough for a minimal walkthrough
+- 系统已索引 PDF、Markdown 等多种来源。
+- source 是 citation 和 filter 的稳定身份。
 
-What success looks like:
+### 2. Section Query: SYSTEM DESIGN
 
-- terminal prints `Loaded ...`, `Created ...`, `Stored to Chroma`
+Query:
 
-## Step 2: Search Demo
+```text
+What does the SYSTEM DESIGN section of the Milvus paper describe?
+```
 
-Example request:
+展示点：
+
+- top citation 应为 `SYSTEM DESIGN · p.3`。
+- 展示 section-aware rerank。
+- citation 中有 `hit_in_window`、`window_chunk_count`、`evidence_preview`。
+
+### 3. Local Docs Query
+
+Query:
+
+```text
+What are the main steps in the RAG pipeline according to the local docs?
+```
+
+展示点：
+
+- citations 应来自 `rag_pipeline.md` / `architecture.md`。
+- 展示 local-doc source priority。
+- 说明 query 明确说 local docs 时，系统会避免无关论文混入主要 citations。
+
+### 4. Structured Reference Query: Table 1
+
+Query:
+
+```text
+What differences are summarized in Table 1 of the Milvus paper?
+```
+
+展示点：
+
+- top citation 应命中 `19_SIGMOD21_Milvus.pdf:23` 或 Table 1 附近内容。
+- final citations 应保持在 Milvus PDF 内。
+- 展示 structured-ref lexical injection 和 source consistency cap。
+
+### 5. Normal Query: What is Milvus?
+
+Query:
+
+```text
+What is Milvus?
+```
+
+展示点：
+
+- answer 来自 Milvus PDF。
+- 低位 citation 不再混入 local docs。
+- 展示 source consistency cap 对普通单实体 query 的效果。
+
+### 6. Summarize
+
+CLI:
 
 ```powershell
-python -m app.demo search
+python -m app.demo summarize --topic "Milvus system design" --top-k 4
 ```
 
-What to say:
+展示点：
 
-- this shows controlled retrieval from the local knowledge base
-- search is currently safest to demo without extra filters
-- this is the foundation for grounded answers and summaries
+- summarize 与 chat 复用同一 retrieval / citation 链路。
+- summary 也有 citations。
 
-What to point at:
+### 7. Compare
 
-- the returned `hits`
-- the `source`
-- the returned citation structure
-
-## Step 3: Chat Demo
-
-Example request:
+CLI:
 
 ```powershell
-python -m app.demo chat
+python -m app.demo compare --question "Compare the Milvus paper with the local RAG pipeline docs." --top-k 4
 ```
 
-What to say:
+展示点：
 
-- the answer is grounded in retrieved evidence rather than open-ended generation
-- citations are returned with traceable fields such as `ref`, `section`, and `location`
-- even without a real API key, the fallback path still produces a stable demo
+- compare 是独立任务类型。
+- 系统不会把明确跨文档 query 强行单源化。
 
-What to point at:
+### 8. Source Drawer
 
-- `answer`
-- `citations`
-- `ref` / `section` / `location`
+操作：
 
-## Step 4: Summarize Demo
+- 点击 citation。
+- 打开 source drawer。
 
-Example request:
+展示点：
 
-```powershell
-python -m app.demo summarize
-```
+- source detail 和 chunk preview 能帮助用户检查回答来源。
+- 当前 drawer 尚未完整展开 evidence window，这是后续工作。
 
-What to say:
+## 备用说明
 
-- this endpoint reuses the same retrieval and citation chain
-- the difference from `/chat` is that it produces a concise synthesis instead of a direct answer
-- it is still grounded and citation-backed
+如果遇到 Figure 1、Table body、cross-page 问题，可以说明：
 
-What to point at:
+- 当前阶段重点是 answer grounding 与 citation 可验证性。
+- Figure/table object-level parsing、跨页段落合并、layout-aware cleaning 属于 future work。
+- 相关 limitation 已在最终验收报告中记录。
 
-- `summary`
-- `citations`
-- `retrieved_count`
+## 不建议现场临时尝试
 
-Optional upgraded demo:
-
-```powershell
-python -m app.demo summarize --mode map_reduce
-```
-
-What to say:
-
-- this version first builds partial summaries across grouped evidence and then reduces them into one grounded synthesis
-- it is still traceable back to the original citations
-
-Optional Mermaid demo:
-
-```powershell
-python -m app.demo summarize --mode map_reduce --output-format mermaid
-```
-
-What to point at:
-
-- `structured_output`
-- the returned Mermaid text is grounded in retrieved evidence
-
-## Step 5: Structured Output Demo
-
-Use the Mermaid variant above and explain:
-
-- the system can turn grounded evidence into a structured representation for demo/presentation use
-- this is a lightweight first version of knowledge-structure output, not yet a full visual reasoning engine
-
-## Step 6: Compare Demo
-
-The compare feature performs grounded multi-document comparison through the unified execution protocol. It requires at least two indexed documents to compare.
-
-Example requests:
-
-```powershell
-# Compare across all indexed sources
-python -m app.demo compare
-
-# Compare specific sources (comma-separated)
-python -m app.demo compare --filters doc_a.md,doc_b.md
-
-# Via API
-python -m app.demo compare --via-api
-```
-
-What to say:
-
-- compare is a first-class task type in the unified execution protocol
-- it reuses the same retrieval, rerank, and compression chain as chat and summarize
-- compare runs through the unified `/frontend/execute` path and produces both a text summary and a `compare.v1` structured artifact
-- evidence freshness is tracked per source so stale or invalidated sources are flagged in the response
-
-What to point at:
-
-- `common_points` — points where both documents agree
-- `differences` — points where documents diverge
-- `conflicts` — points where documents contradict each other
-- `support_status` — overall grounding quality
-- `citations` — traceable evidence for each comparison point
-- the `compare.v1` structured artifact and its `schema_name`
-
-## Step 7: Incremental Update Demo
-
-Best run with watcher in a second terminal:
-
-```powershell
-conda activate minddock
-python -m app.demo watch
-```
-
-Then perform these actions under `knowledge_base/`:
-
-1. create a new file
-2. modify an existing file
-3. delete a file
-
-What to say:
-
-- full ingest is for baseline rebuilds
-- incremental maintenance is for per-file updates
-- watcher only forwards file events; the real update logic lives in the incremental ingest service
-
-What to point at:
-
-- create: new chunks appear for the new file
-- modify: only the changed file is rebuilt
-- delete: chunks for that file are removed
-
-## Common Failure Points
-
-### No real embedding model
-
-Symptom:
-
-- ingest prints a warning and falls back to `DummyEmbedding`
-
-Safe explanation:
-
-- the demo still works end-to-end
-- retrieval quality is reduced
-- this is a runtime fallback, not a pipeline failure
-
-### No API key
-
-Symptom:
-
-- `/chat` and `/summarize` use the mock or fallback provider
-
-Safe explanation:
-
-- the system still demonstrates grounded generation with citations
-- the fallback path is intentionally kept for stable offline demos
-
-### Watcher is unstable on the current machine
-
-Symptom:
-
-- file events are delayed or inconsistent
-
-Safe explanation:
-
-- the correctness of incremental logic is covered by unit tests
-- watcher is an OS-level bridge and is better treated as a manual demo capability
-
-## Suggested Defense Narrative
-
-You can summarize the project like this:
-
-1. We first build a local knowledge base from Markdown, text, or PDF files.
-2. We then perform controlled retrieval on top of that local store.
-3. On top of retrieval, we support grounded Q&A with citations.
-4. We also support grounded topic summarization with the same citation chain.
-5. We support grounded multi-document comparison through a unified execution protocol.
-6. Finally, we support incremental maintenance so the knowledge base can stay updated as files change.
+- 不建议现场随机问复杂 Figure/caption 问题。
+- 不建议现场重建大索引，除非已经确认时间充足。
+- 不建议现场切换 embedding 或 LLM provider。
+- 不建议现场删除/重入库重要 source。

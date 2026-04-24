@@ -571,6 +571,163 @@ def test_chat_falls_back_when_local_docs_query_has_no_markdown_candidates() -> N
     assert prioritized == hits
 
 
+def test_chat_source_consistency_keeps_structured_ref_with_named_paper_source() -> None:
+    hits = [
+        RetrievedChunk(
+            text="Table 1 highlights the main differences between Milvus and other systems.",
+            doc_id="milvus",
+            chunk_id="milvus:23",
+            source="19_SIGMOD21_Milvus.pdf",
+            distance=0.05,
+            extra_metadata={"retrieval_reason": "structured_ref_lexical"},
+        ),
+        RetrievedChunk(
+            text="Another paper uses Table 1 to define answer relevance prompts.",
+            doc_id="rag_eval",
+            chunk_id="rag_eval:40",
+            source="17_arxiv_2309.15217.pdf",
+            distance=0.06,
+            extra_metadata={"retrieval_reason": "structured_ref_lexical"},
+        ),
+        RetrievedChunk(
+            text="Milvus is built on top of Faiss and compares with other vector systems.",
+            doc_id="milvus",
+            chunk_id="milvus:24",
+            source="19_SIGMOD21_Milvus.pdf",
+            distance=0.07,
+        ),
+    ]
+    service = ChatService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(
+        query="What differences are summarized in Table 1 of the Milvus paper?",
+        top_k=2,
+        precomputed_hits=hits,
+    )
+
+    assert [citation.source for citation in result.citations] == [
+        "19_SIGMOD21_Milvus.pdf",
+        "19_SIGMOD21_Milvus.pdf",
+    ]
+    assert result.citations[0].chunk_id == "milvus:23"
+
+
+def test_chat_source_consistency_uses_top_source_dominance_for_single_entity_query() -> None:
+    hits = [
+        RetrievedChunk(
+            text="Milvus is a vector data management system for large scale similarity search.",
+            doc_id="milvus",
+            chunk_id="milvus:5",
+            source="19_SIGMOD21_Milvus.pdf",
+            distance=0.05,
+        ),
+        RetrievedChunk(
+            text="The chat endpoint retrieves chunks before generating grounded answers.",
+            doc_id="api",
+            chunk_id="api:2",
+            source="api_usage.md",
+            distance=0.06,
+        ),
+        RetrievedChunk(
+            text="Milvus supports vector similarity search and indexing for AI applications.",
+            doc_id="milvus",
+            chunk_id="milvus:38",
+            source="19_SIGMOD21_Milvus.pdf",
+            distance=0.07,
+        ),
+        RetrievedChunk(
+            text="Example docs describe how citations are displayed in MindDock.",
+            doc_id="example",
+            chunk_id="example:1",
+            source="example.md",
+            distance=0.08,
+        ),
+    ]
+    service = ChatService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(query="What is Milvus?", top_k=2, precomputed_hits=hits)
+
+    assert [citation.source for citation in result.citations] == [
+        "19_SIGMOD21_Milvus.pdf",
+        "19_SIGMOD21_Milvus.pdf",
+    ]
+
+
+def test_chat_source_consistency_does_not_single_source_cross_document_query() -> None:
+    hits = [
+        RetrievedChunk(
+            text="The Milvus paper presents a vector data management system.",
+            doc_id="milvus",
+            chunk_id="milvus:5",
+            source="19_SIGMOD21_Milvus.pdf",
+            distance=0.05,
+        ),
+        RetrievedChunk(
+            text="The local RAG pipeline docs describe ingestion, chunking, embeddings, and retrieval.",
+            doc_id="rag",
+            chunk_id="rag:0",
+            source="rag_pipeline.md",
+            distance=0.06,
+        ),
+        RetrievedChunk(
+            text="Milvus uses a query engine, GPU engine, and storage engine.",
+            doc_id="milvus",
+            chunk_id="milvus:30",
+            source="19_SIGMOD21_Milvus.pdf",
+            distance=0.07,
+        ),
+    ]
+    service = ChatService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(
+        query="Compare the Milvus paper with the local RAG pipeline docs.",
+        top_k=3,
+        precomputed_hits=hits,
+    )
+
+    assert {citation.source for citation in result.citations} == {
+        "19_SIGMOD21_Milvus.pdf",
+        "rag_pipeline.md",
+    }
+
+
+def test_chat_source_consistency_respects_explicit_source_filter() -> None:
+    service = ChatService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+    hits = [
+        RetrievedChunk(text="Milvus paper evidence.", doc_id="milvus", chunk_id="milvus:0", source="19_SIGMOD21_Milvus.pdf"),
+        RetrievedChunk(text="Filtered source evidence about Table 1.", doc_id="other", chunk_id="other:0", source="some_other.pdf"),
+    ]
+
+    reordered = service._apply_source_consistency_cap(
+        "What differences are summarized in Table 1 of the Milvus paper?",
+        hits,
+        top_k=1,
+        filters=RetrievalFilters(sources=("some_other.pdf",)),
+    )
+
+    assert reordered == hits
+
+
 def test_chat_reranks_direct_answer_evidence_ahead_of_generic_context() -> None:
     query = "\u4ec0\u4e48\u662fRAG\uff0c\u5b83\u89e3\u51b3\u4e86\u4ec0\u4e48\u95ee\u9898"
     generic = RetrievedChunk(

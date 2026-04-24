@@ -41,8 +41,32 @@ _CHAT_DIRECTNESS_WEIGHT = 0.35
 _CHAT_PRE_COMPRESS_SOURCE_CAP = 2
 _CHAT_CANDIDATE_POOL_CAP = 32
 _STRUCTURED_REF_LEXICAL_K = 5
+_SOURCE_CONSISTENCY_LOOKAHEAD = 4
 _STRUCTURED_REF_RE = re.compile(
     r"(?i)(?:\b(?:table|figure|fig\.?|algorithm)\s*(?:\d+|[ivxlcdm]+)\b|\bappendix\s+[a-z0-9]+\b|(?:表|图|算法)\s*[0-9一二三四五六七八九十]+|附录\s*[A-Za-z0-9一二三四五六七八九十]+)"
+)
+_SOURCE_POINTER_RE = re.compile(r"(?i)\b(?:this|the|milvus|rag|local)?\s*(?:paper|document|doc|file|pdf)\b")
+_CROSS_SOURCE_INTENT_PHRASES = (
+    "compare",
+    "comparison",
+    "contrast",
+    "across documents",
+    "across sources",
+    "all documents",
+    "all docs",
+    "all sources",
+    "multiple documents",
+    "multiple docs",
+    "these papers",
+    "these documents",
+    "these docs",
+    "with the local",
+    "with local",
+    "多篇论文",
+    "所有文档",
+    "全部文档",
+    "对比",
+    "比较",
 )
 _LOCAL_DOC_INTENT_PHRASES = (
     "local docs",
@@ -191,6 +215,7 @@ class ChatService:
                 reranked_hits,
                 _CHAT_PRE_COMPRESS_SOURCE_CAP,
             )
+            reranked_hits = self._apply_source_consistency_cap(query, reranked_hits, top_k, filters)
             reranked_hits = reranked_hits[:top_k]
             windowed_hits = expand_evidence_windows(
                 reranked_hits,
@@ -439,6 +464,56 @@ class ChatService:
         if not local_hits:
             return hits
         return local_hits
+
+    def _apply_source_consistency_cap(
+        self,
+        query: str,
+        hits: list,
+        top_k: int,
+        filters: RetrievalFilters | None,
+    ) -> list:
+        if len(hits) <= 1 or top_k <= 1:
+            return hits
+        if filters is not None and filters.sources:
+            return hits
+        if self._has_local_docs_intent(query) or self._has_cross_source_intent(query):
+            return hits
+
+        preferred_source = self._chat_source_key(hits[0])
+        if not preferred_source:
+            return hits
+        if not self._should_apply_source_consistency(query, hits, top_k, preferred_source):
+            return hits
+
+        preferred = [hit for hit in hits if self._chat_source_key(hit) == preferred_source]
+        if len(preferred) < 2:
+            return hits
+        others = [hit for hit in hits if self._chat_source_key(hit) != preferred_source]
+        return preferred + others
+
+    def _should_apply_source_consistency(
+        self,
+        query: str,
+        hits: list,
+        top_k: int,
+        preferred_source: str,
+    ) -> bool:
+        if self._has_structured_reference_intent(query) and self._has_source_pointer_intent(query):
+            return True
+
+        lookahead = min(len(hits), max(top_k, _SOURCE_CONSISTENCY_LOOKAHEAD))
+        front = hits[:lookahead]
+        preferred_count = sum(1 for hit in front if self._chat_source_key(hit) == preferred_source)
+        return preferred_count >= 2 and preferred_count / max(lookahead, 1) >= 0.5
+
+    def _has_source_pointer_intent(self, query: str) -> bool:
+        return bool(_SOURCE_POINTER_RE.search(query))
+
+    def _has_cross_source_intent(self, query: str) -> bool:
+        normalized = " ".join(query.lower().split())
+        if not normalized:
+            return False
+        return any(phrase in normalized for phrase in _CROSS_SOURCE_INTENT_PHRASES)
 
     def _has_local_docs_intent(self, query: str) -> bool:
         normalized = " ".join(query.lower().split())

@@ -50,6 +50,8 @@ http://localhost:5173
 
 ## 推荐演示顺序
 
+真实前端走查后的稳定主线是：H1、N2、Summarize、Source drawer / selected source。TC1 和 Compare 可以作为 backup；N1 不建议作为核心高光。
+
 ### 1. Source Catalog
 
 操作：
@@ -93,7 +95,37 @@ What are the main steps in the RAG pipeline according to the local docs?
 - 展示 local-doc source priority。
 - 说明 query 明确说 local docs 时，系统会避免无关论文混入主要 citations。
 
-### 4. Structured Reference Query: Table 1
+### 4. Summarize
+
+Query:
+
+```text
+Summarize Milvus system design
+```
+
+展示点：
+
+- summarize 与 chat 复用同一 retrieval / citation 链路。
+- summary 也有 citation label 和 evidence preview。
+- source 稳定在 Milvus system design 相关内容。
+
+### 5. Source Drawer
+
+操作：
+
+- 点击 source 列表或 citation 旁的 source detail 入口。
+- 展示 selected source / source scope 状态。
+- 查看 source detail 和 chunk preview。
+
+展示点：
+
+- source catalog 和 source scope 能帮助用户理解当前检索范围。
+- chunk preview 能帮助用户检查回答来源。
+- 当前 drawer 尚未完整展开 evidence window，这是后续工作。
+
+## Backup / Limitation 演示
+
+### A. Structured Reference Query: Table 1
 
 Query:
 
@@ -106,8 +138,23 @@ What differences are summarized in Table 1 of the Milvus paper?
 - top citation 应命中 `19_SIGMOD21_Milvus.pdf:23` 或 Table 1 附近内容。
 - final citations 应保持在 Milvus PDF 内。
 - 展示 structured-ref lexical injection 和 source consistency cap。
+- 主动说明完整 table body / object-level extraction 仍是 future work。
 
-### 5. Normal Query: What is Milvus?
+### B. Compare
+
+Query:
+
+```text
+Compare Milvus and the local RAG pipeline
+```
+
+展示点：
+
+- compare 是独立任务类型。
+- UI 不再同时展示 text artifact 和 structured artifact 两份主结果。
+- 作为能跑通的备用流程，不作为质量亮点。
+
+### C. Normal Query: What is Milvus?
 
 Query:
 
@@ -117,47 +164,9 @@ What is Milvus?
 
 展示点：
 
-- answer 来自 Milvus PDF。
-- 低位 citation 不再混入 local docs。
-- 展示 source consistency cap 对普通单实体 query 的效果。
-
-### 6. Summarize
-
-CLI:
-
-```powershell
-python -m app.demo summarize --topic "Milvus system design" --top-k 4
-```
-
-展示点：
-
-- summarize 与 chat 复用同一 retrieval / citation 链路。
-- summary 也有 citations。
-
-### 7. Compare
-
-CLI:
-
-```powershell
-python -m app.demo compare --question "Compare the Milvus paper with the local RAG pipeline docs." --top-k 4
-```
-
-展示点：
-
-- compare 是独立任务类型。
-- 系统不会把明确跨文档 query 强行单源化。
-
-### 8. Source Drawer
-
-操作：
-
-- 点击 citation。
-- 打开 source drawer。
-
-展示点：
-
-- source detail 和 chunk preview 能帮助用户检查回答来源。
-- 当前 drawer 尚未完整展开 evidence window，这是后续工作。
+- 前两条通常来自 Milvus PDF。
+- 低位 citation 仍可能混入 local docs。
+- 不建议作为核心演示；用于说明普通开放 query 的 source consistency 仍有局限。
 
 ## 备用说明
 
@@ -166,6 +175,8 @@ python -m app.demo compare --question "Compare the Milvus paper with the local R
 - 当前阶段重点是 answer grounding 与 citation 可验证性。
 - Figure/table object-level parsing、跨页段落合并、layout-aware cleaning 属于 future work。
 - 相关 limitation 已在最终验收报告中记录。
+- TC1 已能定位 Table 1 引用附近，但完整表格对象级内容抽取仍是 future work。
+- N1 这类普通开放实体 query 不作为核心高光，source consistency 仍需更正式的 source metadata 支撑。
 
 ## 不建议现场临时尝试
 

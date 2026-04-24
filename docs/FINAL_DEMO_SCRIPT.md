@@ -2,6 +2,12 @@
 
 本文档给出固定演示脚本，适合答辩现场按顺序执行。目标是展示系统闭环和 RAG citation/retrieval 改进效果，而不是现场探索未知问题。
 
+最新真实前端走查后的答辩路线：
+
+- 核心演示：H1、N2、Summarize、Source drawer / selected source。
+- 可选 / backup：Compare、TC1。
+- 不建议作为核心高光：N1。
+
 ## 0. 启动检查
 
 后端：
@@ -94,7 +100,7 @@ What are the main steps in the RAG pipeline according to the local docs?
 
 - 如果混入论文 PDF，说明 source/domain policy 仍需正式 `doc_type/source_kind` metadata。
 
-## 3. TC1: Structured-ref Lexical Injection
+## 3. TC1: Structured-ref Lexical Injection (Backup / Limitation)
 
 Query:
 
@@ -106,6 +112,7 @@ What differences are summarized in Table 1 of the Milvus paper?
 
 - 展示 Table/Figure 编号 query 的 lexical injection。
 - 展示 source consistency cap。
+- 主动说明当前系统能定位 Table 1 引用附近，但还没有完整 table object-level extraction。
 
 预期现象：
 
@@ -118,12 +125,13 @@ What differences are summarized in Table 1 of the Milvus paper?
 
 - 原问题是 BM25 能找到 Table 1，但 dense candidate pool 太浅，chat rerank 看不到。
 - 当前通过窄触发 lexical candidate 注入解决候选可见性问题。
+- 该 query 不作为核心高光，用于展示 limitation 更稳。
 
 失败备用说法：
 
 - 如果 table body 仍不完整，这是 parser/table object-level metadata 的后续工作，不是 citation pipeline 失败。
 
-## 4. N1: Source Consistency
+## 4. N1: Source Consistency (Not Core Demo)
 
 Query:
 
@@ -133,17 +141,19 @@ What is Milvus?
 
 演示目的：
 
-- 展示普通单实体 query 下，低位 citation 不再混入无关 local docs。
+- 仅作为备查 query，不建议现场主流程演示。
+- 说明普通开放实体 query 的 source consistency 仍有边界。
 
-预期现象：
+真实前端走查结果：
 
-- citations 主要来自 `19_SIGMOD21_Milvus.pdf`。
+- 前两条 citations 通常来自 `19_SIGMOD21_Milvus.pdf`。
+- 低位 citation 仍可能混入 `api_usage.md` / `example.md`。
 - citation label 包含 `Abstract · p.1` 或 `SYSTEM DESIGN · p.3`。
 - answer 是 grounded answer，不是开放聊天。
 
-失败备用说法：
+建议说法：
 
-- 如果低位混入其他 source，说明 source consistency cap 仍需更正式的 source_kind 支撑。
+- 对普通开放 query，系统仍依赖检索和 rerank 排序；后续需要更正式的 `source_kind` / `doc_type` metadata 与更强 source consistency 策略。
 
 ## 5. Summarize
 
@@ -166,7 +176,7 @@ python -m app.demo summarize --topic "Milvus system design" --top-k 4
 
 - 如果 LLM key 不可用，系统可能走 mock fallback；可说明这不影响检索与 citation 链路演示。
 
-## 6. Compare
+## 6. Compare (Optional / Backup)
 
 CLI:
 
@@ -178,6 +188,7 @@ python -m app.demo compare --question "Compare the Milvus paper with the local R
 
 - 展示跨文档任务。
 - 展示 source consistency 不会把 compare query 强行单源化。
+- 作为“能跑通”的任务类型展示，不作为质量亮点。
 
 预期现象：
 

@@ -151,6 +151,44 @@ For URL sources:
 URL loader warnings are short diagnostics carried in metadata as `loader_warnings`.
 They do not become chunk body text and do not affect embedding input.
 
+For CSV sources, the metadata convention is:
+
+- `source_media` is `text`
+- `source_kind` is `csv_file`
+- `loader_name` is `csv.extract`
+- `retrieval_basis` is `csv_rows_as_text`
+- `csv_filename`, `csv_columns`, `csv_row_count`, `csv_rows_indexed`
+- `loader_warnings` may contain `csv_empty` or `csv_truncated`
+
+## Source Skill Contract
+
+MindDock describes every built-in loader as a **source skill** through `SourceSkillInfo` in `app.rag.source_skill_catalog`. This is a read-only catalog — it does not execute code or invoke LLMs.
+
+Each skill declares:
+
+- `id`, `name`, `kind`, `version`
+- `input_kinds` — accepted file extensions or URL
+- `output_type` — always `SourceLoadResult`
+- `source_media` — `text` | `image`
+- `source_kind` — `pdf_file` | `markdown_file` | `text_file` | `web_page` | `image_file`
+- `loader_name` — stable identifier such as `url.extract` or `image.ocr`
+- `capabilities` — what the skill can do
+- `providers` — available backends (e.g. `mock`, `rapidocr`)
+- `limitations` — explicit non-goals
+
+### Metadata fields supporting the contract
+
+Loaders populate these fields in `SourceLoadResult.metadata`:
+
+- `source_media` — the media type of the original source
+- `source_kind` — the semantic kind of the source
+- `loader_name` — which loader produced the result
+- `loader_warnings` — comma-separated diagnostics carried into chunk metadata
+- `retrieval_basis` — how the source is retrieved later, e.g. `ocr_text` for image OCR
+- `ocr_provider` / `domain` / `canonical_url` — provider-specific metadata when applicable
+
+These fields allow the RAG pipeline to remain source-agnostic while still preserving provenance.
+
 ## Loader Extension Model
 
 To add a new source type:
@@ -159,6 +197,7 @@ To add a new source type:
 2. define a `SourceDescriptor`
 3. implement a `SourceLoader`
 4. register it in `SourceLoaderRegistry`
+5. describe it in `source_skill_catalog` if it becomes a built-in skill
 
 Examples of future source types:
 
@@ -166,6 +205,8 @@ Examples of future source types:
 - `html_file`
 - `note`
 - `web_clipper`
+- `audio` (future skill)
+- `video` (future skill)
 
 ## Known Limits
 

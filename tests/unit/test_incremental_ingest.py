@@ -319,3 +319,43 @@ def test_sync_directory_unreadable_file_records_failure(tmp_path: Path, monkeypa
     assert stored["status"] == "failed"
     assert "locked" in stored["error"]
     assert collection.records == {}
+
+
+def test_sync_directory_detects_csv_source(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    csv_path = tmp_path / "knowledge_base" / "data.csv"
+    csv_path.write_text("name,value\nFoo,1\nBar,2\n", encoding="utf-8")
+
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status) for result in results] == [("created", "updated")]
+    doc_id = build_doc_id(Path("data.csv"))
+    assert collection.count_doc(doc_id) >= 1
+    records_for_doc = [r for r in collection.records.values() if r["metadata"]["doc_id"] == doc_id]
+    assert any("[CSV Table]" in r["document"] for r in records_for_doc)
+    first = records_for_doc[0]
+    assert first["metadata"]["source"] == "data.csv"
+    assert first["metadata"]["source_media"] == "text"
+    assert first["metadata"]["source_kind"] == "csv_file"
+    assert first["metadata"]["loader_name"] == "csv.extract"
+    assert first["metadata"]["retrieval_basis"] == "csv_rows_as_text"
+
+
+def test_sync_directory_deletes_csv_source(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    csv_path = tmp_path / "knowledge_base" / "data.csv"
+    csv_path.write_text("name,value\nFoo,1\n", encoding="utf-8")
+    service.sync_directory()
+    doc_id = build_doc_id(Path("data.csv"))
+    before_count = collection.count_doc(doc_id)
+    assert before_count >= 1
+
+    csv_path.unlink()
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status) for result in results] == [("deleted", "removed")]
+    assert results[0].chunks_deleted == before_count
+    assert collection.count_doc(doc_id) == 0
+    assert service._hash_store.get("data.csv") is None

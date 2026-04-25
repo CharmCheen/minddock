@@ -95,6 +95,21 @@ SourceDescriptor
   -> IngestBatchResult
 ```
 
+From the Source Skill Contract perspective, the flow is:
+
+```text
+Source Skill (extraction)
+  -> SourceLoadResult
+  -> DocumentPayload (chunking + metadata)
+  -> embedding
+  -> Chroma
+  -> RAG (retrieval / rerank / citation / generation)
+```
+
+Source skills are responsible **only** for extraction. They do not perform retrieval, reranking, citation formatting, or answer generation.
+
+The `csv.extract` source skill follows the same path: it converts CSV rows into readable text inside `SourceLoadResult`, then the existing chunker, embedder, and vector-store path handles the rest without any CSV-specific logic in retrieval or citation.
+
 ## Replace Semantics
 
 The service does not append blindly.

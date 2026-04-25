@@ -165,24 +165,34 @@ def _settings_max_chars() -> int:
 
 
 def _parse_rapidocr_result(raw_result) -> tuple[str, float | None]:
-    items = raw_result[0] if isinstance(raw_result, tuple) and raw_result else raw_result
-    if not items:
+    # RapidOCR 3.8+ returns a RapidOCROutput object with .txts and .scores
+    # Older versions returned a tuple of lists
+    txts: tuple[str, ...] | None = None
+    scores: tuple[float, ...] | None = None
+
+    if hasattr(raw_result, "txts") and hasattr(raw_result, "scores"):
+        # RapidOCR 3.8+ format
+        txts = raw_result.txts
+        scores = raw_result.scores
+    elif isinstance(raw_result, (list, tuple)) and raw_result:
+        # Legacy tuple format: (boxes, txts, scores)
+        items = raw_result[0] if len(raw_result) > 0 else None
+        if items and isinstance(items, (list, tuple)):
+            txts = tuple(_extract_text_from_rapidocr_item(item) for item in items)
+            scores = tuple(
+                _extract_confidence_from_rapidocr_item(item)
+                for item in items
+            )
+        else:
+            txts = tuple(raw_result[1]) if len(raw_result) > 1 else ()
+            scores = tuple(raw_result[2]) if len(raw_result) > 2 else ()
+
+    if not txts:
         return "", None
 
-    lines: list[str] = []
-    confidences: list[float] = []
-    for item in items:
-        if not isinstance(item, (list, tuple)):
-            continue
-        text = _extract_text_from_rapidocr_item(item)
-        if text:
-            lines.append(text)
-        confidence = _extract_confidence_from_rapidocr_item(item)
-        if confidence is not None:
-            confidences.append(confidence)
-
-    avg_confidence = sum(confidences) / len(confidences) if confidences else None
-    return "\n".join(lines).strip(), avg_confidence
+    combined_text = "\n".join(t for t in txts if t)
+    avg_confidence = sum(s for s in (scores or ()) if s) / len(scores) if scores else None
+    return combined_text.strip(), avg_confidence
 
 
 def _extract_text_from_rapidocr_item(item) -> str:

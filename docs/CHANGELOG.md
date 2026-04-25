@@ -8,7 +8,7 @@ Update it before every push.
 ### Added
 
 - Open-source governance files: `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `SECURITY.md`
-- Project tracking docs: `docs/ROADMAP.md`, `docs/STATUS.md`, and `docs/TEST_PLAN.md`
+- Project tracking docs: `docs/ROADMAP.md` and `docs/TEST_PLAN.md`
 - Baseline automated tests for API routes, schemas, chat service, and contract definitions
 
 ### Changed

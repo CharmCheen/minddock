@@ -460,18 +460,43 @@ def test_chat_keeps_requested_retrieval_pool(monkeypatch) -> None:
         runtime_factory=factory,
         run_registry=_run_registry(),
     )
+    requested_top_k = 5
     observed_top_k: list[int] = []
 
     class FakePipeline:
         def run(self, **kwargs):
             observed_top_k.append(kwargs["top_k"])
-            return {"hits": []}
+            return {"hits": [object() for _ in range(kwargs["top_k"])]}
 
     def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
+        assert request.retrieval.top_k == requested_top_k
+        assert precomputed_hits is not None
+        assert len(precomputed_hits) >= requested_top_k
+        citations = [
+            CitationRecord(
+                doc_id=f"d{i}",
+                chunk_id=f"c{i}",
+                source=f"kb/doc-{i}.md",
+                snippet=f"proof {i}",
+            )
+            for i in range(requested_top_k)
+        ]
         return ChatServiceResult(
             answer="chat response",
-            citations=[],
-            metadata=UseCaseMetadata(retrieved_count=1, mode="grounded"),
+            citations=citations,
+            grounded_answer=GroundedAnswer(
+                answer="chat response",
+                evidence=tuple(
+                    EvidenceObject(
+                        doc_id=citation.doc_id,
+                        chunk_id=citation.chunk_id,
+                        source=citation.source,
+                        snippet=citation.snippet,
+                    )
+                    for citation in citations
+                ),
+            ),
+            metadata=UseCaseMetadata(retrieved_count=len(citations), mode="grounded"),
         )
 
     monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
@@ -481,7 +506,7 @@ def test_chat_keeps_requested_retrieval_pool(monkeypatch) -> None:
         UnifiedExecutionRequest(
             task_type=TaskType.CHAT,
             user_input="what is RAG",
-            retrieval=RetrievalOptions(top_k=5),
+            retrieval=RetrievalOptions(top_k=requested_top_k),
             execution_policy=ExecutionPolicy(
                 preferred_profile_id="default_cloud",
                 selection_mode=RuntimeSelectionMode.PREFERRED,
@@ -490,7 +515,13 @@ def test_chat_keeps_requested_retrieval_pool(monkeypatch) -> None:
     )
 
     assert response.task_type == TaskType.CHAT
-    assert observed_top_k == [5]
+    assert observed_top_k
+    assert observed_top_k[0] >= requested_top_k
+    assert len(response.citations) <= requested_top_k
+    assert len(response.grounded_answer.evidence) <= requested_top_k
+    assert len(response.artifacts[0].citations) <= requested_top_k
+    artifact_ids = [artifact.artifact_id for artifact in response.artifacts]
+    assert len(artifact_ids) == len(set(artifact_ids))
 
 
 def test_single_source_general_chat_returns_scope_guardrail(monkeypatch) -> None:

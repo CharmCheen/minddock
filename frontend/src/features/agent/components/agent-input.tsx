@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAgentStore } from '../store';
 import { useAvailabilityStore } from '../../app/store/availability';
 import { useWorkspaceStore } from '../../workspace/store';
+import { useWorkspacePreferences } from '../../settings/workspace-preferences';
 import { ExamplePrompts } from './example-prompts';
 import { ExecutionService } from '../../../lib/api/services/execution';
 import { ClientArtifactPayload, ClientEvent } from '../../../core/types/api';
@@ -12,9 +13,17 @@ export const AgentInput: React.FC<{
   setController: (ctrl: AbortController | null) => void;
 }> = ({ controller, setController }) => {
   const [query, setQuery] = useState('');
-  const { status, taskType, runId, setTaskType, artifacts, prepareRun, startRun, appendEvent, appendArtifact, finishRun, failRun, requestCancel, markCancelled, reset } = useAgentStore();
+  const { status, taskType, runId, setTaskType, turns, prepareRun, startRun, appendEvent, appendArtifact, finishRun, failRun, requestCancel, markCancelled, reset } = useAgentStore();
   const { status: backendStatus } = useAvailabilityStore();
   const { selectedDocIds, selectedDocDetails, clearSelectedDocs } = useWorkspaceStore();
+  const { defaultTaskType, defaultTopK, defaultCitationPolicy, defaultSummarizeMode, density } = useWorkspacePreferences();
+
+  // Sync default task type from preferences when idle
+  useEffect(() => {
+    if (status === 'idle' && !query && turns.length === 0) {
+      setTaskType(defaultTaskType);
+    }
+  }, [defaultTaskType, status, query, turns.length, setTaskType]);
 
   // Abort any in-progress stream on unmount / HMR
   useEffect(() => {
@@ -32,18 +41,17 @@ export const AgentInput: React.FC<{
       return;
     }
 
-    reset();
-    prepareRun(query);
-
     const sources = selectedDocDetails.map((detail) => detail.source).filter(Boolean);
 
+    reset();
+    prepareRun(query, { selectedSources: sources });
+
     const ctrl = ExecutionService.executeStream(
-      { query, task_type: taskType, sources },
+      { query, task_type: taskType, sources, top_k: defaultTopK, citation_policy: defaultCitationPolicy, summarize_mode: taskType === 'summarize' ? defaultSummarizeMode : undefined },
       {
         onEvent: (event: ClientEvent) => {
           appendEvent(event);
           if (event.event === 'run_started') {
-            // run_id is at top level of ClientEventResponseItem, not in payload
             startRun(event.run_id!, query);
           } else if (event.event === 'progress') {
             // Phase info is stored via appendEvent above; AgentRunStatus reads it for display
@@ -60,7 +68,6 @@ export const AgentInput: React.FC<{
           }
         },
         onError: (err, isNetworkError) => {
-          // Network errors from offline backend are expected — don't surface as red errors
           if (isNetworkError) {
             failRun('Backend unreachable. Retrying connection…');
           } else {
@@ -92,6 +99,7 @@ export const AgentInput: React.FC<{
 
   const isRunning = status === 'running';
   const isCancelling = status === 'cancelling';
+  const d = density;
 
   const modes = [
     { id: 'chat', label: 'Chat' },
@@ -115,21 +123,22 @@ export const AgentInput: React.FC<{
 
   return (
     <div style={{
-      padding: '14px 20px 16px',
-      borderTop: '1px solid #e2e8f0',
-      background: '#fff',
+      padding: d === 'compact' ? '10px 16px 12px' : '14px 20px 16px',
+      borderTop: '1px solid var(--color-border-subtle)',
+      background: 'var(--color-surface)',
       display: 'flex',
       flexDirection: 'column',
-      gap: '10px'
+      gap: '10px',
     }}>
       {/* Mode Switcher */}
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <div style={{
           display: 'flex',
-          background: '#f1f5f9',
+          background: 'var(--color-canvas)',
           padding: '3px',
-          borderRadius: '8px',
-          gap: '2px'
+          borderRadius: 'var(--radius-md)',
+          gap: '2px',
+          border: '1px solid var(--color-border-subtle)',
         }}>
           {modes.map(m => (
             <div
@@ -137,16 +146,16 @@ export const AgentInput: React.FC<{
               data-testid={`mode-${m.id}`}
               onClick={() => !isRunning && !isCancelling && setTaskType(m.id as any)}
               style={{
-                padding: '6px 16px',
+                padding: d === 'compact' ? '5px 14px' : '6px 16px',
                 fontSize: '12px',
-                fontWeight: taskType === m.id ? '600' : '500',
-                color: taskType === m.id ? '#2563eb' : '#64748b',
-                background: taskType === m.id ? '#fff' : 'transparent',
-                borderRadius: '6px',
-                borderBottom: taskType === m.id ? '2px solid #3b82f6' : '2px solid transparent',
+                fontWeight: taskType === m.id ? '700' : '500',
+                color: taskType === m.id ? 'var(--color-brand-600)' : 'var(--color-text-tertiary)',
+                background: taskType === m.id ? 'var(--color-surface)' : 'transparent',
+                borderRadius: '8px',
                 cursor: isRunning || isCancelling ? 'not-allowed' : 'pointer',
-                boxShadow: taskType === m.id ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                transition: 'all 0.15s ease'
+                boxShadow: taskType === m.id ? 'var(--shadow-sm)' : 'none',
+                transition: 'all var(--transition-fast)',
+                userSelect: 'none',
               }}
             >
               {m.label}
@@ -155,7 +164,7 @@ export const AgentInput: React.FC<{
         </div>
       </div>
 
-      {!isRunning && artifacts.length === 0 && (
+      {!isRunning && turns.length === 0 && (
         <ExamplePrompts taskType={taskType} onSelect={(text) => setQuery(text)} />
       )}
 
@@ -165,24 +174,24 @@ export const AgentInput: React.FC<{
           margin: '0 auto',
           width: '100%',
           padding: '0 16px',
-          boxSizing: 'border-box'
+          boxSizing: 'border-box',
         }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: '12px',
-            padding: '8px 16px',
-            borderRadius: '6px',
-            background: '#eff6ff',
-            borderLeft: '3px solid #3b82f6'
+            padding: '8px 14px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--color-info-bg)',
+            border: '1px solid var(--color-info-border)',
           }}>
             <span style={{
               fontSize: '12px',
-              color: '#1e40af',
+              color: 'var(--color-info-text)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap'
+              whiteSpace: 'nowrap',
             }}>
               {selectedDocIds.length === 1
                 ? `📄 ${selectedDocDetails[0]?.source || ''}`
@@ -195,13 +204,17 @@ export const AgentInput: React.FC<{
               style={{
                 border: 'none',
                 background: 'transparent',
-                color: '#1e40af',
+                color: 'var(--color-info-text)',
                 cursor: 'pointer',
                 fontSize: '14px',
                 lineHeight: 1,
-                padding: 0,
-                flexShrink: 0
+                padding: '2px 6px',
+                borderRadius: '4px',
+                flexShrink: 0,
+                transition: 'background var(--transition-fast)',
               }}
+              onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'; }}
+              onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               ×
             </button>
@@ -211,11 +224,11 @@ export const AgentInput: React.FC<{
 
       <div style={{
         display: 'flex',
-        gap: '8px',
+        gap: '10px',
         maxWidth: '760px',
         margin: '0 auto',
         width: '100%',
-        padding: '0 16px'
+        padding: '0 16px',
       }}>
         <input
           type="text"
@@ -226,21 +239,23 @@ export const AgentInput: React.FC<{
           data-testid="agent-input"
           style={{
             flex: 1,
-            padding: '11px 16px',
+            padding: d === 'compact' ? '9px 14px' : '11px 16px',
             fontSize: '14px',
-            borderRadius: '10px',
-            border: '1px solid #e2e8f0',
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid var(--color-border-subtle)',
             outline: 'none',
-            transition: 'border-color 0.2s, box-shadow 0.2s',
-            boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)'
+            transition: 'border-color var(--transition-fast), box-shadow var(--transition-fast)',
+            boxShadow: 'var(--shadow-inset)',
+            background: 'var(--color-canvas-subtle)',
+            color: 'var(--color-text-primary)',
           }}
           onFocus={(e) => {
-            e.target.style.borderColor = '#3b82f6';
+            e.target.style.borderColor = 'var(--color-brand-200)';
             e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
           }}
           onBlur={(e) => {
-            e.target.style.borderColor = '#e2e8f0';
-            e.target.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.04)';
+            e.target.style.borderColor = 'var(--color-border-subtle)';
+            e.target.style.boxShadow = 'var(--shadow-inset)';
           }}
           disabled={isRunning}
         />
@@ -252,17 +267,22 @@ export const AgentInput: React.FC<{
             style={{
               padding: '0 20px',
               cursor: isCancelling ? 'not-allowed' : 'pointer',
-              background: '#ef4444',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '10px',
+              background: 'var(--color-error-bg)',
+              color: 'var(--color-error-text)',
+              border: '1px solid var(--color-error-border)',
+              borderRadius: 'var(--radius-lg)',
               fontWeight: '600',
               fontSize: '13px',
-              boxShadow: '0 2px 6px rgba(239, 68, 68, 0.25)',
-              transition: 'background 0.15s'
+              transition: 'all var(--transition-fast)',
             }}
-            onMouseOver={e => e.currentTarget.style.background = '#dc2626'}
-            onMouseOut={e => e.currentTarget.style.background = '#ef4444'}
+            onMouseOver={(e) => {
+              if (!isCancelling) {
+                e.currentTarget.style.background = '#fecaca';
+              }
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = 'var(--color-error-bg)';
+            }}
           >
             {getButtonLabel()}
           </button>
@@ -274,20 +294,24 @@ export const AgentInput: React.FC<{
             style={{
               padding: '0 20px',
               cursor: !query.trim() ? 'not-allowed' : 'pointer',
-              background: !query.trim() ? '#e2e8f0' : '#3b82f6',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '10px',
+              background: !query.trim() ? 'var(--color-canvas)' : 'var(--color-brand-600)',
+              color: !query.trim() ? 'var(--color-text-tertiary)' : '#fff',
+              border: !query.trim() ? '1px solid var(--color-border-subtle)' : '1px solid var(--color-brand-600)',
+              borderRadius: 'var(--radius-lg)',
               fontWeight: '600',
               fontSize: '13px',
-              boxShadow: !query.trim() ? 'none' : '0 2px 6px rgba(59, 130, 246, 0.25)',
-              transition: 'background 0.15s, box-shadow 0.15s'
+              boxShadow: !query.trim() ? 'none' : 'var(--shadow-md)',
+              transition: 'all var(--transition-fast)',
             }}
-            onMouseOver={e => {
-              if (query.trim()) e.currentTarget.style.background = '#2563eb';
+            onMouseOver={(e) => {
+              if (query.trim()) {
+                e.currentTarget.style.background = 'var(--color-brand-900)';
+                e.currentTarget.style.borderColor = 'var(--color-brand-900)';
+              }
             }}
-            onMouseOut={e => {
-              if (query.trim()) e.currentTarget.style.background = '#3b82f6';
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = 'var(--color-brand-600)';
+              e.currentTarget.style.borderColor = 'var(--color-brand-600)';
             }}
           >
             {getButtonLabel()}

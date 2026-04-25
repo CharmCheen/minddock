@@ -86,19 +86,19 @@ test.describe('source list with new contract', () => {
 
     await page.goto('/');
 
-    // URL source renders with link icon and domain badge
+    // URL source renders with title and URL kind badge
     const urlSource = page.locator('text=Example Article').first();
     await expect(urlSource).toBeVisible();
 
-    // Domain badge shows for URL sources
-    await expect(page.locator('text=🌐 example.com')).toBeVisible();
+    // URL kind badge shows for URL sources
+    await expect(page.locator('text=URL').first()).toBeVisible();
 
-    // URL source has link icon (🔗)
-    const urlIcon = page.locator('text=🔗').first();
+    // URL source has first-letter icon (U)
+    const urlIcon = page.locator('text=U').first();
     await expect(urlIcon).toBeVisible();
 
-    // File source renders with document icon
-    const fileIcon = page.locator('text=📄').first();
+    // File source (PDF) renders with first-letter icon (P)
+    const fileIcon = page.locator('text=P').first();
     await expect(fileIcon).toBeVisible();
 
     // Ready status badge renders for ready sources

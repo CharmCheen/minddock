@@ -39,15 +39,23 @@ export const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+export function getApiBaseUrl(): string {
+  const injected = window.__MINDDOCK_CONFIG__?.apiBaseUrl;
+  if (injected) return injected;
+  return import.meta.env.VITE_API_BASE_URL || '';
+}
 
 export const apiClient = axios.create({
-  baseURL,
+  baseURL: getApiBaseUrl(),
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+export function setApiBaseUrl(url: string): void {
+  apiClient.defaults.baseURL = url;
+}
 
 // Only log non-network errors to console; network errors are expected during offline/dev startup.
 apiClient.interceptors.response.use(

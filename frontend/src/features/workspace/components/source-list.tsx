@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { SourceService } from '../../../lib/api/services/sources';
 import { SourceItem } from '../../../core/types/api';
 import { useWorkspaceStore } from '../store';
 import { useSettingsStore } from '../../settings/store';
 import { useAvailabilityStore } from '../../app/store/availability';
+import { useWorkspacePreferences } from '../../settings/workspace-preferences';
 
 interface AddUrlDialogProps {
   open: boolean;
@@ -39,14 +40,17 @@ const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onAdded }) =
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 50,
-      background: 'rgba(0,0,0,0.4)', display: 'flex',
+      background: 'rgba(0,0,0,0.35)', display: 'flex',
       alignItems: 'center', justifyContent: 'center',
+      animation: 'fadeIn 150ms ease forwards',
     }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{
-        background: '#fff', borderRadius: '12px', padding: '24px',
-        width: '420px', maxWidth: '90vw', boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+        background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: '24px',
+        width: '420px', maxWidth: '90vw', boxShadow: 'var(--shadow-xl)',
+        animation: 'scaleIn 200ms ease forwards',
+        border: '1px solid var(--color-border-subtle)',
       }}>
-        <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: '600', color: '#0f172a' }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
           Add URL to Knowledge Base
         </h3>
         <input
@@ -57,33 +61,50 @@ const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onAdded }) =
           onKeyDown={(e) => e.key === 'Enter' && !loading && handleAdd()}
           disabled={loading}
           style={{
-            width: '100%', padding: '10px 12px', borderRadius: '8px',
-            border: '1px solid #e2e8f0', fontSize: '14px', outline: 'none',
-            boxSizing: 'border-box',
-            borderColor: error ? '#ef4444' : '#e2e8f0',
+            width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-md)',
+            border: `1px solid ${error ? 'var(--color-error-border)' : 'var(--color-border-subtle)'}`,
+            fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+            background: 'var(--color-canvas-subtle)', color: 'var(--color-text-primary)',
+            transition: 'border-color var(--transition-fast), box-shadow var(--transition-fast)',
+          }}
+          onFocus={(e) => {
+            e.target.style.borderColor = 'var(--color-brand-200)';
+            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
+          }}
+          onBlur={(e) => {
+            e.target.style.borderColor = error ? 'var(--color-error-border)' : 'var(--color-border-subtle)';
+            e.target.style.boxShadow = 'none';
           }}
         />
         {error && (
-          <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '6px' }}>{error}</div>
+          <div style={{ color: 'var(--color-error-text)', fontSize: '12px', marginTop: '6px' }}>{error}</div>
         )}
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
           <button
             onClick={onClose}
             disabled={loading}
             style={{
-              padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0',
-              background: '#fff', color: '#64748b', fontSize: '13px', cursor: 'pointer',
-            }}>
+              padding: '8px 16px', borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border-subtle)',
+              background: 'var(--color-surface)', color: 'var(--color-text-secondary)',
+              fontSize: '13px', cursor: 'pointer', fontWeight: 500,
+              transition: 'all var(--transition-fast)',
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.background = 'var(--color-canvas)'; }}
+            onMouseOut={(e) => { e.currentTarget.style.background = 'var(--color-surface)'; }}
+          >
             Cancel
           </button>
           <button
             onClick={handleAdd}
             disabled={loading || !url.trim()}
             style={{
-              padding: '8px 16px', borderRadius: '8px', border: 'none',
-              background: loading ? '#93c5fd' : '#3b82f6',
-              color: '#fff', fontSize: '13px', cursor: loading ? 'not-allowed' : 'pointer',
-            }}>
+              padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none',
+              background: loading ? 'var(--color-brand-200)' : 'var(--color-brand-600)',
+              color: '#fff', fontSize: '13px', cursor: loading || !url.trim() ? 'not-allowed' : 'pointer',
+              fontWeight: 600, transition: 'all var(--transition-fast)',
+            }}
+          >
             {loading ? 'Adding…' : 'Add'}
           </button>
         </div>
@@ -92,22 +113,45 @@ const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onAdded }) =
   );
 };
 
+function inferSourceKind(source: string, sourceType: string): { label: string; color: string; bg: string } {
+  if (sourceType === 'url') {
+    return { label: 'URL', color: '#1d4ed8', bg: '#dbeafe' };
+  }
+  const lower = source.toLowerCase();
+  if (lower.endsWith('.pdf')) return { label: 'PDF', color: '#b91c1c', bg: '#fee2e2' };
+  if (lower.endsWith('.md')) return { label: 'MD', color: '#0f766e', bg: '#ccfbf1' };
+  if (lower.endsWith('.txt')) return { label: 'TXT', color: '#475569', bg: '#f1f5f9' };
+  if (lower.endsWith('.csv')) return { label: 'CSV', color: '#a16207', bg: '#fef9c3' };
+  if (/\.(png|jpg|jpeg|webp)$/.test(lower)) return { label: 'Image', color: '#7c3aed', bg: '#ede9fe' };
+  return { label: 'File', color: '#475569', bg: '#f1f5f9' };
+}
+
 export const SourceList: React.FC = () => {
   const [sources, setSources] = useState<SourceItem[]>([]);
-  const [loading, setLoading] = useState(false); // start false, only true when actually loading
+  const [loading, setLoading] = useState(false);
   const [addUrlOpen, setAddUrlOpen] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const { selectedDocIds, toggleSelectedDoc, setSelectedDoc, setDrawerOpen } = useWorkspaceStore();
+  const { selectedDocIds, toggleSelectedDoc, setSelectedDoc, setDrawerOpen, drawerOpen } = useWorkspaceStore();
   const { offline } = useSettingsStore();
   const { status, reset } = useAvailabilityStore();
+  const { density, sourceDrawerDefaultOpen } = useWorkspacePreferences();
   const abortRef = useRef<AbortController | null>(null);
+  const suppressAutoOpenRef = useRef(false);
+  const prevDrawerOpenRef = useRef(drawerOpen);
+
+  useEffect(() => {
+    if (prevDrawerOpenRef.current === true && drawerOpen === false) {
+      suppressAutoOpenRef.current = true;
+    }
+    prevDrawerOpenRef.current = drawerOpen;
+  }, [drawerOpen]);
 
   const isBackendOnline = status === 'online' && !offline;
   const isChecking = status === 'checking';
 
   const loadSources = () => {
-    // Cancel any in-flight request
     if (abortRef.current) {
       abortRef.current.abort();
     }
@@ -121,14 +165,13 @@ export const SourceList: React.FC = () => {
         setLoading(false);
       })
       .catch((err: unknown) => {
-        // Ignore aborted errors — they're expected when switching sources or HMR
         if (err instanceof Error && err.name === 'CanceledError') return;
         setLoading(false);
       });
   };
 
   const handleRetry = () => {
-    reset(); // re-probe backend
+    reset();
   };
 
   const handleRefresh = async (docId: string, e: React.MouseEvent) => {
@@ -144,12 +187,10 @@ export const SourceList: React.FC = () => {
     }
   };
 
-  // Load when backend becomes online; don't load when offline/checking
   useEffect(() => {
     if (isBackendOnline) {
       loadSources();
     } else {
-      // Cancel any pending load if we went offline
       if (abortRef.current) {
         abortRef.current.abort();
         abortRef.current = null;
@@ -157,34 +198,60 @@ export const SourceList: React.FC = () => {
     }
   }, [isBackendOnline]);
 
+  const filteredSources = useMemo(() => {
+    if (!searchQuery.trim()) return sources;
+    const q = searchQuery.toLowerCase();
+    return sources.filter(
+      (s) =>
+        (s.title || '').toLowerCase().includes(q) ||
+        s.source.toLowerCase().includes(q) ||
+        s.doc_id.toLowerCase().includes(q)
+    );
+  }, [sources, searchQuery]);
+
+  const d = density;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--color-surface)' }}>
       {/* Sidebar Header */}
       <div style={{
-        padding: '14px 16px',
-        borderBottom: '1px solid #e2e8f0',
+        padding: d === 'compact' ? '12px 14px' : '14px 16px',
+        borderBottom: '1px solid var(--color-border-subtle)',
         display: 'flex', alignItems: 'center', gap: '10px',
       }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          width: '30px', height: '30px', borderRadius: '8px',
+          width: '32px', height: '32px', borderRadius: 'var(--radius-md)',
           background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
           color: '#fff', fontSize: '14px', flexShrink: 0,
+          boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)',
         }}>
           📚
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '13px', fontWeight: '600', color: '#0f172a' }}>Knowledge Base</div>
-          <div style={{ fontSize: '11px', color: '#64748b' }}>{sources.length} source{sources.length !== 1 ? 's' : ''}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>Knowledge Base</div>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
+            {sources.length} source{sources.length !== 1 ? 's' : ''}
+            {selectedDocIds.length > 0 && ` · ${selectedDocIds.length} selected`}
+          </div>
         </div>
         <button
           onClick={() => setAddUrlOpen(true)}
           style={{
-            padding: '5px 10px', borderRadius: '6px', border: 'none',
-            background: '#3b82f6', color: '#fff', fontSize: '12px', cursor: 'pointer',
-            fontWeight: '500',
+            padding: '6px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)',
+            background: 'var(--color-surface)', color: 'var(--color-brand-600)', fontSize: '12px', cursor: 'pointer',
+            fontWeight: 600, transition: 'all var(--transition-fast)',
+            boxShadow: 'var(--shadow-sm)',
           }}
           title="Add URL"
+          onMouseOver={(e) => {
+            e.currentTarget.style.background = 'var(--color-brand-50)';
+            e.currentTarget.style.borderColor = 'var(--color-brand-200)';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.background = 'var(--color-surface)';
+            e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
+          }}
         >
           + Add
         </button>
@@ -192,40 +259,95 @@ export const SourceList: React.FC = () => {
 
       <AddUrlDialog open={addUrlOpen} onClose={() => setAddUrlOpen(false)} onAdded={loadSources} />
 
+      {/* Search */}
+      <div style={{ padding: d === 'compact' ? '8px 12px' : '10px 14px', borderBottom: '1px solid var(--color-border-subtle)', background: 'var(--color-canvas-subtle)' }}>
+        <div style={{ position: 'relative' }}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search sources..."
+            style={{
+              width: '100%',
+              padding: '8px 12px 8px 32px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border-subtle)',
+              fontSize: '13px',
+              outline: 'none',
+              boxSizing: 'border-box',
+              background: 'var(--color-surface)',
+              color: 'var(--color-text-primary)',
+              transition: 'border-color var(--transition-fast), box-shadow var(--transition-fast)',
+            }}
+            onFocus={(e) => {
+              e.target.style.borderColor = 'var(--color-brand-200)';
+              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
+            }}
+            onBlur={(e) => {
+              e.target.style.borderColor = 'var(--color-border-subtle)';
+              e.target.style.boxShadow = 'none';
+            }}
+          />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
+          </svg>
+        </div>
+        <div style={{
+          marginTop: '6px',
+          fontSize: '11px',
+          color: 'var(--color-text-tertiary)',
+          lineHeight: 1.4,
+        }}>
+          Select sources to focus retrieval; citations can be verified in the drawer.
+        </div>
+      </div>
+
       {/* Source List */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '6px' }}>
         {loading && (
-          <div style={{ padding: '32px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-            <svg viewBox="0 0 24 24" width="20" height="20" style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }}>
+          <div style={{ padding: d === 'compact' ? '24px 12px' : '32px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+            <svg viewBox="0 0 24 24" width="20" height="20" style={{ animation: 'spin 1s linear infinite', color: 'var(--color-brand-500)' }}>
               <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
               <path fill="currentColor" d="M12 2v4a6 6 0 006 6h4a10 10 0 01-10-10z"/>
             </svg>
-            <span style={{ color: '#64748b', fontSize: '12px' }}>Loading sources...</span>
+            <span style={{ color: 'var(--color-text-tertiary)', fontSize: '12px' }}>Loading sources...</span>
           </div>
         )}
 
         {isChecking && (
-          <div style={{ padding: '32px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-            <svg viewBox="0 0 24 24" width="20" height="20" style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }}>
+          <div style={{ padding: d === 'compact' ? '24px 12px' : '32px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+            <svg viewBox="0 0 24 24" width="20" height="20" style={{ animation: 'spin 1s linear infinite', color: 'var(--color-brand-500)' }}>
               <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
               <path fill="currentColor" d="M12 2v4a6 6 0 006 6h4a10 10 0 01-10-10z"/>
             </svg>
-            <span style={{ color: '#64748b', fontSize: '12px' }}>Connecting...</span>
+            <span style={{ color: 'var(--color-text-tertiary)', fontSize: '12px' }}>Connecting...</span>
           </div>
         )}
 
         {(offline || status === 'offline') && !isChecking && (
-          <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+          <div style={{ padding: d === 'compact' ? '24px 12px' : '32px 16px', textAlign: 'center' }}>
             <div style={{ fontSize: '28px', marginBottom: '10px' }}>🔌</div>
-            <div style={{ color: '#ef4444', fontSize: '13px', fontWeight: '600', marginBottom: '4px' }}>Backend Offline</div>
-            <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '16px' }}>
+            <div style={{ color: 'var(--color-error-text)', fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>Backend Offline</div>
+            <div style={{ color: 'var(--color-text-tertiary)', fontSize: '12px', marginBottom: '16px' }}>
               The server is not reachable.
             </div>
             <button
               onClick={handleRetry}
               style={{
-                padding: '6px 14px', borderRadius: '6px', border: '1px solid #e2e8f0',
-                background: '#fff', color: '#3b82f6', fontSize: '12px', cursor: 'pointer', fontWeight: '500',
+                padding: '6px 14px', borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border-subtle)',
+                background: 'var(--color-surface)', color: 'var(--color-brand-600)',
+                fontSize: '12px', cursor: 'pointer', fontWeight: 600,
+                transition: 'all var(--transition-fast)',
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = 'var(--color-brand-50)';
+                e.currentTarget.style.borderColor = 'var(--color-brand-200)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = 'var(--color-surface)';
+                e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
               }}
             >
               Retry Connection
@@ -233,118 +355,151 @@ export const SourceList: React.FC = () => {
           </div>
         )}
 
-        {!loading && !isChecking && !offline && sources.length === 0 && (
-          <div style={{ padding: '32px 16px', textAlign: 'center' }}>
-            <div style={{ fontSize: '32px', marginBottom: '10px' }}>🗂️</div>
-            <div style={{ color: '#475569', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>No Sources</div>
-            <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '16px' }}>
-              Add documents or URLs to start.
+        {!loading && !isChecking && !offline && filteredSources.length === 0 && (
+          <div style={{ padding: d === 'compact' ? '24px 12px' : '32px 16px', textAlign: 'center' }}>
+            <div style={{ fontSize: '28px', marginBottom: '10px' }}>🗂️</div>
+            <div style={{ color: 'var(--color-text-secondary)', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+              {searchQuery ? 'No matching sources' : 'No Sources'}
             </div>
-            <button
-              onClick={() => setAddUrlOpen(true)}
-              style={{
-                padding: '6px 12px', borderRadius: '6px', border: 'none',
-                background: '#3b82f6', color: '#fff', fontSize: '12px', cursor: 'pointer', fontWeight: '500',
-              }}
-            >
-              + Add URL
-            </button>
+            <div style={{ color: 'var(--color-text-tertiary)', fontSize: '12px', marginBottom: '16px' }}>
+              {searchQuery ? 'Try a different search term.' : 'Add documents or URLs to start.'}
+            </div>
+            {!searchQuery && (
+              <button
+                onClick={() => setAddUrlOpen(true)}
+                style={{
+                  padding: '6px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-brand-200)',
+                  background: 'var(--color-brand-50)', color: 'var(--color-brand-600)',
+                  fontSize: '12px', cursor: 'pointer', fontWeight: 600,
+                  transition: 'all var(--transition-fast)',
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.background = 'var(--color-brand-100)';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.background = 'var(--color-brand-50)';
+                }}
+              >
+                + Add URL
+              </button>
+            )}
           </div>
         )}
 
-        {sources.map(src => {
+        {filteredSources.map(src => {
           const isSelected = selectedDocIds.includes(src.doc_id);
+          const kind = inferSourceKind(src.source, src.source_type);
           return (
             <div
               key={src.doc_id}
-              onClick={() => toggleSelectedDoc(src.doc_id, src)}
-              style={{
-                padding: '10px 14px',
-                borderBottom: '1px solid #f1f5f9',
-                cursor: 'pointer',
-                background: isSelected ? '#eff6ff' : '#fff',
-                borderLeft: isSelected ? '3px solid #3b82f6' : '3px solid transparent',
-                transition: 'background 0.12s',
+              onClick={() => {
+                const willSelect = !selectedDocIds.includes(src.doc_id);
+                toggleSelectedDoc(src.doc_id, src);
+                if (willSelect && sourceDrawerDefaultOpen && !suppressAutoOpenRef.current) {
+                  setSelectedDoc(src.doc_id, src);
+                  setDrawerOpen(true);
+                }
               }}
-              onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#f8fafc'; }}
-              onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = '#fff'; }}
+              style={{
+                padding: d === 'compact' ? '8px 10px' : '10px 12px',
+                marginBottom: '4px',
+                borderRadius: 'var(--radius-md)',
+                cursor: 'pointer',
+                background: isSelected ? 'var(--color-brand-50)' : 'var(--color-surface)',
+                border: `1px solid ${isSelected ? 'var(--color-brand-200)' : 'transparent'}`,
+                boxShadow: isSelected ? '0 0 0 1px var(--color-brand-200)' : 'none',
+                transition: 'all var(--transition-fast)',
+              }}
+              onMouseEnter={e => {
+                if (!isSelected) {
+                  e.currentTarget.style.background = 'var(--color-canvas-subtle)';
+                  e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
+                }
+              }}
+              onMouseLeave={e => {
+                if (!isSelected) {
+                  e.currentTarget.style.background = 'var(--color-surface)';
+                  e.currentTarget.style.borderColor = 'transparent';
+                }
+              }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                {/* Kind icon */}
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  width: '20px', height: '20px', borderRadius: '4px', flexShrink: 0,
-                  background: src.source_type === 'url' ? '#dbeafe' : '#f0fdf4', fontSize: '11px',
+                  width: '28px', height: '28px', borderRadius: '6px', flexShrink: 0,
+                  background: kind.bg, color: kind.color, fontSize: '10px', fontWeight: 700,
+                  marginTop: '1px',
                 }}>
-                  {src.source_type === 'url' ? '🔗' : '📄'}
-                </span>
-                <span style={{ fontSize: '13px', fontWeight: '500', color: '#1e293b', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {src.title || src.doc_id}
+                  {kind.label}
                 </span>
 
-                {/* Quick action: view detail */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedDoc(src.doc_id, src);
-                    setDrawerOpen(true);
-                  }}
-                  title="View details"
-                  style={{
-                    background: 'none', border: 'none',
-                    cursor: 'pointer', padding: '2px 4px', borderRadius: '4px',
-                    color: isSelected ? '#3b82f6' : '#94a3b8', fontSize: '13px',
-                    opacity: isSelected ? 1 : 0.6,
-                    flexShrink: 0,
-                  }}
-                  onMouseOver={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#3b82f6'; }}
-                  onMouseOut={e => { e.currentTarget.style.opacity = isSelected ? '1' : '0.6'; e.currentTarget.style.color = isSelected ? '#3b82f6' : '#94a3b8'; }}
-                >
-                  📖
-                </button>
-              </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-primary)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {src.title || src.doc_id}
+                    </span>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                  {src.source_type === 'url' && src.domain ? (
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center',
-                      background: '#dbeafe', color: '#1d4ed8',
-                      borderRadius: '4px', padding: '0 5px', fontSize: '10px', fontWeight: '500',
-                    }}>
-                      🌐 {src.domain}
-                    </span>
-                  ) : (
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center',
-                      background: '#f1f5f9', color: '#475569',
-                      borderRadius: '4px', padding: '0 5px', fontSize: '10px', fontWeight: '500',
-                    }}>
-                      📄 {src.source_type}
-                    </span>
-                  )}
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center',
-                    background: src.source_state?.ingest_status === 'ready' ? '#dcfce7' : '#fef9c3',
-                    color: src.source_state?.ingest_status === 'ready' ? '#15803d' : '#a16207',
-                    borderRadius: '4px', padding: '0 5px', fontSize: '10px', fontWeight: '500',
-                  }}>
-                    {src.source_state?.ingest_status === 'ready' ? '●' : '○'} {src.source_state?.ingest_status || 'unknown'}
-                  </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDoc(src.doc_id, src);
+                        setDrawerOpen(true);
+                      }}
+                      title="View details"
+                      style={{
+                        background: 'none', border: 'none',
+                        cursor: 'pointer', padding: '2px 6px', borderRadius: '4px',
+                        color: isSelected ? 'var(--color-brand-600)' : 'var(--color-text-tertiary)',
+                        fontSize: '13px', opacity: isSelected ? 1 : 0.6,
+                        flexShrink: 0, transition: 'all var(--transition-fast)',
+                      }}
+                      onMouseOver={e => {
+                        e.currentTarget.style.opacity = '1';
+                        e.currentTarget.style.color = 'var(--color-brand-600)';
+                        e.currentTarget.style.background = 'var(--color-canvas-subtle)';
+                      }}
+                      onMouseOut={e => {
+                        e.currentTarget.style.opacity = isSelected ? '1' : '0.6';
+                        e.currentTarget.style.color = isSelected ? 'var(--color-brand-600)' : 'var(--color-text-tertiary)';
+                        e.currentTarget.style.background = 'transparent';
+                      }}
+                    >
+                      📖
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center',
+                        background: src.source_state?.ingest_status === 'ready' ? 'var(--color-success-bg)' : 'var(--color-warning-bg)',
+                        color: src.source_state?.ingest_status === 'ready' ? 'var(--color-success-text)' : 'var(--color-warning-text)',
+                        borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
+                        border: `1px solid ${src.source_state?.ingest_status === 'ready' ? 'var(--color-success-border)' : 'var(--color-warning-border)'}`,
+                      }}>
+                        {src.source_state?.ingest_status === 'ready' ? '● ready' : '○ ' + (src.source_state?.ingest_status || 'unknown')}
+                      </span>
+                    </div>
+
+                    {src.source_type === 'url' && (
+                      <button
+                        onClick={(e) => handleRefresh(src.doc_id, e)}
+                        disabled={refreshingId === src.doc_id}
+                        title="Refresh"
+                        style={{
+                          background: 'none', border: 'none', cursor: refreshingId === src.doc_id ? 'not-allowed' : 'pointer',
+                          padding: '2px', borderRadius: '3px', color: refreshingId === src.doc_id ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
+                          fontSize: '12px', transition: 'color var(--transition-fast)',
+                        }}
+                        onMouseOver={(e) => { if (refreshingId !== src.doc_id) e.currentTarget.style.color = 'var(--color-brand-600)'; }}
+                        onMouseOut={(e) => { e.currentTarget.style.color = refreshingId === src.doc_id ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)'; }}
+                      >
+                        {refreshingId === src.doc_id ? '⏳' : '🔄'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-
-                {src.source_type === 'url' && (
-                  <button
-                    onClick={(e) => handleRefresh(src.doc_id, e)}
-                    disabled={refreshingId === src.doc_id}
-                    title="Refresh"
-                    style={{
-                      background: 'none', border: 'none', cursor: refreshingId === src.doc_id ? 'not-allowed' : 'pointer',
-                      padding: '2px', borderRadius: '3px', color: refreshingId === src.doc_id ? '#94a3b8' : '#64748b', fontSize: '12px',
-                    }}
-                  >
-                    {refreshingId === src.doc_id ? '⏳' : '🔄'}
-                  </button>
-                )}
               </div>
             </div>
           );

@@ -1,5 +1,13 @@
 import { create } from 'zustand';
 import { ClientEvent, ArtifactResponseItem, CitationItem } from '../../core/types/api';
+import type { ConversationTurn } from './types';
+
+let turnCounter = 0;
+
+function generateTurnId(): string {
+  turnCounter += 1;
+  return `turn-${Date.now()}-${turnCounter}`;
+}
 
 interface AgentState {
   status: 'idle' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed';
@@ -10,8 +18,11 @@ interface AgentState {
   artifacts: ArtifactResponseItem[];
   citations: CitationItem[];
   error: string | null;
-  
-  prepareRun: (query: string) => void;
+
+  turns: ConversationTurn[];
+  activeTurnId: string | null;
+
+  prepareRun: (query: string, options?: { selectedSources?: string[] }) => void;
   startRun: (runId: string, query: string) => void;
   appendEvent: (event: ClientEvent) => void;
   appendArtifact: (artifact: ArtifactResponseItem) => void;
@@ -21,6 +32,7 @@ interface AgentState {
   markCancelled: (message?: string) => void;
   reset: () => void;
   setTaskType: (type: 'chat' | 'summarize' | 'compare') => void;
+  clearConversation: () => void;
 }
 
 export const useAgentStore = create<AgentState>((set) => ({
@@ -32,31 +44,184 @@ export const useAgentStore = create<AgentState>((set) => ({
   artifacts: [],
   citations: [],
   error: null,
+  turns: [],
+  activeTurnId: null,
 
-  prepareRun: (query) => set({ status: 'running', runId: null, currentUserQuery: query, events: [], artifacts: [], citations: [], error: null }),
+  prepareRun: (query, options) =>
+    set((state) => {
+      const turnId = generateTurnId();
+      const newTurn: ConversationTurn = {
+        id: turnId,
+        taskType: state.taskType,
+        query,
+        selectedSources: options?.selectedSources ?? [],
+        status: 'running',
+        artifacts: [],
+        citations: [],
+        events: [],
+        createdAt: new Date().toISOString(),
+      };
+      return {
+        status: 'running',
+        runId: null,
+        currentUserQuery: query,
+        events: [],
+        artifacts: [],
+        citations: [],
+        error: null,
+        turns: [...state.turns, newTurn],
+        activeTurnId: turnId,
+      };
+    }),
 
-  startRun: (runId, query) => set({ status: 'running', runId, currentUserQuery: query, error: null }),
-  
-  appendEvent: (event) => set((state) => ({ 
-    events: [...state.events, event] 
-  })),
+  startRun: (runId, query) =>
+    set((state) => {
+      const updatedTurns = state.activeTurnId
+        ? state.turns.map((turn) =>
+            turn.id === state.activeTurnId ? { ...turn, runId } : turn
+          )
+        : state.turns;
+      return {
+        status: 'running',
+        runId,
+        currentUserQuery: query,
+        error: null,
+        turns: updatedTurns,
+      };
+    }),
 
-  appendArtifact: (artifact) => set((state) => {
-    if (artifact.artifact_id && state.artifacts.some((existing) => existing.artifact_id === artifact.artifact_id)) {
-      return { artifacts: state.artifacts };
-    }
-    return { artifacts: [...state.artifacts, artifact] };
-  }),
+  appendEvent: (event) =>
+    set((state) => {
+      const updatedTurns = state.activeTurnId
+        ? state.turns.map((turn) =>
+            turn.id === state.activeTurnId
+              ? { ...turn, events: [...turn.events, event] }
+              : turn
+          )
+        : state.turns;
+      return {
+        events: [...state.events, event],
+        turns: updatedTurns,
+      };
+    }),
 
-  finishRun: () => set({ status: 'completed' }),
-  
-  failRun: (errorMsg) => set({ status: 'failed', error: errorMsg }),
+  appendArtifact: (artifact) =>
+    set((state) => {
+      const updatedTurns = state.activeTurnId
+        ? state.turns.map((turn) => {
+            if (turn.id !== state.activeTurnId) return turn;
+            if (
+              artifact.artifact_id &&
+              turn.artifacts.some(
+                (existing) => existing.artifact_id === artifact.artifact_id
+              )
+            ) {
+              return turn;
+            }
+            return { ...turn, artifacts: [...turn.artifacts, artifact] };
+          })
+        : state.turns;
+
+      if (
+        artifact.artifact_id &&
+        state.artifacts.some(
+          (existing) => existing.artifact_id === artifact.artifact_id
+        )
+      ) {
+        return { artifacts: state.artifacts, turns: updatedTurns };
+      }
+      return {
+        artifacts: [...state.artifacts, artifact],
+        turns: updatedTurns,
+      };
+    }),
+
+  finishRun: () =>
+    set((state) => {
+      const now = new Date().toISOString();
+      const updatedTurns = state.activeTurnId
+        ? state.turns.map((turn) =>
+            turn.id === state.activeTurnId
+              ? { ...turn, status: 'completed' as const, completedAt: now }
+              : turn
+          )
+        : state.turns;
+      return {
+        status: 'completed',
+        turns: updatedTurns,
+      };
+    }),
+
+  failRun: (errorMsg) =>
+    set((state) => {
+      const now = new Date().toISOString();
+      const updatedTurns = state.activeTurnId
+        ? state.turns.map((turn) =>
+            turn.id === state.activeTurnId
+              ? {
+                  ...turn,
+                  status: 'failed' as const,
+                  error: errorMsg,
+                  completedAt: now,
+                }
+              : turn
+          )
+        : state.turns;
+      return {
+        status: 'failed',
+        error: errorMsg,
+        turns: updatedTurns,
+      };
+    }),
 
   requestCancel: () => set({ status: 'cancelling', error: null }),
 
-  markCancelled: (message = 'Cancelled by user') => set({ status: 'cancelled', error: message }),
-  
-  reset: () => set({ status: 'idle', runId: null, currentUserQuery: null, events: [], artifacts: [], citations: [], error: null }),
-  
-  setTaskType: (type) => set({ taskType: type })
+  markCancelled: (message = 'Cancelled by user') =>
+    set((state) => {
+      const now = new Date().toISOString();
+      const updatedTurns = state.activeTurnId
+        ? state.turns.map((turn) =>
+            turn.id === state.activeTurnId
+              ? {
+                  ...turn,
+                  status: 'cancelled' as const,
+                  error: message,
+                  completedAt: now,
+                }
+              : turn
+          )
+        : state.turns;
+      return {
+        status: 'cancelled',
+        error: message,
+        turns: updatedTurns,
+      };
+    }),
+
+  reset: () =>
+    set({
+      status: 'idle',
+      runId: null,
+      currentUserQuery: null,
+      events: [],
+      artifacts: [],
+      citations: [],
+      error: null,
+      activeTurnId: null,
+    }),
+
+  setTaskType: (type) => set({ taskType: type }),
+
+  clearConversation: () =>
+    set({
+      status: 'idle',
+      runId: null,
+      currentUserQuery: null,
+      events: [],
+      artifacts: [],
+      citations: [],
+      error: null,
+      turns: [],
+      activeTurnId: null,
+    }),
 }));

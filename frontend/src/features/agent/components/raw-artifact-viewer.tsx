@@ -1,5 +1,6 @@
 import { ArtifactResponseItem, CitationItem } from '../../../core/types/api';
 import { CitationList } from './citation-list';
+import { useWorkspacePreferences } from '../../settings/workspace-preferences';
 
 // Helper to normalize evidence items to CitationItem format
 function normalizeToCitationItem(item: any): CitationItem {
@@ -107,7 +108,7 @@ function buildStatusBadges(metadata: Record<string, unknown> | undefined): Statu
   return badges;
 }
 
-function StatusBadges({ badges }: { badges: StatusBadge[] }) {
+function StatusBadges({ badges, density }: { badges: StatusBadge[]; density: 'compact' | 'comfortable' }) {
   if (badges.length === 0) return null;
 
   return (
@@ -117,12 +118,12 @@ function StatusBadges({ badges }: { badges: StatusBadge[] }) {
           key={badge.label}
           style={{
             fontSize: '11px',
-            fontWeight: '600',
+            fontWeight: 600,
             color: badge.color,
             background: badge.background,
             border: `1px solid ${badge.border}`,
-            padding: '3px 10px',
-            borderRadius: '6px',
+            padding: density === 'compact' ? '2px 8px' : '3px 10px',
+            borderRadius: 'var(--radius-sm)',
           }}
         >
           {badge.label}
@@ -132,16 +133,18 @@ function StatusBadges({ badges }: { badges: StatusBadge[] }) {
   );
 }
 
-function renderLightMarkdown(text: string): React.ReactNode {
+function renderLightMarkdown(text: string, density: 'compact' | 'comfortable'): React.ReactNode {
   return text.split('\n').map((line, i) => {
     if (line.startsWith('## ')) {
       return (
         <div key={i} style={{
-          fontSize: '15px',
-          fontWeight: '700',
-          color: '#0f172a',
-          marginTop: '18px',
-          marginBottom: '8px'
+          fontSize: '16px',
+          fontWeight: 700,
+          color: 'var(--color-text-primary)',
+          marginTop: density === 'compact' ? '14px' : '20px',
+          marginBottom: density === 'compact' ? '8px' : '10px',
+          paddingBottom: '6px',
+          borderBottom: '1px solid var(--color-border-subtle)',
         }}>
           {line.replace(/^## /, '')}
         </div>
@@ -151,24 +154,26 @@ function renderLightMarkdown(text: string): React.ReactNode {
       return (
         <div key={i} style={{
           fontSize: '14px',
-          fontWeight: '600',
-          color: '#1e293b',
-          marginTop: '14px',
-          marginBottom: '6px'
+          fontWeight: 600,
+          color: 'var(--color-text-primary)',
+          marginTop: density === 'compact' ? '10px' : '14px',
+          marginBottom: density === 'compact' ? '6px' : '8px',
+          paddingLeft: '10px',
+          borderLeft: '3px solid var(--color-brand-200)',
         }}>
           {line.replace(/^### /, '')}
         </div>
       );
     }
     if (line.trim() === '') {
-      return <div key={i} style={{ height: '10px' }} />;
+      return <div key={i} style={{ height: density === 'compact' ? '8px' : '12px' }} />;
     }
     const parts = line.split(/(\*\*[^*]+\*\*)/g);
     return (
-      <div key={i} style={{ marginBottom: '4px' }}>
+      <div key={i} style={{ marginBottom: density === 'compact' ? '3px' : '5px', lineHeight: '1.7' }}>
         {parts.map((part, j) =>
           part.startsWith('**') && part.endsWith('**')
-            ? <strong key={j} style={{ color: '#0f172a' }}>{part.slice(2, -2)}</strong>
+            ? <strong key={j} style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{part.slice(2, -2)}</strong>
             : part
         )}
       </div>
@@ -176,8 +181,30 @@ function renderLightMarkdown(text: string): React.ReactNode {
   });
 }
 
+const cardBase = (density: 'compact' | 'comfortable'): React.CSSProperties => ({
+  background: 'var(--color-surface)',
+  border: '1px solid var(--color-border-subtle)',
+  borderRadius: 'var(--radius-lg)',
+  boxShadow: 'var(--shadow-sm)',
+  padding: density === 'compact' ? '16px' : '22px',
+});
+
+const typeBadge = (color: string, bg: string, density: 'compact' | 'comfortable'): React.CSSProperties => ({
+  fontSize: '11px',
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  color,
+  background: bg,
+  padding: density === 'compact' ? '3px 10px' : '4px 12px',
+  borderRadius: 'var(--radius-sm)',
+  display: 'inline-flex',
+  alignItems: 'center',
+});
+
 export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = ({ artifact }) => {
   const { kind, content, metadata, citations: artifactCitations } = artifact;
+  const { density } = useWorkspacePreferences();
   const statusBadges = buildStatusBadges(metadata);
 
   // Extract citations from multiple possible locations
@@ -194,27 +221,23 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
   if (kind === 'text') {
     return (
       <div style={{
-        background: 'transparent',
-        border: 'none',
-        borderRadius: '0',
-        padding: '0',
-        boxShadow: 'none',
+        ...cardBase(density),
         display: 'flex',
         flexDirection: 'column',
-        gap: '18px',
+        gap: density === 'compact' ? '14px' : '18px',
+        animation: 'fadeSlideUp 250ms ease-out forwards',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <StatusBadges badges={statusBadges} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: density === 'compact' ? '6px' : '8px', flexWrap: 'wrap' }}>
+          <StatusBadges badges={statusBadges} density={density} />
         </div>
         <div style={{
           fontSize: '15px',
-          lineHeight: '1.75',
-          color: '#334155',
+          lineHeight: '1.7',
+          color: 'var(--color-text-secondary)',
           whiteSpace: 'normal',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
-          letterSpacing: '0.01em',
+          fontFamily: 'var(--font-sans)',
         }}>
-          {renderLightMarkdown(String(content.text || ''))}
+          {renderLightMarkdown(String(content.text || ''), density)}
         </div>
         {citations && citations.length > 0 && <CitationList citations={citations} />}
       </div>
@@ -224,41 +247,29 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
   if (kind === 'mermaid') {
     return (
       <div style={{
-        background: '#fff',
-        border: '1px solid #e2e8f0',
-        borderRadius: '12px',
-        padding: '20px 24px',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+        ...cardBase(density),
+        animation: 'fadeSlideUp 250ms ease-out forwards',
       }}>
-        {/* Artifact Type Badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <span style={{
-            fontSize: '11px',
-            fontWeight: '600',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            color: '#8b5cf6',
-            background: '#f3e8ff',
-            padding: '3px 10px',
-            borderRadius: '6px'
-          }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: density === 'compact' ? '6px' : '8px', marginBottom: density === 'compact' ? '12px' : '16px' }}>
+          <span style={typeBadge('#8b5cf6', '#f3e8ff', density)}>
             Diagram
           </span>
         </div>
         <div style={{
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: '8px',
-          padding: '16px 20px',
-          overflowX: 'auto'
+          background: 'var(--color-canvas-subtle)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-md)',
+          padding: density === 'compact' ? '12px 14px' : '16px 20px',
+          overflowX: 'auto',
         }}>
           <pre style={{
             fontSize: '13px',
             overflowX: 'auto',
             whiteSpace: 'pre-wrap',
-            color: '#1e293b',
-            fontFamily: 'monospace',
-            margin: 0
+            color: 'var(--color-text-primary)',
+            fontFamily: 'var(--font-mono)',
+            margin: 0,
+            lineHeight: '1.6',
           }}>
             {String(content.mermaid_code || '')}
           </pre>
@@ -281,192 +292,99 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
     if (typeof rawData === 'object' && rawData !== null && ('common_points' in rawData || 'differences' in rawData)) {
       const dataObj = rawData as any;
 
-      // Helper to extract statement from compared point item
       const getStatement = (pt: any): string => {
         return pt?.statement || pt?.summary_note || String(pt) || '';
       };
 
-      return (
-        <div style={{
-          background: '#fff',
-          border: '1px solid #e2e8f0',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
-        }}>
-          {/* Artifact Type Badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+      const sectionCard = (title: string, count: number, titleColor: string, titleBg: string, borderColor: string, items: any[]) => (
+        <div style={{ marginBottom: density === 'compact' ? '14px' : '18px' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: density === 'compact' ? '6px' : '8px',
+            marginBottom: density === 'compact' ? '8px' : '10px',
+            padding: density === 'compact' ? '8px 12px' : '10px 14px',
+            background: titleBg,
+            border: `1px solid ${borderColor}`,
+            borderRadius: 'var(--radius-md)',
+          }}>
+            <h4 style={{
+              fontSize: '12px',
+              color: titleColor,
+              margin: 0,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+            }}>
+              {title}
+            </h4>
             <span style={{
               fontSize: '11px',
-              fontWeight: '600',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              color: '#8b5cf6',
-              background: '#f3e8ff',
-              padding: '3px 10px',
-              borderRadius: '6px'
+              color: titleColor,
+              background: 'rgba(255,255,255,0.6)',
+              padding: '2px 8px',
+              borderRadius: 'var(--radius-full)',
+              marginLeft: 'auto',
+              fontWeight: 600,
             }}>
+              {count}
+            </span>
+          </div>
+          <ul style={{ margin: 0, paddingLeft: '24px', color: 'var(--color-text-secondary)', fontSize: '14px', lineHeight: '1.75' }}>
+            {items.map((pt: any, i: number) => (
+              <li key={i} style={{ marginBottom: density === 'compact' ? '4px' : '6px' }}>{getStatement(pt)}</li>
+            ))}
+          </ul>
+        </div>
+      );
+
+      return (
+        <div style={{
+          ...cardBase(density),
+          animation: 'fadeSlideUp 250ms ease-out forwards',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: density === 'compact' ? '6px' : '8px', marginBottom: density === 'compact' ? '14px' : '20px' }}>
+            <span style={typeBadge('#8b5cf6', '#f3e8ff', density)}>
               Comparison Result
             </span>
           </div>
 
-          {dataObj.common_points && dataObj.common_points.length > 0 && (
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                marginBottom: '10px',
-                padding: '8px 12px',
-                background: '#f0fdf4',
-                border: '1px solid #bbf7d0',
-                borderRadius: '8px'
-              }}>
-                <h4 style={{
-                  fontSize: '12px',
-                  color: '#15803d',
-                  margin: 0,
-                  fontWeight: '700',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em'
-                }}>
-                  Common Points
-                </h4>
-                <span style={{
-                  fontSize: '11px',
-                  color: '#15803d',
-                  background: '#dcfce7',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  marginLeft: 'auto',
-                  fontWeight: '500'
-                }}>
-                  {dataObj.common_points.length}
-                </span>
-              </div>
-              <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.8' }}>
-                {dataObj.common_points.map((pt: any, i: number) => <li key={i} style={{ marginBottom: '6px' }}>{getStatement(pt)}</li>)}
-              </ul>
-            </div>
+          {dataObj.common_points && dataObj.common_points.length > 0 && sectionCard(
+            'Common Points', dataObj.common_points.length, '#15803d', '#f0fdf4', '#bbf7d0', dataObj.common_points
           )}
 
-          {dataObj.differences && dataObj.differences.length > 0 && (
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                marginBottom: '10px',
-                padding: '8px 12px',
-                background: '#fffbeb',
-                border: '1px solid #fde68a',
-                borderRadius: '8px'
-              }}>
-                <h4 style={{
-                  fontSize: '12px',
-                  color: '#b45309',
-                  margin: 0,
-                  fontWeight: '700',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em'
-                }}>
-                  Differences
-                </h4>
-                <span style={{
-                  fontSize: '11px',
-                  color: '#b45309',
-                  background: '#fef3c7',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  marginLeft: 'auto',
-                  fontWeight: '500'
-                }}>
-                  {dataObj.differences.length}
-                </span>
-              </div>
-              <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.8' }}>
-                {dataObj.differences.map((pt: any, i: number) => <li key={i} style={{ marginBottom: '6px' }}>{getStatement(pt)}</li>)}
-              </ul>
-            </div>
+          {dataObj.differences && dataObj.differences.length > 0 && sectionCard(
+            'Differences', dataObj.differences.length, '#b45309', '#fffbeb', '#fde68a', dataObj.differences
           )}
 
-          {dataObj.conflicts && dataObj.conflicts.length > 0 && (
-            <div>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                marginBottom: '10px',
-                padding: '8px 12px',
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                borderRadius: '8px'
-              }}>
-                <h4 style={{
-                  fontSize: '12px',
-                  color: '#dc2626',
-                  margin: 0,
-                  fontWeight: '700',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em'
-                }}>
-                  Conflicts
-                </h4>
-                <span style={{
-                  fontSize: '11px',
-                  color: '#dc2626',
-                  background: '#fee2e2',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  marginLeft: 'auto',
-                  fontWeight: '500'
-                }}>
-                  {dataObj.conflicts.length}
-                </span>
-              </div>
-              <ul style={{ margin: 0, paddingLeft: '24px', color: '#334155', fontSize: '14px', lineHeight: '1.8' }}>
-                {dataObj.conflicts.map((pt: any, i: number) => <li key={i} style={{ marginBottom: '6px' }}>{getStatement(pt)}</li>)}
-              </ul>
-            </div>
+          {dataObj.conflicts && dataObj.conflicts.length > 0 && sectionCard(
+            'Conflicts', dataObj.conflicts.length, '#dc2626', '#fef2f2', '#fecaca', dataObj.conflicts
           )}
 
-          {citations && citations.length > 0 && <div style={{ marginTop: '20px' }}><CitationList citations={citations} /></div>}
+          {citations && citations.length > 0 && <div style={{ marginTop: density === 'compact' ? '14px' : '20px' }}><CitationList citations={citations} /></div>}
         </div>
       );
     }
 
-    // Special rendering for Summarize Task schema (if it just returns a summary field)
+    // Special rendering for Summarize Task schema
     if (typeof rawData === 'object' && rawData !== null && 'summary' in rawData && Object.keys(rawData).length <= 3) {
       const dataObj = rawData as any;
       return (
         <div style={{
-          background: '#fff',
-          border: '1px solid #e2e8f0',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+          ...cardBase(density),
+          animation: 'fadeSlideUp 250ms ease-out forwards',
         }}>
-          {/* Artifact Type Badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-            <span style={{
-              fontSize: '11px',
-              fontWeight: '600',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              color: '#10b981',
-              background: '#d1fae5',
-              padding: '3px 10px',
-              borderRadius: '6px'
-            }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: density === 'compact' ? '6px' : '8px', marginBottom: density === 'compact' ? '12px' : '16px' }}>
+            <span style={typeBadge('#10b981', '#d1fae5', density)}>
               Summary
             </span>
           </div>
           <div style={{
             fontSize: '15px',
-            lineHeight: '1.8',
-            color: '#334155',
+            lineHeight: '1.75',
+            color: 'var(--color-text-secondary)',
             whiteSpace: 'pre-wrap',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
+            fontFamily: 'var(--font-sans)',
           }}>
             {String(dataObj.summary || '')}
           </div>
@@ -475,26 +393,18 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
       );
     }
 
-    // Default JSON Dump - improved styling
+    // Default JSON Dump
     return (
       <div style={{
+        ...cardBase(density),
         background: '#1e293b',
         border: '1px solid #334155',
-        borderRadius: '12px',
-        padding: '16px 20px',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+        animation: 'fadeSlideUp 250ms ease-out forwards',
       }}>
-        {/* Artifact Type Badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: density === 'compact' ? '6px' : '8px', marginBottom: density === 'compact' ? '10px' : '14px' }}>
           <span style={{
-            fontSize: '11px',
-            fontWeight: '600',
+            ...typeBadge('#94a3b8', 'rgba(148,163,184,0.15)', density),
             textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            color: '#94a3b8',
-            background: 'rgba(148,163,184,0.15)',
-            padding: '3px 10px',
-            borderRadius: '6px'
           }}>
             Data
           </span>
@@ -504,8 +414,9 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
           overflowX: 'auto',
           whiteSpace: 'pre-wrap',
           color: '#e2e8f0',
-          fontFamily: 'monospace',
-          margin: 0
+          fontFamily: 'var(--font-mono)',
+          margin: 0,
+          lineHeight: '1.6',
         }}>
           {parsed}
         </pre>

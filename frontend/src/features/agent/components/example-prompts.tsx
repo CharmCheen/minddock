@@ -24,26 +24,35 @@ export const ExamplePrompts: React.FC<ExamplePromptsProps> = ({ taskType, onSele
   const currentExamples = examples[taskType];
 
   return (
-    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px', padding: '0 24px' }}>
+    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px', padding: '0 24px', justifyContent: 'center' }}>
       {currentExamples.map((ex, i) => (
-        <div 
+        <div
           key={i}
           onClick={() => onSelect(ex)}
           style={{
             fontSize: '12px',
-            color: '#3b82f6',
-            background: '#eff6ff',
-            border: '1px solid #bfdbfe',
-            padding: '6px 12px',
-            borderRadius: '16px',
+            color: 'var(--color-brand-600)',
+            background: 'var(--color-brand-50)',
+            border: '1px solid var(--color-brand-200)',
+            padding: '6px 14px',
+            borderRadius: 'var(--radius-full)',
             cursor: 'pointer',
-            transition: 'all 0.2s ease',
+            transition: 'all var(--transition-fast)',
             whiteSpace: 'normal',
             lineHeight: '1.4',
             maxWidth: '100%',
+            fontWeight: 500,
           }}
-          onMouseOver={(e) => e.currentTarget.style.background = '#dbeafe'}
-          onMouseOut={(e) => e.currentTarget.style.background = '#eff6ff'}
+          onMouseOver={(e) => {
+            e.currentTarget.style.background = 'var(--color-brand-100)';
+            e.currentTarget.style.borderColor = 'var(--color-brand-500)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.background = 'var(--color-brand-50)';
+            e.currentTarget.style.borderColor = 'var(--color-brand-200)';
+            e.currentTarget.style.boxShadow = 'none';
+          }}
         >
           {ex}
         </div>

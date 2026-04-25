@@ -307,7 +307,7 @@ test.describe('execute/stream SSE consumption', () => {
 
     await page.goto('/');
     await page.getByText('Selected Doc', { exact: true }).click();
-    await expect(page.getByText('Scoped to 1 source')).toBeVisible();
+    await expect(page.getByText('1 source selected')).toBeVisible();
 
     const modes = [
       { id: 'chat', prompt: 'Question scoped to selected source' },
@@ -325,15 +325,15 @@ test.describe('execute/stream SSE consumption', () => {
     expect(requestBodies).toEqual([
       expect.objectContaining({
         task_type: 'chat',
-        filters: { source: 'kb/selected.md' },
+        filters: { source: ['kb/selected.md'] },
       }),
       expect.objectContaining({
         task_type: 'summarize',
-        filters: { source: 'kb/selected.md' },
+        filters: { source: ['kb/selected.md'] },
       }),
       expect.objectContaining({
         task_type: 'compare',
-        filters: { source: 'kb/selected.md' },
+        filters: { source: ['kb/selected.md'] },
       }),
     ]);
   });
@@ -355,7 +355,7 @@ test.describe('execute/stream SSE consumption', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText('No source selected')).toBeVisible();
+    await expect(page.getByText('All sources', { exact: true })).toBeVisible();
     await page.getByTestId('agent-input').fill('Question without selected source');
     await page.getByTestId('agent-submit').click();
 
@@ -485,5 +485,219 @@ test.describe('execute/stream SSE consumption', () => {
     await expect(page.getByText('Cancelled before the run started.')).toBeVisible();
     await expect(page.getByText('Failed', { exact: false })).toHaveCount(0);
     expect(cancelRequests).toBe(0);
+  });
+
+  test('retains previous turn when a new query is submitted', async ({ page }) => {
+    let requestCount = 0;
+
+    await page.route('**/frontend/execute/stream', async (route) => {
+      requestCount += 1;
+      const runId = `test-run-multi-${requestCount}`;
+      const text = requestCount === 1
+        ? 'First response from the AI agent.'
+        : 'Second response from the AI agent.';
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        headers: {
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        },
+        body: sseBody([
+          {
+            event: 'run_started',
+            data: {
+              kind: 'run_started',
+              run_id: runId,
+              event_id: 'e1',
+              payload: {},
+            },
+          },
+          {
+            event: 'artifact',
+            data: {
+              kind: 'artifact',
+              run_id: runId,
+              event_id: 'e2',
+              payload: {
+                artifact_index: 0,
+                artifact: {
+                  artifact_id: `art-multi-${requestCount}`,
+                  kind: 'text',
+                  title: null,
+                  content: { text },
+                  metadata: {},
+                  citations: [],
+                },
+              },
+            },
+          },
+          {
+            event: 'completed',
+            data: {
+              kind: 'completed',
+              run_id: runId,
+              event_id: 'e3',
+              payload: {},
+            },
+          },
+        ]),
+      });
+    });
+
+    await page.goto('/');
+
+    // First query
+    await page.getByTestId('agent-input').fill('First question');
+    await page.getByTestId('agent-submit').click();
+    await expect(page.getByText('First question')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('First response from the AI agent.')).toBeVisible({ timeout: 8000 });
+
+    // Second query
+    await page.getByTestId('agent-input').fill('Second question');
+    await page.getByTestId('agent-submit').click();
+    await expect(page.getByText('Second question')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Second response from the AI agent.')).toBeVisible({ timeout: 8000 });
+
+    // Both turns should be visible
+    await expect(page.getByText('First question')).toBeVisible();
+    await expect(page.getByText('First response from the AI agent.')).toBeVisible();
+    await expect(page.getByText('Second question')).toBeVisible();
+    await expect(page.getByText('Second response from the AI agent.')).toBeVisible();
+
+    // Conversation header should show 2 turns
+    await expect(page.getByText('2 turns')).toBeVisible();
+  });
+
+  test('clear conversation resets to empty state', async ({ page }) => {
+    await page.route('**/frontend/execute/stream', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        headers: {
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        },
+        body: completedStream,
+      });
+    });
+
+    await page.goto('/');
+    await page.getByTestId('agent-input').fill('Question to clear');
+    await page.getByTestId('agent-submit').click();
+
+    await expect(page.getByText('Question to clear')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('clear-conversation')).toBeVisible();
+
+    await page.getByTestId('clear-conversation').click();
+
+    // Empty state should return
+    await expect(page.getByText('MindDock Knowledge Workspace')).toBeVisible({ timeout: 5000 });
+    // Old turn content should be gone
+    await expect(page.getByText('Question to clear')).not.toBeVisible();
+  });
+
+  test('clicking citation from a previous turn opens source drawer', async ({ page }) => {
+    await page.route('**/frontend/execute/stream', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        headers: {
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        },
+        body: `${sseBody([
+          {
+            event: 'run_started',
+            data: {
+              kind: 'run_started',
+              run_id: 'test-run-cite',
+              event_id: 'e1',
+              payload: {},
+            },
+          },
+          {
+            event: 'artifact',
+            data: {
+              kind: 'artifact',
+              run_id: 'test-run-cite',
+              event_id: 'e2',
+              payload: {
+                artifact_index: 0,
+                artifact: {
+                  artifact_id: 'art-cite',
+                  kind: 'text',
+                  title: null,
+                  content: { text: 'Here is a cited claim.' },
+                  metadata: {
+                    grounded_answer: {
+                      answer: 'Here is a cited claim.',
+                      evidence: [
+                        {
+                          doc_id: 'doc-selected-001',
+                          chunk_id: 'chunk-001',
+                          source: 'kb/selected.md',
+                          snippet: 'The relevant text here.',
+                          chunk_index: 3,
+                        },
+                      ],
+                      support_status: 'grounded',
+                    },
+                  },
+                  citations: [],
+                },
+              },
+            },
+          },
+          {
+            event: 'completed',
+            data: {
+              kind: 'completed',
+              run_id: 'test-run-cite',
+              event_id: 'e3',
+              payload: {},
+            },
+          },
+        ])}\n\n`,
+      });
+    });
+
+    await mockSources(page);
+
+    await page.goto('/');
+    await page.getByTestId('agent-input').fill('Citation test question');
+    await page.getByTestId('agent-submit').click();
+
+    await expect(page.getByText('Citation test question')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Here is a cited claim.')).toBeVisible({ timeout: 8000 });
+
+    // Wait for the turn to complete
+    await expect(page.getByText('Completed')).toBeVisible({ timeout: 8000 });
+
+    // Submit a second query so the citation turn becomes historical
+    await page.route('**/frontend/execute/stream', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        headers: {
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        },
+        body: completedStream,
+      });
+    });
+
+    await page.getByTestId('agent-input').fill('Second question');
+    await page.getByTestId('agent-submit').click();
+    await expect(page.getByText('Second question')).toBeVisible({ timeout: 5000 });
+
+    // Click citation from the first (historical) turn
+    const citation = page.getByText('kb/selected.md').first();
+    await expect(citation).toBeVisible({ timeout: 5000 });
+    await citation.click();
+
+    // Source drawer should open
+    await expect(page.getByTestId('source-drawer')).toBeVisible({ timeout: 5000 });
   });
 });

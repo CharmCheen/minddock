@@ -1,23 +1,230 @@
 import React, { useEffect, useState } from 'react';
 import { RuntimeFormValues, useSettingsStore } from './store';
 import { deriveRuntimeStatus } from './runtime-status';
+import { useWorkspacePreferences } from './workspace-preferences';
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai_compatible: 'OpenAI-Compatible',
 };
 
+const TABS = [
+  { id: 'runtime', label: 'Runtime' },
+  { id: 'retrieval', label: 'Retrieval' },
+  { id: 'display', label: 'Display' },
+  { id: 'sources', label: 'Sources' },
+] as const;
+
+type TabId = typeof TABS[number]['id'];
+
 const fieldStyle: React.CSSProperties = {
   width: '100%',
-  padding: '9px 11px',
-  background: '#0f172a',
-  border: '1px solid #334155',
-  borderRadius: '6px',
-  color: '#e2e8f0',
+  padding: '9px 12px',
+  background: 'var(--color-canvas-subtle)',
+  border: '1px solid var(--color-border-subtle)',
+  borderRadius: 'var(--radius-md)',
+  color: 'var(--color-text-primary)',
   fontSize: '14px',
   boxSizing: 'border-box',
+  outline: 'none',
+  transition: 'border-color var(--transition-fast), box-shadow var(--transition-fast)',
 };
 
+const fieldFocusStyle = {
+  borderColor: 'var(--color-brand-200)',
+  boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.08)',
+};
+
+const tabButtonStyle = (active: boolean): React.CSSProperties => ({
+  width: '100%',
+  padding: '9px 12px',
+  borderRadius: 'var(--radius-md)',
+  border: active ? '1px solid var(--color-brand-200)' : '1px solid transparent',
+  background: active ? 'var(--color-brand-50)' : 'transparent',
+  color: active ? 'var(--color-brand-600)' : 'var(--color-text-tertiary)',
+  fontSize: '13px',
+  fontWeight: active ? 700 : 500,
+  textAlign: 'left',
+  cursor: 'pointer',
+  transition: 'all var(--transition-fast)',
+});
+
+const SOURCE_SKILLS = [
+  {
+    name: 'PDF',
+    status: 'implemented' as const,
+    inputs: '.pdf',
+    limitations: 'Text extraction only; no figure/table OCR',
+  },
+  {
+    name: 'Markdown',
+    status: 'implemented' as const,
+    inputs: '.md',
+    limitations: 'Standard Markdown',
+  },
+  {
+    name: 'TXT',
+    status: 'implemented' as const,
+    inputs: '.txt',
+    limitations: 'Plain text',
+  },
+  {
+    name: 'URL',
+    status: 'implemented' as const,
+    inputs: 'HTTP/HTTPS static pages',
+    limitations: 'No JS rendering, no login, no crawl',
+  },
+  {
+    name: 'Image OCR',
+    status: 'implemented' as const,
+    inputs: '.png, .jpg, .jpeg, .webp',
+    limitations: 'OCR text only; not image caption',
+  },
+  {
+    name: 'CSV',
+    status: 'implemented' as const,
+    inputs: '.csv',
+    limitations: 'No Excel; rows-as-text only',
+  },
+  {
+    name: 'Audio',
+    status: 'future' as const,
+    inputs: '—',
+    limitations: 'Future work',
+  },
+  {
+    name: 'Video',
+    status: 'future' as const,
+    inputs: '—',
+    limitations: 'Future work',
+  },
+  {
+    name: 'Image Caption',
+    status: 'future' as const,
+    inputs: '—',
+    limitations: 'Future work; currently OCR only',
+  },
+];
+
 export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [activeTab, setActiveTab] = useState<TabId>('runtime');
+  const { density } = useWorkspacePreferences();
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-title"
+      className="animate-fade-in"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(15, 23, 42, 0.35)',
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px',
+        animation: 'fadeIn 150ms ease forwards',
+      }}
+    >
+      <div
+        style={{
+          width: '760px',
+          maxWidth: '96vw',
+          maxHeight: '92vh',
+          overflow: 'hidden',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: 'var(--shadow-xl)',
+          color: 'var(--color-text-primary)',
+          display: 'grid',
+          gridTemplateColumns: '200px 1fr',
+          animation: 'scaleIn 200ms ease forwards',
+        }}
+      >
+        <aside style={{
+          borderRight: '1px solid var(--color-border-subtle)',
+          background: 'var(--color-canvas-subtle)',
+          padding: density === 'compact' ? '14px' : '18px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px',
+        }}>
+          <h2 id="settings-title" style={{ margin: '0 0 14px', fontSize: '16px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+            Settings
+          </h2>
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              style={tabButtonStyle(activeTab === tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </aside>
+
+        <section style={{ padding: density === 'compact' ? '18px' : '22px', overflowY: 'auto', minHeight: '420px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', marginBottom: '18px' }}>
+            <div>
+              <h3 style={{ margin: '0 0 5px', fontSize: '18px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                {activeTab === 'runtime' && 'Models & Runtime'}
+                {activeTab === 'retrieval' && 'Retrieval'}
+                {activeTab === 'display' && 'Display'}
+                {activeTab === 'sources' && 'Source Skills'}
+              </h3>
+              <p style={{ margin: 0, color: 'var(--color-text-tertiary)', fontSize: '13px' }}>
+                {activeTab === 'runtime' && 'Configure the OpenAI-compatible endpoint used by agent runs.'}
+                {activeTab === 'retrieval' && 'Default parameters for source retrieval and citation.'}
+                {activeTab === 'display' && 'UI preferences stored locally in your browser.'}
+                {activeTab === 'sources' && 'Supported source types and their limitations.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Close settings"
+              onClick={onClose}
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border-subtle)',
+                background: 'var(--color-canvas-subtle)',
+                color: 'var(--color-text-tertiary)',
+                cursor: 'pointer',
+                fontSize: '18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                lineHeight: 1,
+                transition: 'all var(--transition-fast)',
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = 'var(--color-canvas)';
+                e.currentTarget.style.color = 'var(--color-text-secondary)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = 'var(--color-canvas-subtle)';
+                e.currentTarget.style.color = 'var(--color-text-tertiary)';
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          {activeTab === 'runtime' && <RuntimeTab />}
+          {activeTab === 'retrieval' && <RetrievalTab />}
+          {activeTab === 'display' && <DisplayTab />}
+          {activeTab === 'sources' && <SourcesTab />}
+        </section>
+      </div>
+    </div>
+  );
+};
+
+function RuntimeTab() {
   const {
     config,
     formValues,
@@ -73,300 +280,540 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="settings-title"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(15, 23, 42, 0.56)',
-        zIndex: 100,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px',
-      }}
-    >
+    <>
       <div
+        data-testid="runtime-current-status"
         style={{
-          width: '720px',
-          maxWidth: '96vw',
-          maxHeight: '92vh',
-          overflow: 'hidden',
-          background: '#111827',
-          border: '1px solid #334155',
-          borderRadius: '10px',
-          boxShadow: '0 24px 70px rgba(0, 0, 0, 0.45)',
-          color: '#e2e8f0',
+          padding: '14px',
+          background: 'var(--color-canvas-subtle)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-md)',
           display: 'grid',
-          gridTemplateColumns: '190px 1fr',
+          gap: '10px',
+          marginBottom: '16px',
         }}
       >
-        <aside style={{ borderRight: '1px solid #334155', background: '#0f172a', padding: '18px' }}>
-          <h2 id="settings-title" style={{ margin: '0 0 18px', fontSize: '16px', fontWeight: 700 }}>
-            Settings
-          </h2>
-          <button
-            type="button"
-            data-testid="settings-runtime-tab"
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Effective Runtime
+          </span>
+          <span
             style={{
-              width: '100%',
-              padding: '9px 10px',
-              borderRadius: '6px',
-              border: '1px solid #3b82f6',
-              background: '#1d4ed833',
-              color: '#bfdbfe',
-              fontSize: '13px',
+              padding: '3px 10px',
+              borderRadius: 'var(--radius-full)',
+              background: `${status.color}15`,
+              border: `1px solid ${status.color}40`,
+              color: status.color,
+              fontSize: '11px',
               fontWeight: 700,
-              textAlign: 'left',
             }}
           >
-            Models & Runtime
-          </button>
-        </aside>
+            {successMessage ? 'Saved' : error ? 'Error' : status.label}
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '5px 10px', fontSize: '13px' }}>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Provider Type</span>
+          <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{effectiveProviderLabel}</span>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Base URL</span>
+          <span style={{ fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere', color: 'var(--color-text-secondary)' }}>{effectiveRuntime?.base_url || 'Not configured'}</span>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Model</span>
+          <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{effectiveRuntime?.model_name || 'Not configured'}</span>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Profile</span>
+          <span style={{ color: 'var(--color-text-secondary)' }}>{effectiveRuntime?.profile_id || 'Not configured'}</span>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>API Key</span>
+          <span style={{ color: 'var(--color-text-secondary)' }}>{hasUsableKey ? '********' : 'Not configured'}</span>
+        </div>
+      </div>
 
-        <section style={{ padding: '22px', overflowY: 'auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start' }}>
-            <div>
-              <h3 style={{ margin: '0 0 5px', fontSize: '18px' }}>Models & Runtime</h3>
-              <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
-                Configure the OpenAI-compatible endpoint used by new agent runs.
-              </p>
-            </div>
-            <button
-              type="button"
-              aria-label="Close settings"
-              onClick={onClose}
-              style={{
-                width: '30px',
-                height: '30px',
-                borderRadius: '6px',
-                border: '1px solid #334155',
-                background: '#0f172a',
-                color: '#cbd5e1',
-                cursor: 'pointer',
-              }}
+      {!loading && status.kind === 'missing_key' && (
+        <div
+          style={{
+            marginBottom: '14px',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--color-warning-bg)',
+            border: '1px solid var(--color-warning-border)',
+            color: 'var(--color-warning-text)',
+            fontSize: '13px',
+            fontWeight: 500,
+          }}
+        >
+          Runtime is missing an API key. Add one here before running model-backed tasks.
+        </div>
+      )}
+
+      {loading ? (
+        <p style={{ color: 'var(--color-text-tertiary)', fontSize: '14px' }}>Loading runtime settings...</p>
+      ) : (
+        <form
+          data-testid="runtime-settings-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            handleSave();
+          }}
+          style={{ display: 'grid', gap: '14px' }}
+        >
+          <div style={{ color: 'var(--color-text-tertiary)', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Saved Runtime Config
+          </div>
+
+          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+            Provider Type
+            <select
+              value={form.provider}
+              disabled
+              onChange={(event) => patchForm({ provider: event.target.value })}
+              style={{ ...fieldStyle, color: 'var(--color-text-tertiary)' }}
             >
-              x
-            </button>
-          </div>
+              <option value="openai_compatible">OpenAI-Compatible</option>
+            </select>
+          </label>
 
-          <div
-            data-testid="runtime-current-status"
-            style={{
-              marginTop: '18px',
-              padding: '13px 14px',
-              background: '#0f172a',
-              border: '1px solid #334155',
-              borderRadius: '8px',
-              display: 'grid',
-              gap: '8px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>
-                Effective Runtime
-              </span>
-              <span
-                style={{
-                  padding: '3px 8px',
-                  borderRadius: '999px',
-                  background: `${status.color}22`,
-                  border: `1px solid ${status.color}66`,
-                  color: status.color,
-                  fontSize: '11px',
-                  fontWeight: 700,
-                }}
-              >
-                {successMessage ? 'Saved' : error ? 'Error' : status.label}
-              </span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '5px 10px', fontSize: '13px' }}>
-              <span style={{ color: '#64748b' }}>Provider Type</span>
-              <span>{effectiveProviderLabel}</span>
-              <span style={{ color: '#64748b' }}>Base URL</span>
-              <span style={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>{effectiveRuntime?.base_url || 'Not configured'}</span>
-              <span style={{ color: '#64748b' }}>Model</span>
-              <span>{effectiveRuntime?.model_name || 'Not configured'}</span>
-              <span style={{ color: '#64748b' }}>Profile</span>
-              <span>{effectiveRuntime?.profile_id || 'Not configured'}</span>
-              <span style={{ color: '#64748b' }}>API Key</span>
-              <span>{hasUsableKey ? '********' : 'Not configured'}</span>
-            </div>
-          </div>
+          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+            Base URL
+            <input
+              data-testid="runtime-base-url"
+              value={form.base_url}
+              onChange={(event) => patchForm({ base_url: event.target.value })}
+              placeholder="https://api.openai.com/v1"
+              style={fieldStyle}
+              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--color-border-subtle)';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+          </label>
 
-          {!loading && status.kind === 'missing_key' && (
+          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+            API Key
+            <input
+              data-testid="runtime-api-key"
+              type="password"
+              value={form.api_key}
+              onChange={(event) => patchForm({ api_key: event.target.value })}
+              placeholder={hasUsableKey ? 'Configured - leave blank to keep current key' : 'Enter API key'}
+              autoComplete="off"
+              style={fieldStyle}
+              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--color-border-subtle)';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+          </label>
+
+          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+            Model
+            <input
+              data-testid="runtime-model"
+              value={form.model}
+              onChange={(event) => patchForm({ model: event.target.value })}
+              placeholder="gpt-4o-mini"
+              style={fieldStyle}
+              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--color-border-subtle)';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-text-secondary)', fontSize: '14px', fontWeight: 500 }}>
+            <input
+              data-testid="runtime-enabled"
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(event) => patchForm({ enabled: event.target.checked })}
+            />
+            Enable this runtime for new runs
+          </label>
+
+          {testResult && (
             <div
               style={{
-                marginTop: '12px',
-                padding: '10px 12px',
-                borderRadius: '6px',
-                background: '#713f1226',
-                border: '1px solid #f59e0b55',
-                color: '#fcd34d',
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-md)',
+                background: testResult.success ? 'var(--color-success-bg)' : 'var(--color-error-bg)',
+                border: `1px solid ${testResult.success ? 'var(--color-success-border)' : 'var(--color-error-border)'}`,
+                color: testResult.success ? 'var(--color-success-text)' : 'var(--color-error-text)',
                 fontSize: '13px',
               }}
             >
-              Runtime is missing an API key. Add one here before running model-backed tasks.
+              <strong>{testResult.success ? 'Connection OK' : 'Connection failed'}</strong>
+              <div style={{ marginTop: '3px' }}>{testResult.message}</div>
             </div>
           )}
 
-          {loading ? (
-            <p style={{ color: '#94a3b8', fontSize: '14px' }}>Loading runtime settings...</p>
-          ) : (
-            <form
-              data-testid="runtime-settings-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleSave();
-              }}
-              style={{ marginTop: '18px', display: 'grid', gap: '14px' }}
-            >
-              <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase' }}>
-                Saved Runtime Config
-              </div>
-
-              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: '#94a3b8' }}>
-                Provider Type
-                <select
-                  value={form.provider}
-                  disabled
-                  onChange={(event) => patchForm({ provider: event.target.value })}
-                  style={{ ...fieldStyle, color: '#94a3b8' }}
-                >
-                  <option value="openai_compatible">OpenAI-Compatible</option>
-                </select>
-              </label>
-
-              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: '#94a3b8' }}>
-                Base URL
-                <input
-                  data-testid="runtime-base-url"
-                  value={form.base_url}
-                  onChange={(event) => patchForm({ base_url: event.target.value })}
-                  placeholder="https://api.openai.com/v1"
-                  style={fieldStyle}
-                />
-              </label>
-
-              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: '#94a3b8' }}>
-                API Key
-                <input
-                  data-testid="runtime-api-key"
-                  type="password"
-                  value={form.api_key}
-                  onChange={(event) => patchForm({ api_key: event.target.value })}
-                  placeholder={hasUsableKey ? 'Configured - leave blank to keep current key' : 'Enter API key'}
-                  autoComplete="off"
-                  style={fieldStyle}
-                />
-              </label>
-
-              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: '#94a3b8' }}>
-                Model
-                <input
-                  data-testid="runtime-model"
-                  value={form.model}
-                  onChange={(event) => patchForm({ model: event.target.value })}
-                  placeholder="gpt-4o-mini"
-                  style={fieldStyle}
-                />
-              </label>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', fontSize: '14px' }}>
-                <input
-                  data-testid="runtime-enabled"
-                  type="checkbox"
-                  checked={form.enabled}
-                  onChange={(event) => patchForm({ enabled: event.target.checked })}
-                />
-                Enable this runtime for new runs
-              </label>
-
-              {testResult && (
-                <div
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: '6px',
-                    background: testResult.success ? '#14532d33' : '#7f1d1d33',
-                    border: `1px solid ${testResult.success ? '#22c55e55' : '#ef444455'}`,
-                    color: testResult.success ? '#86efac' : '#fca5a5',
-                    fontSize: '13px',
-                  }}
-                >
-                  <strong>{testResult.success ? 'Connection OK' : 'Connection failed'}</strong>
-                  <div style={{ marginTop: '3px' }}>{testResult.message}</div>
-                </div>
-              )}
-
-              {error && (
-                <div style={{ padding: '10px 12px', background: '#7f1d1d33', border: '1px solid #ef444455', borderRadius: '6px', color: '#fca5a5', fontSize: '13px' }}>
-                  {error}
-                </div>
-              )}
-              {successMessage && (
-                <div style={{ padding: '10px 12px', background: '#14532d33', border: '1px solid #22c55e55', borderRadius: '6px', color: '#86efac', fontSize: '13px' }}>
-                  {successMessage}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginTop: '4px' }}>
-                <button
-                  type="button"
-                  onClick={() => void resetConfig()}
-                  disabled={resetting}
-                  style={{
-                    padding: '9px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #7f1d1d',
-                    background: '#0f172a',
-                    color: '#fca5a5',
-                    cursor: resetting ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {resetting ? 'Resetting...' : 'Reset'}
-                </button>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button
-                    type="button"
-                    onClick={handleTest}
-                    disabled={!canTest}
-                    style={{
-                      padding: '9px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid #334155',
-                      background: '#0f172a',
-                      color: '#e2e8f0',
-                      cursor: canTest ? 'pointer' : 'not-allowed',
-                      opacity: canTest ? 1 : 0.55,
-                    }}
-                  >
-                    {testing ? 'Testing...' : 'Test Connection'}
-                  </button>
-                  <button
-                    type="submit"
-                    data-testid="runtime-save"
-                    disabled={!canSave}
-                    style={{
-                      padding: '9px 16px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      background: '#2563eb',
-                      color: '#fff',
-                      fontWeight: 700,
-                      cursor: canSave ? 'pointer' : 'not-allowed',
-                      opacity: canSave ? 1 : 0.55,
-                    }}
-                  >
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-              </div>
-            </form>
+          {error && (
+            <div style={{
+              padding: '10px 14px',
+              background: 'var(--color-error-bg)',
+              border: '1px solid var(--color-error-border)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--color-error-text)',
+              fontSize: '13px',
+            }}>
+              {error}
+            </div>
           )}
-        </section>
+          {successMessage && (
+            <div style={{
+              padding: '10px 14px',
+              background: 'var(--color-success-bg)',
+              border: '1px solid var(--color-success-border)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--color-success-text)',
+              fontSize: '13px',
+            }}>
+              {successMessage}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginTop: '4px' }}>
+            <button
+              type="button"
+              onClick={() => void resetConfig()}
+              disabled={resetting}
+              style={{
+                padding: '9px 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-error-border)',
+                background: 'var(--color-error-bg)',
+                color: 'var(--color-error-text)',
+                cursor: resetting ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+                fontSize: '13px',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {resetting ? 'Resetting...' : 'Reset'}
+            </button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={handleTest}
+                disabled={!canTest}
+                style={{
+                  padding: '9px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border-subtle)',
+                  background: 'var(--color-canvas-subtle)',
+                  color: 'var(--color-text-secondary)',
+                  cursor: canTest ? 'pointer' : 'not-allowed',
+                  opacity: canTest ? 1 : 0.55,
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  transition: 'all var(--transition-fast)',
+                }}
+              >
+                {testing ? 'Testing...' : 'Test Connection'}
+              </button>
+              <button
+                type="submit"
+                data-testid="runtime-save"
+                disabled={!canSave}
+                style={{
+                  padding: '9px 18px',
+                  borderRadius: 'var(--radius-md)',
+                  border: 'none',
+                  background: !canSave ? 'var(--color-canvas)' : 'var(--color-brand-600)',
+                  color: !canSave ? 'var(--color-text-tertiary)' : '#fff',
+                  fontWeight: 700,
+                  cursor: canSave ? 'pointer' : 'not-allowed',
+                  opacity: canSave ? 1 : 0.55,
+                  fontSize: '13px',
+                  transition: 'all var(--transition-fast)',
+                  boxShadow: canSave ? 'var(--shadow-md)' : 'none',
+                }}
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
+    </>
+  );
+}
+
+function RetrievalTab() {
+  const {
+    defaultTopK,
+    defaultCitationPolicy,
+    defaultSummarizeMode,
+    setDefaultTopK,
+    setDefaultCitationPolicy,
+    setDefaultSummarizeMode,
+    density,
+  } = useWorkspacePreferences();
+
+  return (
+    <div style={{ display: 'grid', gap: density === 'compact' ? '14px' : '18px' }}>
+      <div style={{
+        padding: '12px 14px',
+        background: 'var(--color-canvas-subtle)',
+        border: '1px solid var(--color-border-subtle)',
+        borderRadius: 'var(--radius-md)',
+        fontSize: '13px',
+        color: 'var(--color-text-tertiary)',
+      }}>
+        These settings affect the next request. They do not change the index or embedding model.
+      </div>
+
+      <label style={{ display: 'grid', gap: '6px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+        Default top_k (retrieval depth)
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <input
+            type="range"
+            min={1}
+            max={20}
+            value={defaultTopK}
+            onChange={(e) => setDefaultTopK(Number(e.target.value))}
+            style={{ flex: 1 }}
+          />
+          <span style={{ color: 'var(--color-text-primary)', fontSize: '14px', fontWeight: 700, minWidth: '28px', textAlign: 'center' }}>
+            {defaultTopK}
+          </span>
+        </div>
+        <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+          How many chunks to retrieve before ranking and generating an answer.
+        </span>
+      </label>
+
+      <label style={{ display: 'grid', gap: '6px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+        Citation policy
+        <select
+          value={defaultCitationPolicy}
+          onChange={(e) => setDefaultCitationPolicy(e.target.value as 'required' | 'preferred' | 'none')}
+          style={fieldStyle}
+        >
+          <option value="preferred">Preferred — cite when evidence exists</option>
+          <option value="required">Required — refuse if no evidence</option>
+          <option value="none">None — do not include citations</option>
+        </select>
+        <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+          Whether answers must include verifiable source citations.
+        </span>
+      </label>
+
+      <label style={{ display: 'grid', gap: '6px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+        Summarize mode
+        <select
+          value={defaultSummarizeMode}
+          onChange={(e) => setDefaultSummarizeMode(e.target.value as 'basic' | 'map_reduce')}
+          style={fieldStyle}
+        >
+          <option value="basic">Basic — single-pass summarization</option>
+          <option value="map_reduce">Map-Reduce — multi-chunk then combine</option>
+        </select>
+        <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+          Strategy used when running Summarize tasks. Map-Reduce is better for long documents.
+        </span>
+      </label>
+    </div>
+  );
+}
+
+function DisplayTab() {
+  const {
+    showWorkflowDetails,
+    showTechnicalCitationMetadata,
+    density,
+    sourceDrawerDefaultOpen,
+    defaultTaskType,
+    setShowWorkflowDetails,
+    setShowTechnicalCitationMetadata,
+    setDensity,
+    setSourceDrawerDefaultOpen,
+    setDefaultTaskType,
+  } = useWorkspacePreferences();
+
+  const toggleRow = (label: string, value: boolean, onChange: (v: boolean) => void) => (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: density === 'compact' ? '10px 0' : '12px 0',
+      borderBottom: '1px solid var(--color-border-subtle)',
+    }}>
+      <span style={{ fontSize: '14px', color: 'var(--color-text-primary)', fontWeight: 500 }}>{label}</span>
+      <button
+        type="button"
+        onClick={() => onChange(!value)}
+        style={{
+          width: '42px',
+          height: '24px',
+          borderRadius: '12px',
+          border: 'none',
+          background: value ? 'var(--color-brand-500)' : 'var(--color-border-default)',
+          cursor: 'pointer',
+          position: 'relative',
+          transition: 'background var(--transition-fast)',
+          flexShrink: 0,
+        }}
+      >
+        <span style={{
+          position: 'absolute',
+          top: '3px',
+          left: value ? '21px' : '3px',
+          width: '18px',
+          height: '18px',
+          borderRadius: '50%',
+          background: '#fff',
+          transition: 'left var(--transition-fast)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+        }} />
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'grid', gap: density === 'compact' ? '12px' : '16px' }}>
+      <div style={{
+        padding: '12px 14px',
+        background: 'var(--color-canvas-subtle)',
+        border: '1px solid var(--color-border-subtle)',
+        borderRadius: 'var(--radius-md)',
+        fontSize: '13px',
+        color: 'var(--color-text-tertiary)',
+      }}>
+        Preferences are stored locally in your browser. They do not affect the backend.
+      </div>
+
+      {toggleRow('Show workflow details', showWorkflowDetails, setShowWorkflowDetails)}
+      {toggleRow('Show technical citation metadata', showTechnicalCitationMetadata, setShowTechnicalCitationMetadata)}
+      {toggleRow('Source drawer opens by default', sourceDrawerDefaultOpen, setSourceDrawerDefaultOpen)}
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: density === 'compact' ? '10px 0' : '12px 0',
+        borderBottom: '1px solid var(--color-border-subtle)',
+      }}>
+        <span style={{ fontSize: '14px', color: 'var(--color-text-primary)', fontWeight: 500 }}>Density</span>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {(['comfortable', 'compact'] as const).map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setDensity(d)}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 'var(--radius-md)',
+                border: density === d ? '1px solid var(--color-brand-200)' : '1px solid var(--color-border-subtle)',
+                background: density === d ? 'var(--color-brand-50)' : 'transparent',
+                color: density === d ? 'var(--color-brand-600)' : 'var(--color-text-tertiary)',
+                fontSize: '12px',
+                cursor: 'pointer',
+                fontWeight: density === d ? 700 : 500,
+                textTransform: 'capitalize',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: density === 'compact' ? '10px 0' : '12px 0',
+        borderBottom: '1px solid var(--color-border-subtle)',
+      }}>
+        <span style={{ fontSize: '14px', color: 'var(--color-text-primary)', fontWeight: 500 }}>Default operation</span>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {(['chat', 'summarize', 'compare'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setDefaultTaskType(t)}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 'var(--radius-md)',
+                border: defaultTaskType === t ? '1px solid var(--color-brand-200)' : '1px solid var(--color-border-subtle)',
+                background: defaultTaskType === t ? 'var(--color-brand-50)' : 'transparent',
+                color: defaultTaskType === t ? 'var(--color-brand-600)' : 'var(--color-text-tertiary)',
+                fontSize: '12px',
+                cursor: 'pointer',
+                fontWeight: defaultTaskType === t ? 700 : 500,
+                textTransform: 'capitalize',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
-};
+}
+
+function SourcesTab() {
+  const { density } = useWorkspacePreferences();
+  return (
+    <div style={{ display: 'grid', gap: density === 'compact' ? '10px' : '14px' }}>
+      <div style={{
+        padding: '12px 14px',
+        background: 'var(--color-canvas-subtle)',
+        border: '1px solid var(--color-border-subtle)',
+        borderRadius: 'var(--radius-md)',
+        fontSize: '13px',
+        color: 'var(--color-text-tertiary)',
+      }}>
+        Source skills define what kinds of documents MindDock can ingest and retrieve. Watchdog sync-once is available via CLI; desktop exposure is planned.
+      </div>
+
+      <div style={{ display: 'grid', gap: density === 'compact' ? '8px' : '10px' }}>
+        {SOURCE_SKILLS.map((skill) => {
+          const isImplemented = skill.status === 'implemented';
+          return (
+            <div
+              key={skill.name}
+              style={{
+                padding: density === 'compact' ? '12px 14px' : '14px 16px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid',
+                borderColor: isImplemented ? 'var(--color-border-subtle)' : 'var(--color-border-subtle)',
+                background: isImplemented ? 'var(--color-surface)' : 'var(--color-canvas-subtle)',
+                opacity: isImplemented ? 1 : 0.7,
+                boxShadow: isImplemented ? 'var(--shadow-sm)' : 'none',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>{skill.name}</span>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    padding: '3px 10px',
+                    borderRadius: 'var(--radius-full)',
+                    background: isImplemented ? 'var(--color-success-bg)' : 'var(--color-canvas)',
+                    color: isImplemented ? 'var(--color-success-text)' : 'var(--color-text-tertiary)',
+                    border: `1px solid ${isImplemented ? 'var(--color-success-border)' : 'var(--color-border-subtle)'}`,
+                  }}
+                >
+                  {isImplemented ? 'Implemented' : 'Future'}
+                </span>
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--color-text-tertiary)', lineHeight: 1.5 }}>
+                <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Input:</span> {skill.inputs}
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--color-text-tertiary)', lineHeight: 1.5, marginTop: '2px' }}>
+                <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Limit:</span> {skill.limitations}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

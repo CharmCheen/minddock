@@ -157,6 +157,8 @@ http://127.0.0.1:8000/docs
 
 ## 6. 启动前端
 
+开发模式默认通过 Vite dev server proxy 访问后端，无需额外配置 CORS。
+
 ```powershell
 cd frontend
 npm install
@@ -166,8 +168,10 @@ npm run dev
 Vite 默认地址：
 
 ```text
-http://localhost:5173
+http://127.0.0.1:3000
 ```
+
+此时前端 API 请求会通过 Vite proxy 转发到 `http://127.0.0.1:8000`，浏览器看到的是同源请求，不触发 CORS。
 
 前端构建检查：
 
@@ -175,6 +179,16 @@ http://localhost:5173
 cd frontend
 npm run build
 ```
+
+### 前端 API 层说明
+
+- **开发默认**：前端使用 same-origin relative API，Vite dev server 代理到后端
+- **远程调试**：如需连接远程后端或桌面 sidecar，可通过 `VITE_API_BASE_URL` 环境变量注入：
+  ```powershell
+  # PowerShell
+  $env:VITE_API_BASE_URL='http://127.0.0.1:8000'; npm run dev
+  ```
+- **桌面模式**：未来可通过 `window.__MINDDOCK_CONFIG__.apiBaseUrl` 动态注入 sidecar 地址
 
 ## 7. Demo CLI 常用命令
 

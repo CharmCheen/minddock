@@ -1,3 +1,4 @@
+import { getApiBaseUrl } from '../client';
 import { UnifiedExecutionRequestBody, ClientEvent, CancelRunResponse } from '../../../core/types/api';
 
 interface StreamCallbacks {
@@ -10,6 +11,14 @@ interface ExecutionInput {
   query: string;
   task_type?: string;
   sources?: string[];
+  top_k?: number;
+  citation_policy?: 'required' | 'preferred' | 'none';
+  summarize_mode?: 'basic' | 'map_reduce';
+}
+
+function joinApiPath(baseUrl: string, path: string): string {
+  if (!baseUrl) return path;
+  return `${baseUrl.replace(/\/$/, '')}${path}`;
 }
 
 const isAbortError = (err: unknown): boolean =>
@@ -20,8 +29,8 @@ const isBrowserNetworkError = (err: unknown): boolean =>
 
 export const ExecutionService = {
   async cancelRun(runId: string): Promise<CancelRunResponse> {
-    const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-    const response = await fetch(`${baseURL}/frontend/runs/${encodeURIComponent(runId)}/cancel`, {
+    const baseURL = getApiBaseUrl();
+    const response = await fetch(joinApiPath(baseURL, `/frontend/runs/${encodeURIComponent(runId)}/cancel`), {
       method: 'POST',
       headers: { 'Accept': 'application/json' },
     });
@@ -34,24 +43,28 @@ export const ExecutionService = {
   },
 
   executeStream(input: ExecutionInput, callbacks: StreamCallbacks): AbortController {
-    const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+    const baseURL = getApiBaseUrl();
     const controller = new AbortController();
 
     const body: UnifiedExecutionRequestBody = {
       task_type: input.task_type || "chat",
       user_input: input.query,
-      top_k: 5,
+      top_k: input.top_k ?? 5,
       output_mode: "text",
-      citation_policy: "preferred"
+      citation_policy: input.citation_policy || "preferred"
     };
 
     if (input.sources && input.sources.length > 0) {
       body.filters = { source: input.sources };
     }
 
+    if (input.summarize_mode) {
+      body.task_options = { mode: input.summarize_mode };
+    }
+
     const startStream = async () => {
       try {
-        const response = await fetch(`${baseURL}/frontend/execute/stream`, {
+        const response = await fetch(joinApiPath(baseURL, '/frontend/execute/stream'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

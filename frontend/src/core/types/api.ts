@@ -105,6 +105,7 @@ export interface UnifiedExecutionRequestBody {
   };
   output_mode: string;
   citation_policy: string;
+  task_options?: Record<string, unknown>;
 }
 
 export interface SourceStateItem {

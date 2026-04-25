@@ -150,3 +150,128 @@ def test_incremental_failed_rebuild_keeps_existing_chunks(tmp_path: Path, monkey
 
     assert collection.records == before
     assert collection.count_doc(doc_id) == 1
+
+
+def test_sync_directory_detects_new_file(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    doc_path = tmp_path / "knowledge_base" / "new_file.md"
+    doc_path.write_text("# Intro\nBrand new document.\n", encoding="utf-8")
+
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status) for result in results] == [("created", "updated")]
+    doc_id = build_doc_id(Path("new_file.md"))
+    assert collection.count_doc(doc_id) == 1
+    stored = service._hash_store.get("new_file.md")
+    assert stored is not None
+    assert stored["status"] == "ready"
+    assert stored["error"] is None
+    assert stored["last_synced_at"]
+
+
+def test_sync_directory_detects_modified_file_without_duplicate_chunks(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    doc_path = tmp_path / "knowledge_base" / "notes.md"
+    doc_path.write_text("# Storage\nFirst version.\n", encoding="utf-8")
+    service.sync_directory()
+    doc_id = build_doc_id(Path("notes.md"))
+
+    doc_path.write_text("# Storage\nUpdated version.\n", encoding="utf-8")
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status) for result in results] == [("modified", "updated")]
+    assert collection.count_doc(doc_id) == 1
+    assert list(collection.records.values())[0]["document"] == "Updated version."
+
+
+def test_sync_directory_detects_deleted_file_and_removes_hash_entry(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    doc_path = tmp_path / "knowledge_base" / "notes.md"
+    doc_path.write_text("# Storage\nTo be deleted.\n", encoding="utf-8")
+    service.sync_directory()
+    doc_id = build_doc_id(Path("notes.md"))
+    assert collection.count_doc(doc_id) == 1
+
+    doc_path.unlink()
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status, result.chunks_deleted) for result in results] == [("deleted", "removed", 1)]
+    assert collection.count_doc(doc_id) == 0
+    assert service._hash_store.get("notes.md") is None
+
+
+def test_sync_directory_skips_unchanged_file(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    doc_path = tmp_path / "knowledge_base" / "notes.md"
+    doc_path.write_text("# Storage\nStable version.\n", encoding="utf-8")
+    service.sync_directory()
+
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status, result.detail) for result in results] == [
+        ("sync", "skipped", "content hash unchanged")
+    ]
+    assert collection.upsert_calls == 1
+
+
+def test_sync_directory_dry_run_does_not_write_chroma_or_hash_store(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    doc_path = tmp_path / "knowledge_base" / "notes.md"
+    doc_path.write_text("# Storage\nDry run only.\n", encoding="utf-8")
+
+    results = service.sync_directory(dry_run=True)
+
+    assert [(result.event_type, result.status, result.detail) for result in results] == [
+        ("created", "planned", "dry-run: would ingest")
+    ]
+    assert collection.records == {}
+    assert service._hash_store.get("notes.md") is None
+
+
+def test_hash_store_reads_legacy_entries(tmp_path: Path) -> None:
+    store_path = tmp_path / "hashes.json"
+    store_path.write_text(
+        '{"legacy.md": {"doc_id": "doc-1", "content_hash": "hash-1"}}',
+        encoding="utf-8",
+    )
+
+    store = HashStore(store_path)
+
+    assert store.get("legacy.md") == {
+        "doc_id": "doc-1",
+        "content_hash": "hash-1",
+        "status": "ready",
+        "error": None,
+        "last_synced_at": None,
+    }
+
+
+def test_sync_directory_unreadable_file_records_failure(tmp_path: Path, monkeypatch) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    doc_path = tmp_path / "knowledge_base" / "locked.md"
+    doc_path.write_text("# Locked\nStill being written.\n", encoding="utf-8")
+    original_open = Path.open
+
+    def fake_open(path: Path, *args, **kwargs):
+        if path == doc_path:
+            raise PermissionError("locked")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fake_open)
+
+    results = service.sync_directory()
+
+    assert len(results) == 1
+    assert results[0].status == "failed"
+    assert "locked" in (results[0].detail or "")
+    stored = service._hash_store.get("locked.md")
+    assert stored is not None
+    assert stored["status"] == "failed"
+    assert "locked" in stored["error"]
+    assert collection.records == {}

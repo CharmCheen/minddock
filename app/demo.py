@@ -328,13 +328,20 @@ def cmd_serve(args: argparse.Namespace) -> None:
     uvicorn.run("app.main:app", host=args.host, port=args.port, reload=False)
 
 
-def cmd_watch(_args: argparse.Namespace) -> None:
+def cmd_watch(args: argparse.Namespace) -> None:
     os.environ["WATCH_ENABLED"] = "true"
     from app.rag.watcher import run_watcher
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
-    print("Starting watcher in demo mode (WATCH_ENABLED=true)...")
-    run_watcher()
+    mode = "sync-once" if args.once else "watch"
+    dry_run = " dry-run" if args.dry_run else ""
+    print(f"Starting {mode}{dry_run} in demo mode (WATCH_ENABLED=true)...")
+    run_watcher(
+        path=args.path,
+        debounce_seconds=args.debounce,
+        once=args.once,
+        dry_run=args.dry_run,
+    )
 
 
 def cmd_health(args: argparse.Namespace) -> None:
@@ -624,6 +631,10 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.set_defaults(func=cmd_serve)
 
     watch_parser = subparsers.add_parser("watch", help="Start watcher mode with demo-safe defaults")
+    watch_parser.add_argument("--once", action="store_true", help="Run one directory sync and exit")
+    watch_parser.add_argument("--dry-run", action="store_true", help="Preview sync changes without writing Chroma or HashStore")
+    watch_parser.add_argument("--path", default=None, help="Knowledge base directory to watch")
+    watch_parser.add_argument("--debounce", type=float, default=None, help="Debounce seconds for filesystem events")
     watch_parser.set_defaults(func=cmd_watch)
 
     root_parser = subparsers.add_parser("root", help="Call GET /")

@@ -62,6 +62,30 @@ conda run --no-capture-output -n minddock python -m app.demo ingest
 conda run --no-capture-output -n minddock python -m app.demo ingest --no-rebuild --url https://example.com
 ```
 
+### Sync-once / Watch
+
+For a deterministic incremental-ingest demo, prefer `app.demo watch` over the legacy ingest append path.
+
+Preview changes without writing Chroma or HashStore:
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo watch --once --dry-run
+```
+
+Synchronize the knowledge base once and exit:
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo watch --once
+```
+
+Watch continuously:
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo watch --path knowledge_base --debounce 2.0
+```
+
+The watcher scans `.pdf`, `.md`, and `.txt` files. New files are indexed, changed files are replaced by content hash, unchanged files are skipped, and deleted files remove their Chroma chunks plus the HashStore entry. On Windows, wait for large file copies to finish before syncing, or use `--once --dry-run` first to preview the plan.
+
 ## 5. 启动后端
 
 推荐演示命令：

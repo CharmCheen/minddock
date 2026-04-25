@@ -24,6 +24,7 @@ from app.services.grounded_generation import (
 from app.services.search_service import SearchService
 from app.services.source_freshness import refresh_compare_result_freshness
 from app.services.service_models import CompareServiceResult, RetrievalStats, ServiceIssue, UseCaseMetadata, UseCaseTiming
+from app.services.workflow_trace import build_trace_warnings, final_source_summary, source_scope_trace
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,15 @@ class CompareService:
             else:
                 hits = self.search_service.retrieve(query=question, top_k=top_k, filters=filters)
                 retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
+            workflow_trace_base = {
+                "operation": "compare",
+                "requested_top_k": top_k,
+                "internal_candidate_k": len(hits),
+                **source_scope_trace(filters),
+                "cross_document_intent_detected": True,
+                "initial_candidate_count": len(hits),
+                "applied_rules": [],
+            }
             grounded_hits = select_grounded_hits(hits).hits
             if not grounded_hits:
                 return self._insufficient_result(
@@ -108,6 +118,7 @@ class CompareService:
                     retrieval_ms=retrieval_ms,
                     started=started,
                     filters=filters,
+                    workflow_trace=self._finalize_insufficient_trace(workflow_trace_base),
                 )
 
             rerank_started = time.perf_counter()
@@ -130,6 +141,12 @@ class CompareService:
                     started=started,
                     filters=filters,
                     reason="insufficient_context",
+                    workflow_trace=self._finalize_insufficient_trace(
+                        workflow_trace_base,
+                        after_rerank_count=len(reranked_hits),
+                        final_candidate_count=len(compressed_hits),
+                        extra_warnings=("insufficient_context",),
+                    ),
                 )
 
             left_group, right_group = groups[:2]
@@ -145,6 +162,16 @@ class CompareService:
             )
             compare_result = refresh_compare_result_freshness(compare_result, collection=self.collection)
             citations = self._collect_citations(compare_result)
+            workflow_trace = {
+                **workflow_trace_base,
+                "after_rerank_count": len(reranked_hits),
+                "final_candidate_count": len(compressed_hits),
+                "final_citation_count": len(citations),
+                "final_evidence_count": len(citations),
+                "applied_rules": [],
+                "final_sources": final_source_summary(citations),
+                "trace_warnings": build_trace_warnings(citations=citations),
+            }
             logger.info(
                 "Compare completed: question_preview=%s groups=%d returned=%d",
                 question[:60],
@@ -173,6 +200,7 @@ class CompareService:
                         reranked_hits=len(reranked_hits),
                         returned_hits=len(compressed_hits),
                     ),
+                    workflow_trace=workflow_trace,
                 ),
                 context=build_context(compressed_hits),
             )
@@ -193,6 +221,7 @@ class CompareService:
         rerank_ms: float | None = None,
         compress_ms: float | None = None,
         reason: str | None = None,
+        workflow_trace: dict[str, object] | None = None,
     ) -> CompareServiceResult:
         compare_result = GroundedCompareResult(
             query=question,
@@ -240,9 +269,31 @@ class CompareService:
                     grounded_hits=0 if grounded_hits is None else len(grounded_hits),
                     returned_hits=0 if returned_hits is None else len(returned_hits),
                 ),
+                workflow_trace=workflow_trace,
             ),
             context=None if not returned_hits else build_context(returned_hits),
         )
+
+    def _finalize_insufficient_trace(
+        self,
+        trace: dict[str, object],
+        *,
+        after_rerank_count: int | None = None,
+        final_candidate_count: int = 0,
+        extra_warnings: tuple[str, ...] = (),
+    ) -> dict[str, object]:
+        if after_rerank_count is not None:
+            trace["after_rerank_count"] = after_rerank_count
+        trace["final_candidate_count"] = final_candidate_count
+        trace["final_citation_count"] = 0
+        trace["final_evidence_count"] = 0
+        trace["final_sources"] = []
+        warnings = build_trace_warnings(citations=[])
+        for warning in extra_warnings:
+            if warning not in warnings:
+                warnings.append(warning)
+        trace["trace_warnings"] = warnings
+        return trace
 
     def _group_hits(self, hits: list[RetrievedChunk]) -> list[_EvidenceGroup]:
         grouped: dict[str, list[RetrievedChunk]] = defaultdict(list)

@@ -13,6 +13,7 @@ from app.rag.retrieval_models import RetrievalFilters, RetrievedChunk, SearchHit
 from app.services.service_models import RetrievalStats, SearchServiceResult, ServiceIssue, UseCaseMetadata, UseCaseTiming
 from app.rag.vectorstore import get_vectorstore
 from app.services.grounded_generation import build_citation
+from app.services.workflow_trace import build_trace_warnings, final_source_summary, source_scope_trace
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,20 @@ class SearchService:
             hits = self.retrieve(query=query, top_k=top_k, filters=filters)
             search_hits = [SearchHitRecord(chunk=hit, citation=build_citation(hit)) for hit in hits]
             elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+            citations = [hit.citation for hit in search_hits]
+            workflow_trace = {
+                "operation": "search",
+                "requested_top_k": top_k,
+                "internal_candidate_k": top_k,
+                **source_scope_trace(filters),
+                "initial_candidate_count": len(hits),
+                "final_candidate_count": len(search_hits),
+                "final_citation_count": len(citations),
+                "final_evidence_count": 0,
+                "applied_rules": [],
+                "final_sources": final_source_summary(citations),
+                "trace_warnings": build_trace_warnings(citations=citations),
+            }
 
             logger.info(
                 "Search response built: query_preview=%s hits=%d",
@@ -103,6 +118,7 @@ class SearchService:
                         retrieved_hits=len(hits),
                         returned_hits=len(search_hits),
                     ),
+                    workflow_trace=workflow_trace,
                 ),
             )
         except Exception as exc:

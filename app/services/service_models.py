@@ -101,6 +101,7 @@ class UseCaseMetadata:
     filter_applied: bool = False
     source_stats: SourceStats | None = None
     retrieval_stats: RetrievalStats | None = None
+    workflow_trace: dict[str, object] | None = None
     debug_notes: tuple[str, ...] = ()
 
 

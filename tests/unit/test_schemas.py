@@ -433,6 +433,28 @@ def test_chat_response_from_result_defaults_mode() -> None:
     assert resp.mode == "grounded"
     assert resp.support_status == "supported"
     assert resp.evidence[0].chunk_id == "c1"
+    assert resp.workflow_trace is None
+
+
+def test_chat_response_from_result_preserves_workflow_trace() -> None:
+    resp = ChatResponse.from_result(
+        {
+            "answer": "answer",
+            "citations": [],
+            "retrieved_count": 0,
+            "workflow_trace": {
+                "operation": "chat",
+                "requested_top_k": 5,
+                "internal_candidate_k": 12,
+            },
+        }
+    )
+
+    assert resp.workflow_trace == {
+        "operation": "chat",
+        "requested_top_k": 5,
+        "internal_candidate_k": 12,
+    }
 
 
 def test_chat_response_from_result_exposes_refusal_semantics() -> None:

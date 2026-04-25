@@ -57,6 +57,7 @@ def test_metadata_to_dict_includes_controlled_fields() -> None:
             timing=UseCaseTiming(total_ms=12.5, retrieval_ms=4.0),
             filter_applied=True,
             source_stats=SourceStats(requested_sources=2, succeeded_sources=1, failed_sources=1),
+            workflow_trace={"operation": "chat", "requested_top_k": 5},
         )
     )
 
@@ -64,6 +65,7 @@ def test_metadata_to_dict_includes_controlled_fields() -> None:
     assert payload["issues"][0]["code"] == "empty_result"
     assert payload["timing"]["total_ms"] == 12.5
     assert payload["source_stats"]["failed_sources"] == 1
+    assert payload["workflow_trace"]["operation"] == "chat"
 
 
 def test_demo_serializers_consume_service_results() -> None:
@@ -122,6 +124,41 @@ def test_demo_serializers_consume_service_results() -> None:
     assert chat_payload["mode"] == "grounded"
     assert summarize_payload["retrieved_count"] == 1
     assert ingest_payload["partial_failure"] is True
+
+
+def test_cmd_chat_trace_prints_workflow_trace(monkeypatch, capsys) -> None:
+    import json
+
+    citation = CitationRecord(doc_id="d1", chunk_id="c1", source="kb/doc.md", snippet="proof")
+    result = ChatServiceResult(
+        answer="answer",
+        citations=[citation],
+        metadata=UseCaseMetadata(
+            retrieved_count=1,
+            mode="grounded",
+            workflow_trace={
+                "operation": "chat",
+                "requested_top_k": 3,
+                "internal_candidate_k": 12,
+            },
+        ),
+    )
+
+    class FakeChat:
+        def chat(self, **kwargs):
+            return result
+
+    class FakeFacade:
+        chat = FakeChat()
+
+    monkeypatch.setattr("app.demo.get_frontend_facade", lambda: FakeFacade())
+
+    main(["chat", "--query", "hello", "--top-k", "3", "--trace"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["trace"]["operation"] == "chat"
+    assert payload["trace"]["internal_candidate_k"] == 12
+    assert payload["metadata"]["workflow_trace"]["requested_top_k"] == 3
 
 
 def test_demo_catalog_serializers() -> None:

@@ -34,6 +34,59 @@ logger = logging.getLogger(__name__)
 _SUMMARY_EVIDENCE_LIMIT = 4
 _SUMMARY_PER_SOURCE_CAP = 2
 
+# Context safety guards: prevent OOM / timeout on very large evidence blocks
+_SUMMARY_SAFE_MAX_CHARS = 8000  # total evidence block cap
+_SUMMARY_SAFE_MAX_PER_CHUNK = 2500  # per-chunk cap (safety belt for dense PDF chunks)
+_SUMMARY_TRUNCATION_APPEND = " [truncated for context safety]"
+
+
+def _safe_format_evidence_block(context: ContextBlock) -> tuple[str, bool]:
+    """Render evidence block with context safety guards.
+
+    Returns (evidence_text, was_truncated).
+
+    Guard 1 — per-chunk cap:  each evidence text longer than
+    _SUMMARY_SAFE_MAX_PER_CHUNK is shortened before assembly.
+    Guard 2 — total cap:       the assembled block is trimmed to
+    _SUMMARY_SAFE_MAX_CHARS if it still exceeds that limit.
+    """
+    raw_lines = format_evidence_block(context).splitlines()
+    any_truncated = False
+
+    # Guard 1: per-chunk truncation — always applied
+    trimmed: list[str] = []
+    for line in raw_lines:
+        bracket_end = line.find("]")
+        if bracket_end >= 0:
+            prefix = line[:bracket_end + 1] + " "
+            text_part = line[bracket_end + 1:].lstrip()
+        else:
+            prefix = ""
+            text_part = line
+
+        if len(text_part) > _SUMMARY_SAFE_MAX_PER_CHUNK:
+            text_part = text_part[:_SUMMARY_SAFE_MAX_PER_CHUNK].rstrip() + _SUMMARY_TRUNCATION_APPEND
+            any_truncated = True
+
+        trimmed.append(prefix + text_part)
+
+    rebuilt = "\n".join(trimmed)
+
+    # Guard 2: total cap
+    if len(rebuilt) <= _SUMMARY_SAFE_MAX_CHARS:
+        return rebuilt, any_truncated
+
+    # Hard total cap — drop lines from the end until under limit
+    chars_to_drop = len(rebuilt) - _SUMMARY_SAFE_MAX_CHARS
+    while chars_to_drop > 0 and trimmed:
+        last_line = trimmed.pop()
+        chars_to_drop -= len(last_line) + 1
+
+    rebuilt = "\n".join(trimmed)
+    if not rebuilt.strip():
+        rebuilt = "(evidence truncated for context safety)"
+    return rebuilt, True
+
 
 @dataclass
 class SummarizeService:
@@ -182,14 +235,15 @@ class SummarizeService:
             }
 
             generation_started = time.perf_counter()
+            summary_context_truncated = False
             if mode == "map_reduce":
-                summary, fallback_used = self._summarize_map_reduce(
+                summary, fallback_used, summary_context_truncated = self._summarize_map_reduce(
                     topic=topic,
                     grouped_hits=grouped_hits,
                     fallback_hits=compressed_hits,
                 )
             else:
-                runtime_response = self._generate_basic_summary(topic=topic, context=context)
+                runtime_response, summary_context_truncated = self._generate_basic_summary(topic=topic, context=context)
                 summary = runtime_response.text
                 fallback_used = runtime_response.used_fallback
             generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
@@ -205,6 +259,9 @@ class SummarizeService:
                 "Summarize completed: topic_preview=%s grounded=%d reranked=%d compressed=%d mode=%s output_format=%s",
                 topic[:60], len(grounded_hits), len(reranked_hits), len(compressed_hits), mode, output_format,
             )
+            metadata_warnings = list(workflow_trace.get("trace_warnings") or [])
+            if summary_context_truncated:
+                metadata_warnings.append("summary_context_truncated")
             return SummarizeServiceResult(
                 summary=summary,
                 citations=citations,
@@ -237,10 +294,14 @@ class SummarizeService:
                         reranked_hits=len(reranked_hits),
                         returned_hits=len(compressed_hits),
                     ),
-                    workflow_trace=workflow_trace,
+                    workflow_trace={
+                        **workflow_trace,
+                        "trace_warnings": tuple(metadata_warnings),
+                    },
                 ),
                 structured_output=structured_output,
                 context=context,
+                summary_context_truncated=summary_context_truncated,
             )
         except Exception as exc:
             logger.exception("Summarize failed: topic_preview=%s", topic[:60])
@@ -302,23 +363,26 @@ class SummarizeService:
         ]
 
     def _summarize_basic(self, topic: str, context: ContextBlock) -> str:
-        return self._generate_basic_summary(topic=topic, context=context).text
+        result, _ = self._generate_basic_summary(topic=topic, context=context)
+        return result.text
 
-    def _generate_basic_summary(self, topic: str, context: ContextBlock):
+    def _generate_basic_summary(self, topic: str, context: ContextBlock) -> tuple[RuntimeResponse, bool]:
+        safe_block, was_truncated = _safe_format_evidence_block(context)
         summary_query = (
             "Summarize the topic using only the provided evidence. "
             "Keep it concise, grounded, and synthesis-oriented.\n"
             f"Topic: {topic}"
         )
-        return self.runtime.generate(
+        runtime_response = self.runtime.generate(
             RuntimeRequest(
                 prompt=self._build_basic_prompt(),
-                inputs={"topic": topic, "evidence_block": format_evidence_block(context)},
+                inputs={"topic": topic, "evidence_block": safe_block},
                 fallback_query=summary_query,
                 fallback_evidence=context.to_evidence_items(),
                 llm_override=self.llm,
             )
         )
+        return runtime_response, was_truncated
 
     def _summarize_map_reduce(
         self,
@@ -326,20 +390,23 @@ class SummarizeService:
         topic: str,
         grouped_hits: list[DocumentEvidenceGroup],
         fallback_hits: list[RetrievedChunk],
-    ) -> tuple[str, bool]:
+    ) -> tuple[str, bool, bool]:
         partial_summaries: list[str] = []
         fallback_used = False
+        any_truncated = False
         for group in grouped_hits:
             group_context: ContextBlock = group.context
             if not group_context.chunks:
                 continue
+            safe_block, was_truncated = _safe_format_evidence_block(group_context)
+            any_truncated = any_truncated or was_truncated
             runtime_response = self.runtime.generate(
                 RuntimeRequest(
                     prompt=self._build_map_prompt(),
                     inputs={
                         "topic": topic,
                         "document_ref": str(group.citation.ref or group.doc_id or "document"),
-                        "evidence_block": format_evidence_block(group_context),
+                        "evidence_block": safe_block,
                     },
                     fallback_query=f"Summarize document evidence for topic: {topic}",
                     fallback_evidence=group_context.to_evidence_items(),
@@ -351,8 +418,9 @@ class SummarizeService:
             partial_summaries.append(partial)
 
         if not partial_summaries:
-            runtime_response = self._generate_basic_summary(topic=topic, context=build_context(fallback_hits))
+            runtime_response, was_truncated = self._generate_basic_summary(topic=topic, context=build_context(fallback_hits))
             fallback_used = fallback_used or runtime_response.used_fallback
+            any_truncated = any_truncated or was_truncated
             partial_summaries = [runtime_response.text]
 
         reduce_evidence = [
@@ -379,7 +447,7 @@ class SummarizeService:
                 llm_override=self.llm,
             )
         )
-        return runtime_response.text, fallback_used or runtime_response.used_fallback
+        return runtime_response.text, runtime_response.used_fallback or fallback_used, any_truncated
 
     def _build_basic_prompt(self):
         try:

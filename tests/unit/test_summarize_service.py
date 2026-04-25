@@ -202,3 +202,114 @@ def test_summarize_diversifies_precomputed_evidence_by_source() -> None:
     assert len(set(sources)) == 4
     assert runtime.last_evidence is not None
     assert len({str(item["source"]) for item in runtime.last_evidence}) == 4
+
+
+def _make_chunk(text: str, index: int = 1, source: str = "doc.md") -> RetrievedChunk:
+    return RetrievedChunk(
+        text=text,
+        doc_id=source,
+        chunk_id=f"{source}:{index}",
+        source=source,
+        title=source,
+        section="Section",
+        ref=f"{source} > Section",
+        distance=0.2,
+    )
+
+
+def test_summarize_long_evidence_is_truncated(monkeypatch) -> None:
+    """A single chunk whose text exceeds _SUMMARY_SAFE_MAX_PER_CHUNK is per-chunk truncated."""
+    # Single chunk with 4000-char text → exceeds 2500 per-chunk cap → per-chunk truncation fires
+    long_text = "x" * 4000
+    hits = [_make_chunk(long_text)]
+
+    monkeypatch.setattr(
+        "app.services.summarize_service.run_retrieval_workflow",
+        lambda **kwargs: RetrievalPreparationResult(
+            hits=hits,
+            grounded_hits=hits,
+            context=build_context(hits),
+            citations=[],
+        ),
+    )
+    runtime = FakeRuntime()
+    service = SummarizeService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=runtime,
+    )
+
+    result = service.summarize(topic="test truncation", top_k=3)
+
+    assert isinstance(result.summary_context_truncated, bool)
+    assert result.summary_context_truncated is True
+    assert "summary_context_truncated" in (result.metadata.workflow_trace.get("trace_warnings") or ())
+    # LLM was still called with evidence (truncated) — no exception raised
+    assert "summary for" in result.summary
+
+
+def test_summarize_small_doc_unchanged(monkeypatch) -> None:
+    """Small documents do not trigger truncation."""
+    hits = [_make_chunk("Short evidence text.")]
+    monkeypatch.setattr(
+        "app.services.summarize_service.run_retrieval_workflow",
+        lambda **kwargs: RetrievalPreparationResult(
+            hits=hits,
+            grounded_hits=hits,
+            context=build_context(hits),
+            citations=[],
+        ),
+    )
+    runtime = FakeRuntime()
+    service = SummarizeService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=runtime,
+    )
+
+    result = service.summarize(topic="small doc", top_k=3)
+
+    assert result.summary_context_truncated is False
+    assert "truncated" not in str(result.metadata.workflow_trace.get("trace_warnings") or [])
+    # Full evidence was passed to the LLM
+    evidence_block = str(runtime.last_inputs.get("evidence_block") or "")
+    assert "Short evidence text." in evidence_block
+
+
+def test_summarize_large_document_safety(monkeypatch) -> None:
+    """Summarizing a large document returns a response without crashing."""
+    # Simulate many large chunks — more than _SUMMARY_EVIDENCE_LIMIT with dense content
+    hits = [
+        _make_chunk("a" * 3000, index=1, source="big.pdf"),
+        _make_chunk("b" * 3000, index=2, source="big.pdf"),
+        _make_chunk("c" * 3000, index=3, source="big.pdf"),
+        _make_chunk("d" * 3000, index=4, source="big.pdf"),
+    ]
+    monkeypatch.setattr(
+        "app.services.summarize_service.run_retrieval_workflow",
+        lambda **kwargs: RetrievalPreparationResult(
+            hits=hits,
+            grounded_hits=hits,
+            context=build_context(hits),
+            citations=[],
+        ),
+    )
+    runtime = FakeRuntime()
+    service = SummarizeService(
+        search_service=FakeSearchService([]),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=runtime,
+    )
+
+    # Should not raise — just set truncation flag
+    result = service.summarize(topic="large doc safety test", top_k=10)
+
+    assert result.summary_context_truncated is True
+    warnings = result.metadata.workflow_trace.get("trace_warnings") or ()
+    assert "summary_context_truncated" in warnings
+    # A summary was still produced
+    assert result.summary is not None
+    assert len(result.summary) > 0

@@ -161,6 +161,7 @@ class SummarizeServiceResult:
     metadata: UseCaseMetadata = field(default_factory=UseCaseMetadata)
     structured_output: str | None = None
     context: ContextBlock | None = None
+    summary_context_truncated: bool = False
 
     def to_api_dict(self) -> dict[str, object]:
         grounded = self.grounded_answer

@@ -164,6 +164,9 @@ class ArtifactBuilder:
 
     def build_compare_artifacts(self, result: CompareServiceResult) -> tuple[BaseArtifact, ...]:
         compare_payload = result.compare_result.to_api_dict()
+        compare_metadata: dict[str, object] = {"compare_result": compare_payload}
+        if result.metadata.workflow_trace is not None:
+            compare_metadata["workflow_trace"] = result.metadata.workflow_trace
 
         # Extract citations from compare evidence for frontend consumption
         citations: list[dict[str, object]] = []
@@ -186,7 +189,7 @@ class ArtifactBuilder:
                 title="compare_summary",
                 render_hint="markdown",
                 source_step_id="format_compare_output",
-                metadata={"compare_result": compare_payload},
+                metadata=compare_metadata,
                 citations=tuple(citations),
                 text=self._compare_summary_text(result),
             ),
@@ -204,6 +207,9 @@ class ArtifactBuilder:
 
     def build_search_artifacts(self, result: SearchServiceResult) -> tuple[BaseArtifact, ...]:
         items = tuple(self._build_search_item(hit) for hit in result.hits)
+        metadata: dict[str, object] = {}
+        if result.metadata.workflow_trace is not None:
+            metadata["workflow_trace"] = result.metadata.workflow_trace
         return (
             SearchResultsArtifact(
                 artifact_id=self._next_id("search"),
@@ -215,6 +221,7 @@ class ArtifactBuilder:
                 total=len(items),
                 offset=0,
                 limit=result.top_k,
+                metadata=metadata,
             ),
         )
 
@@ -275,6 +282,8 @@ class ArtifactBuilder:
             result["support_status"] = metadata.support_status
         if metadata.refusal_reason is not None:
             result["refusal_reason"] = metadata.refusal_reason
+        if metadata.workflow_trace is not None:
+            result["workflow_trace"] = metadata.workflow_trace
         return result
 
     @staticmethod

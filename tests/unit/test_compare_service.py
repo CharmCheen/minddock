@@ -223,6 +223,13 @@ def test_compare_returns_insufficient_evidence_when_only_one_side_is_available()
     assert result.metadata.insufficient_evidence is True
     assert result.compare_result.common_points == ()
     assert result.compare_result.differences == ()
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["operation"] == "compare"
+    assert trace["final_citation_count"] == 0
+    assert trace["final_evidence_count"] == 0
+    assert "no_citations" in trace["trace_warnings"]
+    assert "insufficient_context" in trace["trace_warnings"]
 
 
 def test_compare_refreshes_freshness_before_returning() -> None:

@@ -30,6 +30,7 @@ from app.services.grounded_generation import (
 )
 from app.services.search_service import SearchService
 from app.services.service_models import ChatServiceResult, RetrievalStats, ServiceIssue, UseCaseMetadata, UseCaseTiming
+from app.services.workflow_trace import build_trace_warnings, final_source_summary, source_scope_trace
 from ports.llm import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,22 @@ class ChatService:
         try:
             started = time.perf_counter()
             logger.info("Chat started: query_preview=%s top_k=%d", query[:60], top_k)
+            internal_candidate_k = len(precomputed_hits) if precomputed_hits is not None else self._candidate_top_k(top_k)
+            local_doc_intent_detected = self._has_local_docs_intent(query)
+            structured_ref_intent_detected = self._has_structured_reference_intent(query)
+            section_query_detected = self._has_section_query_intent(query)
+            cross_document_intent_detected = self._has_cross_source_intent(query)
+            trace: dict[str, object] = {
+                "operation": "chat",
+                "requested_top_k": top_k,
+                "internal_candidate_k": internal_candidate_k,
+                **source_scope_trace(filters),
+                "local_doc_intent_detected": local_doc_intent_detected,
+                "structured_ref_intent_detected": structured_ref_intent_detected,
+                "section_query_detected": section_query_detected,
+                "cross_document_intent_detected": cross_document_intent_detected,
+                "applied_rules": [],
+            }
             if is_out_of_scope_knowledge_query(query):
                 logger.info("Chat returning out-of-scope refusal before retrieval: query_preview=%s", query[:60])
                 return self._refusal_result(
@@ -134,17 +151,24 @@ class ChatService:
                     issue_code="out_of_scope",
                     issue_message="Question is outside knowledge-base grounded answering scope.",
                     filters=filters,
+                    workflow_trace=self._finalize_empty_trace(trace),
                 )
 
             retrieval_started = time.perf_counter()
             if precomputed_hits is not None:
-                hits = self._inject_structured_reference_candidates(query, list(precomputed_hits), filters)
+                initial_hits = list(precomputed_hits)
+                trace["initial_candidate_count"] = len(initial_hits)
+                hits = self._inject_structured_reference_candidates(query, initial_hits, filters)
                 retrieval_ms = 0.0
             else:
-                candidate_top_k = self._candidate_top_k(top_k)
-                hits = self.search_service.retrieve(query=query, top_k=candidate_top_k, filters=filters)
+                hits = self.search_service.retrieve(query=query, top_k=internal_candidate_k, filters=filters)
+                trace["initial_candidate_count"] = len(hits)
                 hits = self._inject_structured_reference_candidates(query, hits, filters)
                 retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
+            trace["after_structured_ref_injection_count"] = len(hits)
+            structured_ref_applied = self._has_structured_reference_lexical_hit(hits)
+            if structured_ref_applied:
+                trace["applied_rules"].append("structured_ref_lexical_injection")
             grounded_selection = select_grounded_hits(hits)
             grounded_hits = grounded_selection.hits
             if not grounded_hits:
@@ -186,6 +210,13 @@ class ChatService:
                             grounded_hits=0,
                             returned_hits=0,
                         ),
+                        workflow_trace=self._finalize_empty_trace(
+                            trace,
+                            structured_ref_intent_detected=structured_ref_intent_detected,
+                            structured_ref_lexical_injection_applied=structured_ref_applied,
+                            local_doc_intent_detected=local_doc_intent_detected,
+                            local_doc_priority_applied=False,
+                        ),
                     ),
                     context=None,
                 )
@@ -204,28 +235,56 @@ class ChatService:
                     issue_code="evidence_query_mismatch",
                     issue_message="Retrieved evidence does not match the query closely enough for a grounded answer.",
                     filters=filters,
+                    workflow_trace=self._finalize_empty_trace(
+                        trace,
+                        structured_ref_intent_detected=structured_ref_intent_detected,
+                        structured_ref_lexical_injection_applied=structured_ref_applied,
+                        local_doc_intent_detected=local_doc_intent_detected,
+                        local_doc_priority_applied=False,
+                    ),
                 )
 
             rerank_started = time.perf_counter()
             reranked_hits = self.reranker.rerank(query=query, hits=grounded_hits)
             reranked_hits = self._rerank_direct_chat_evidence(query, reranked_hits)
             reranked_hits = self._prioritize_structured_reference_hits(query, reranked_hits)
+            trace["after_rerank_count"] = len(reranked_hits)
+            if section_query_detected and self._has_section_title_hit(query, reranked_hits):
+                trace["applied_rules"].append("section_aware_rerank")
+            before_local_doc_hits = reranked_hits
             reranked_hits = self._prioritize_local_doc_hits(query, reranked_hits, filters)
+            local_doc_applied = before_local_doc_hits != reranked_hits
+            if local_doc_applied:
+                trace["applied_rules"].append("local_doc_priority")
+            trace["after_local_doc_priority_count"] = len(reranked_hits)
+            before_source_cap_hits = reranked_hits
             reranked_hits = self._apply_precompress_source_cap(
                 reranked_hits,
                 _CHAT_PRE_COMPRESS_SOURCE_CAP,
             )
+            if before_source_cap_hits != reranked_hits:
+                trace["applied_rules"].append("precompress_source_cap")
+            trace["after_source_cap_count"] = len(reranked_hits)
+            before_consistency_hits = reranked_hits
             reranked_hits = self._apply_source_consistency_cap(query, reranked_hits, top_k, filters)
+            source_consistency_applied = before_consistency_hits != reranked_hits
+            if source_consistency_applied:
+                trace["applied_rules"].append("source_consistency_cap")
+            trace["after_source_consistency_count"] = len(reranked_hits)
             reranked_hits = reranked_hits[:top_k]
             windowed_hits = expand_evidence_windows(
                 reranked_hits,
                 neighbor_loader=self._load_evidence_neighbors,
             )
+            evidence_window_applied = any(self._hit_has_evidence_window(hit) for hit in windowed_hits)
+            if evidence_window_applied:
+                trace["applied_rules"].append("evidence_window")
             rerank_ms = round((time.perf_counter() - rerank_started) * 1000, 2)
             compress_started = time.perf_counter()
             compressed_hits = self.compressor.compress(query=query, hits=windowed_hits)
             compress_ms = round((time.perf_counter() - compress_started) * 1000, 2)
             compressed_hits = self._dedupe_compressed_chat_hits(compressed_hits)
+            trace["final_candidate_count"] = len(compressed_hits)
             context = build_context(compressed_hits)
             prompt_inputs = {
                 "query": query,
@@ -252,6 +311,16 @@ class ChatService:
             citations = [build_citation(hit) for hit in compressed_hits]
             evidence = [build_evidence(hit) for hit in compressed_hits]
             grounding = assess_grounding(retrieved_hits=hits, evidence=evidence)
+            trace["final_citation_count"] = len(citations)
+            trace["final_evidence_count"] = len(evidence)
+            trace["final_sources"] = final_source_summary(citations)
+            trace["trace_warnings"] = build_trace_warnings(
+                citations=citations,
+                structured_ref_intent_detected=structured_ref_intent_detected,
+                structured_ref_lexical_injection_applied=structured_ref_applied,
+                local_doc_intent_detected=local_doc_intent_detected,
+                local_doc_priority_applied=local_doc_applied,
+            )
 
             logger.info(
                 "Chat completed: query_preview=%s grounded=%d reranked=%d compressed=%d",
@@ -288,6 +357,7 @@ class ChatService:
                         reranked_hits=len(windowed_hits),
                         returned_hits=len(compressed_hits),
                     ),
+                    workflow_trace=trace,
                 ),
                 context=context,
             )
@@ -310,6 +380,7 @@ class ChatService:
         issue_code: str,
         issue_message: str,
         filters: RetrievalFilters | None,
+        workflow_trace: dict[str, object] | None = None,
     ) -> ChatServiceResult:
         return ChatServiceResult(
             answer=answer,
@@ -347,9 +418,32 @@ class ChatService:
                     grounded_hits=grounded_hits,
                     returned_hits=returned_hits,
                 ),
+                workflow_trace=workflow_trace,
             ),
             context=None,
         )
+
+    def _finalize_empty_trace(
+        self,
+        trace: dict[str, object],
+        *,
+        structured_ref_intent_detected: bool = False,
+        structured_ref_lexical_injection_applied: bool = False,
+        local_doc_intent_detected: bool = False,
+        local_doc_priority_applied: bool = False,
+    ) -> dict[str, object]:
+        trace["final_candidate_count"] = 0
+        trace["final_citation_count"] = 0
+        trace["final_evidence_count"] = 0
+        trace["final_sources"] = []
+        trace["trace_warnings"] = build_trace_warnings(
+            citations=[],
+            structured_ref_intent_detected=structured_ref_intent_detected,
+            structured_ref_lexical_injection_applied=structured_ref_lexical_injection_applied,
+            local_doc_intent_detected=local_doc_intent_detected,
+            local_doc_priority_applied=local_doc_priority_applied,
+        )
+        return trace
 
     def _build_prompt(self):
         try:
@@ -433,6 +527,12 @@ class ChatService:
 
     def _has_structured_reference_intent(self, query: str) -> bool:
         return bool(_STRUCTURED_REF_RE.search(query))
+
+    def _has_structured_reference_lexical_hit(self, hits: list) -> bool:
+        return any(
+            (getattr(hit, "extra_metadata", {}) or {}).get("retrieval_reason") == "structured_ref_lexical"
+            for hit in hits
+        )
 
     def _mark_structured_reference_hit(self, hit):
         extra_metadata = dict(getattr(hit, "extra_metadata", {}) or {})
@@ -520,6 +620,29 @@ class ChatService:
         if not normalized:
             return False
         return any(phrase in normalized for phrase in _LOCAL_DOC_INTENT_PHRASES)
+
+    def _has_section_query_intent(self, query: str) -> bool:
+        normalized = " ".join(query.lower().split())
+        return "section" in normalized or "chapter" in normalized or "heading" in normalized
+
+    def _has_section_title_hit(self, query: str, hits: list) -> bool:
+        query_normalized = " ".join(_LATIN_TOKEN_RE.findall(query.lower()))
+        if not query_normalized:
+            return False
+        for hit in hits:
+            section = str(getattr(hit, "section", "") or (getattr(hit, "extra_metadata", {}) or {}).get("section_title") or "")
+            section_tokens = [token.lower() for token in _LATIN_TOKEN_RE.findall(section)]
+            if len(section_tokens) >= 2 and all(token in query_normalized for token in section_tokens):
+                return True
+        return False
+
+    def _hit_has_evidence_window(self, hit) -> bool:
+        metadata = getattr(hit, "extra_metadata", {}) or {}
+        window_chunk_ids = metadata.get("window_chunk_ids")
+        if isinstance(window_chunk_ids, (list, tuple, set)) and len(window_chunk_ids) > 1:
+            return True
+        reason = str(metadata.get("evidence_window_reason") or "")
+        return bool(reason and reason != "hit_only")
 
     def _is_local_markdown_source(self, hit) -> bool:
         candidates = [

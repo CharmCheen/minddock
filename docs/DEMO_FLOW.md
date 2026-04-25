@@ -52,6 +52,14 @@ http://localhost:5173
 
 真实前端走查后的稳定主线是：H1、N2、Summarize、Source drawer / selected source。TC1 和 Compare 可以作为 backup；N1 不建议作为核心高光。
 
+答辩调试或讲解 pipeline 时，可以在 CLI 里加 `--trace`：
+
+```powershell
+python -m app.demo chat --query "What does the SYSTEM DESIGN section of the Milvus paper describe?" --trace
+```
+
+Trace 只展示结构化 workflow metadata，例如 mode、requested top_k、内部 candidate pool、source scope、已触发的 deterministic rules 和最终 source 摘要。它不改变回答结果，不暴露模型隐藏推理，也不记录完整 prompt 或长 chunk 文本。
+
 ### 1. Source Catalog
 
 操作：

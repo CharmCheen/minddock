@@ -496,7 +496,17 @@ def test_chat_keeps_requested_retrieval_pool(monkeypatch) -> None:
                     for citation in citations
                 ),
             ),
-            metadata=UseCaseMetadata(retrieved_count=len(citations), mode="grounded"),
+            metadata=UseCaseMetadata(
+                retrieved_count=len(citations),
+                mode="grounded",
+                workflow_trace={
+                    "operation": "chat",
+                    "requested_top_k": requested_top_k,
+                    "internal_candidate_k": len(precomputed_hits),
+                    "final_citation_count": len(citations),
+                    "final_evidence_count": len(citations),
+                },
+            ),
         )
 
     monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
@@ -520,6 +530,9 @@ def test_chat_keeps_requested_retrieval_pool(monkeypatch) -> None:
     assert len(response.citations) <= requested_top_k
     assert len(response.grounded_answer.evidence) <= requested_top_k
     assert len(response.artifacts[0].citations) <= requested_top_k
+    assert response.metadata.workflow_trace["internal_candidate_k"] >= requested_top_k
+    assert response.metadata.workflow_trace["final_citation_count"] <= requested_top_k
+    assert response.artifacts[0].metadata["workflow_trace"]["operation"] == "chat"
     artifact_ids = [artifact.artifact_id for artifact in response.artifacts]
     assert len(artifact_ids) == len(set(artifact_ids))
 

@@ -76,6 +76,8 @@ def _metadata_to_dict(metadata) -> dict[str, Any]:
         "filter_applied": metadata.filter_applied,
         "debug_notes": list(metadata.debug_notes),
     }
+    if metadata.workflow_trace is not None:
+        payload["workflow_trace"] = metadata.workflow_trace
     if metadata.source_stats is not None:
         payload["source_stats"] = {
             "requested_sources": metadata.source_stats.requested_sources,
@@ -377,13 +379,18 @@ def cmd_chat(args: argparse.Namespace) -> None:
             "top_k": args.top_k,
         }
         data = _request_json("POST", f"{_base_url(args.host, args.port)}/chat", payload=payload)
+        if args.trace and "workflow_trace" in data:
+            data["trace"] = data["workflow_trace"]
         _pretty_print(data)
         return
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     _setup_demo_logging()
     result = get_frontend_facade().chat.chat(query=args.query, top_k=args.top_k)
-    _pretty_print(_serialize_chat_result(result))
+    data = _serialize_chat_result(result)
+    if args.trace:
+        data["trace"] = data["metadata"].get("workflow_trace")
+    _pretty_print(data)
 
 
 def cmd_summarize(args: argparse.Namespace) -> None:
@@ -728,6 +735,7 @@ def build_parser() -> argparse.ArgumentParser:
         _add_demo_transport_args(chat_parser)
         chat_parser.add_argument("--query", default=DEFAULT_QUERY, help="Chat query")
         chat_parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K, help="Number of hits to request")
+        chat_parser.add_argument("--trace", action="store_true", help="Print safe workflow trace metadata for the chat pipeline")
         chat_parser.set_defaults(func=cmd_chat)
 
     for name in ("summarize", "sum"):

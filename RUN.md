@@ -167,6 +167,14 @@ conda run --no-capture-output -n minddock python -m app.demo search --query "Mil
 conda run --no-capture-output -n minddock python -m app.demo chat --query "What does the SYSTEM DESIGN section of the Milvus paper describe?" --top-k 4
 ```
 
+查看安全 workflow trace：
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo chat --query "What does the SYSTEM DESIGN section of the Milvus paper describe?" --top-k 4 --trace
+```
+
+`--trace` prints structured pipeline metadata such as requested `top_k`, internal candidate count, applied deterministic rules, and final source summaries. It is for debugging and defense-demo explanation only: it does not change retrieval, answer generation, citation generation, or expose model hidden reasoning.
+
 摘要：
 
 ```powershell

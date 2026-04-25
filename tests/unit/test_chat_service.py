@@ -118,6 +118,13 @@ def test_chat_returns_insufficient_evidence_when_no_grounded_hits() -> None:
     assert result.metadata.support_status == "insufficient_evidence"
     assert result.metadata.refusal_reason == "no_relevant_evidence"
     assert result.metadata.issues[0].code == "insufficient_evidence"
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["operation"] == "chat"
+    assert trace["final_candidate_count"] == 0
+    assert trace["final_citation_count"] == 0
+    assert trace["final_evidence_count"] == 0
+    assert "no_citations" in trace["trace_warnings"]
 
 
 def test_chat_refuses_out_of_scope_question_before_retrieval() -> None:
@@ -185,6 +192,11 @@ def test_chat_refuses_when_retrieved_evidence_does_not_match_query() -> None:
     assert result.metadata.issues[0].code == "evidence_query_mismatch"
     assert result.metadata.retrieval_stats.retrieved_hits == 1
     assert result.metadata.retrieval_stats.returned_hits == 0
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["operation"] == "chat"
+    assert trace["final_citation_count"] == 0
+    assert "no_citations" in trace["trace_warnings"]
     assert search_service.calls == 1
     assert runtime.last_inputs is None
 
@@ -241,6 +253,16 @@ def test_chat_returns_answer_and_citations_for_grounded_hits() -> None:
     assert result.citations[0].ref == "doc > Storage"
     assert result.citations[0].page is None
     assert result.citations[0].anchor is None
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["operation"] == "chat"
+    assert trace["requested_top_k"] == 3
+    assert trace["final_candidate_count"] == 1
+    assert trace["final_citation_count"] == 1
+    assert trace["has_explicit_source_filter"] is True
+    assert trace["selected_sources_count"] == 1
+    assert trace["selected_sources_preview"] == ["kb/doc.md"]
+    assert trace["final_sources"][0]["source"] == "kb/doc.md"
     assert search_service.last_filters == RetrievalFilters(sources=("kb/doc.md",), section="Storage")
     assert "where is data stored" in str(runtime.last_inputs)
     assert "MindDock stores chunks in Chroma." in str(runtime.last_inputs)
@@ -271,6 +293,12 @@ def test_chat_expands_internal_candidate_pool_but_returns_requested_top_k() -> N
     assert search_service.last_top_k == 15
     assert len(result.citations) == 3
     assert result.metadata.retrieval_stats.returned_hits == 3
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["requested_top_k"] == 3
+    assert trace["internal_candidate_k"] == 15
+    assert trace["internal_candidate_k"] >= trace["requested_top_k"]
+    assert trace["final_citation_count"] <= 3
 
 
 def test_chat_injects_structured_reference_lexical_candidate_before_rerank() -> None:
@@ -318,6 +346,10 @@ def test_chat_injects_structured_reference_lexical_candidate_before_rerank() -> 
     assert search_service.last_structured_top_k == 5
     assert any(citation.chunk_id == "table1" for citation in result.citations)
     assert len(result.citations) <= 2
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["structured_ref_intent_detected"] is True
+    assert "structured_ref_lexical_injection" in trace["applied_rules"]
 
 
 def test_chat_does_not_inject_structured_reference_for_plain_query() -> None:
@@ -494,6 +526,10 @@ def test_chat_prioritizes_markdown_sources_for_explicit_local_docs_query() -> No
     assert [citation.source for citation in result.citations] == ["rag_pipeline.md", "api_usage.md"]
     assert all(citation.source.endswith(".md") for citation in result.citations)
     assert len(result.citations) == 2
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["local_doc_intent_detected"] is True
+    assert "local_doc_priority" in trace["applied_rules"]
 
 
 def test_chat_does_not_prioritize_markdown_for_plain_pdf_query() -> None:
@@ -615,6 +651,9 @@ def test_chat_source_consistency_keeps_structured_ref_with_named_paper_source() 
         "19_SIGMOD21_Milvus.pdf",
     ]
     assert result.citations[0].chunk_id == "milvus:23"
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert any(rule in trace["applied_rules"] for rule in ("source_consistency_cap", "precompress_source_cap"))
 
 
 def test_chat_source_consistency_uses_top_source_dominance_for_single_entity_query() -> None:
@@ -661,6 +700,9 @@ def test_chat_source_consistency_uses_top_source_dominance_for_single_entity_que
         "19_SIGMOD21_Milvus.pdf",
         "19_SIGMOD21_Milvus.pdf",
     ]
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["final_sources"][0]["source"] == "19_SIGMOD21_Milvus.pdf"
 
 
 def test_chat_source_consistency_does_not_single_source_cross_document_query() -> None:

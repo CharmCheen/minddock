@@ -25,6 +25,7 @@ from app.services.service_models import (
     UseCaseTiming,
 )
 from app.services.structured_output_service import StructuredOutputService
+from app.services.workflow_trace import build_trace_warnings, final_source_summary, source_scope_trace
 from app.workflows.langgraph_pipeline import run_retrieval_workflow
 from ports.llm import LLMProvider
 
@@ -94,6 +95,20 @@ class SummarizeService:
                 )
                 retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
                 grounded_hits = workflow_state.grounded_hits
+            workflow_trace_base = {
+                "operation": "summarize",
+                "requested_top_k": top_k,
+                "internal_candidate_k": len(workflow_state.hits),
+                **source_scope_trace(filters),
+                "initial_candidate_count": len(workflow_state.hits),
+                "after_rerank_count": None,
+                "final_candidate_count": None,
+                "final_citation_count": 0,
+                "final_evidence_count": 0,
+                "applied_rules": [],
+                "final_sources": [],
+                "trace_warnings": [],
+            }
             if not grounded_hits:
                 grounding = assess_grounding(retrieved_hits=workflow_state.hits, evidence=[])
                 logger.info("Summarize returning insufficient evidence: topic_preview=%s", topic[:60])
@@ -134,6 +149,11 @@ class SummarizeService:
                             grounded_hits=0,
                             returned_hits=0,
                         ),
+                        workflow_trace={
+                            **workflow_trace_base,
+                            "final_candidate_count": 0,
+                            "trace_warnings": ["no_citations"],
+                        },
                     ),
                     structured_output=None,
                     context=workflow_state.context,
@@ -151,6 +171,15 @@ class SummarizeService:
             evidence = [build_evidence(hit) for hit in compressed_hits]
             grounding = assess_grounding(retrieved_hits=workflow_state.hits, evidence=evidence)
             grouped_hits = self._group_hits_by_doc(compressed_hits)
+            workflow_trace = {
+                **workflow_trace_base,
+                "after_rerank_count": len(reranked_hits),
+                "final_candidate_count": len(compressed_hits),
+                "final_citation_count": len(citations),
+                "final_evidence_count": len(evidence),
+                "final_sources": final_source_summary(citations),
+                "trace_warnings": build_trace_warnings(citations=citations),
+            }
 
             generation_started = time.perf_counter()
             if mode == "map_reduce":
@@ -208,6 +237,7 @@ class SummarizeService:
                         reranked_hits=len(reranked_hits),
                         returned_hits=len(compressed_hits),
                     ),
+                    workflow_trace=workflow_trace,
                 ),
                 structured_output=structured_output,
                 context=context,

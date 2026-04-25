@@ -500,6 +500,7 @@ class ChatResponse(BaseModel):
     citations: list[CitationItem]
     retrieved_count: int
     mode: str = Field(default="grounded", description="Response production mode for client-side display")
+    workflow_trace: dict[str, Any] | None = None
 
     @classmethod
     def from_result(cls, result: ChatServiceResult | Mapping[str, Any]) -> "ChatResponse":
@@ -520,6 +521,7 @@ class ChatResponse(BaseModel):
                 citations=[CitationItem.from_record(item) for item in result.citations],
                 retrieved_count=result.metadata.retrieved_count,
                 mode=result.metadata.mode or "grounded",
+                workflow_trace=result.metadata.workflow_trace,
             )
         grounded = _resolve_grounded_answer(
             grounded=result.get("grounded_answer"),
@@ -537,6 +539,7 @@ class ChatResponse(BaseModel):
             citations=[CitationItem.from_record(item) for item in result.get("citations", [])],
             retrieved_count=int(result.get("retrieved_count", 0)),
             mode=str(result.get("mode") or "grounded"),
+            workflow_trace=result.get("workflow_trace"),
         )
 
 
@@ -590,6 +593,7 @@ class SummarizeResponse(BaseModel):
     mode: str = "basic"
     output_format: str = "text"
     structured_output: str | None = None
+    workflow_trace: dict[str, Any] | None = None
 
     @classmethod
     def from_result(cls, result: SummarizeServiceResult | Mapping[str, Any]) -> "SummarizeResponse":
@@ -612,6 +616,7 @@ class SummarizeResponse(BaseModel):
                 mode=result.metadata.mode or "basic",
                 output_format=result.metadata.output_format or "text",
                 structured_output=result.structured_output,
+                workflow_trace=result.metadata.workflow_trace,
             )
         grounded = _resolve_grounded_answer(
             grounded=result.get("grounded_answer"),
@@ -631,6 +636,7 @@ class SummarizeResponse(BaseModel):
             mode=str(result.get("mode") or "basic"),
             output_format=str(result.get("output_format") or "text"),
             structured_output=result.get("structured_output"),
+            workflow_trace=result.get("workflow_trace"),
         )
 
 
@@ -666,6 +672,7 @@ class CompareResponse(BaseModel):
     citations: list[CitationItem] = Field(default_factory=list)
     retrieved_count: int = 0
     mode: str = "grounded_compare"
+    workflow_trace: dict[str, Any] | None = None
 
     @classmethod
     def from_result(cls, result: CompareServiceResult | Mapping[str, Any]) -> "CompareResponse":
@@ -681,6 +688,7 @@ class CompareResponse(BaseModel):
                 citations=[CitationItem.from_record(item) for item in result.citations],
                 retrieved_count=result.metadata.retrieved_count,
                 mode=result.metadata.mode or "grounded_compare",
+                workflow_trace=result.metadata.workflow_trace,
             )
         compare = CompareResultItem.from_record(result)
         return cls(
@@ -693,6 +701,7 @@ class CompareResponse(BaseModel):
             citations=[CitationItem.from_record(item) for item in result.get("citations", [])],
             retrieved_count=int(result.get("retrieved_count", 0)),
             mode=str(result.get("mode") or "grounded_compare"),
+            workflow_trace=result.get("workflow_trace"),
         )
 
 
@@ -1375,6 +1384,7 @@ class UnifiedExecutionMetadataResponse(BaseModel):
     policy_applied: str | None = None
     filter_applied: bool = False
     retrieval_stats: RetrievalStatsItem | None = None
+    workflow_trace: dict[str, Any] | None = None
 
 
 class ExecutionSummaryResponse(BaseModel):
@@ -1483,6 +1493,7 @@ class UnifiedExecutionResponseBody(BaseModel):
                 policy_applied=result.metadata.policy_applied,
                 filter_applied=result.metadata.filter_applied,
                 retrieval_stats=retrieval_stats,
+                workflow_trace=result.metadata.workflow_trace,
             ),
             execution_summary=ExecutionSummaryResponse(
                 selected_runtime=result.execution_summary.selected_runtime,

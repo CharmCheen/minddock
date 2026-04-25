@@ -1,6 +1,6 @@
 # MindDock Roadmap
 
-> **⚠️ This document reflects early-stage planning (Phase 2, ~2026-04-02) and is superseded by `docs/STATUS.md` for the current project state.**
+> **⚠️ This document reflects early-stage planning (Phase 2, ~2026-04-02) and is superseded by `docs/FINAL_VALIDATION_V4.md` for the current project state.**
 
 ## Current Phase
 

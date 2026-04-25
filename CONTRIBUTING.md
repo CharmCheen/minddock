@@ -12,7 +12,7 @@
 
 1. Create a focused branch.
 2. Make code and documentation changes together.
-3. Update `docs/STATUS.md` if project status or risks changed.
+3. Update validation or demo docs if project status or risks changed.
 4. Add a dated entry to `docs/CHANGELOG.md` before pushing.
 5. Run the relevant tests locally.
 6. Open a pull request with scope, validation, and known gaps.
@@ -32,5 +32,5 @@
 
 - `README.md` describes current public capabilities only.
 - `docs/ROADMAP.md` tracks planned milestones.
-- `docs/STATUS.md` tracks current implementation status.
+- `docs/FINAL_VALIDATION_V4.md` tracks current implementation status.
 - `docs/CHANGELOG.md` is the active push-time change record.

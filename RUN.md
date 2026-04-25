@@ -64,51 +64,62 @@ conda run --no-capture-output -n minddock python -m app.demo ingest --no-rebuild
 
 ### Sync-once / Watch
 
-For a deterministic incremental-ingest demo, prefer `app.demo watch` over the legacy ingest append path.
+推荐用 `watch --once` 做增量同步演示：
 
-Preview changes without writing Chroma or HashStore:
+预览变更（不实际写入）：
 
 ```powershell
 conda run --no-capture-output -n minddock python -m app.demo watch --once --dry-run
 ```
 
-Synchronize the knowledge base once and exit:
+同步一次并退出：
 
 ```powershell
 conda run --no-capture-output -n minddock python -m app.demo watch --once
 ```
 
-Watch continuously:
+持续监听：
 
 ```powershell
 conda run --no-capture-output -n minddock python -m app.demo watch --path knowledge_base --debounce 2.0
 ```
 
-The watcher scans `.pdf`, `.md`, and `.txt` files. New files are indexed, changed files are replaced by content hash, unchanged files are skipped, and deleted files remove their Chroma chunks plus the HashStore entry. On Windows, wait for large file copies to finish before syncing, or use `--once --dry-run` first to preview the plan.
+Watcher 扫描 `.pdf`、`.md`、`.txt`、`.csv` 文件和 `.png`/`.jpg`/`.jpeg`/`.webp` 图片。新增文件会入库，修改文件按内容哈希替换，未变文件跳过，删除文件会同步移除 Chroma chunks 和 HashStore 记录。Windows 下建议等大文件复制完成后再同步，或先用 `--once --dry-run` 预览。
 
-### URL ingest notes
+### URL ingest 说明
 
-URL ingest supports single-page static HTML extraction:
+URL 只支持单页 static HTML 抽取：
 
-- fetch one HTTP/HTTPS URL
-- extract title, readable main text, canonical URL, and description metadata when available
-- prefer `article` / `main` content and fall back to readable body text
-- remove common noisy regions such as script, style, nav, header, footer, and aside
+- 抓取一个 HTTP/HTTPS URL
+- 提取 title、可读正文、canonical URL 和 description metadata
+- 优先 `article` / `main` 内容，回退到可读 body text
+- 移除 script、style、nav、header、footer、aside 等噪声区域
 
-URL ingest does not support JavaScript rendering, crawling, sitemap traversal, login/cookie flows, anti-bot bypass, RSS auto refresh, image/video/audio extraction, or frontend previews.
+URL 不支持：JavaScript 渲染、爬取、登录态、反爬、RSS、图片/视频/音频抽取、前端预览。
 
-URL chunks carry short source metadata such as `source_media=text`, `source_kind=web_page`, and `loader_name=url.extract`. Loader warnings, when present, are stored as short metadata in `loader_warnings`; they are not added to the chunk text used for embeddings.
+URL chunks 携带 `source_media=text`、`source_kind=web_page`、`loader_name=url.extract`。loader warnings 以短 metadata 形式存储，不进入 embedding 输入。
 
-### Image OCR ingest notes
+### Image OCR ingest 说明
 
-Image ingest supports `.png`, `.jpg`, `.jpeg`, and `.webp` files in `knowledge_base/`.
-Images are converted to OCR text and then follow the existing text RAG path: `SourceLoadResult -> chunking -> Chroma -> retrieval -> citation`.
+Image 支持 `knowledge_base/` 下的 `.png`、`.jpg`、`.jpeg`、`.webp`。
 
-By default, image OCR uses a mock fallback. The mock result only verifies the pipeline and does not represent real image understanding or real OCR quality. If `IMAGE_OCR_PROVIDER=rapidocr` is configured and RapidOCR is installed, MindDock can use it as an optional OCR provider. RapidOCR is not a hard dependency; if it is unavailable, the loader falls back to mock OCR with a short warning instead of crashing.
+图像通过 OCR 转为文本后，复用现有文本 RAG 路径：`SourceLoadResult -> chunking -> Chroma -> retrieval -> citation`。
 
-Image chunks carry metadata such as `source_media=image`, `source_kind=image_file`, `loader_name=image.ocr`, `ocr_provider`, `retrieval_basis=ocr_text`, and `image_filename`.
+默认使用 mock OCR fallback，仅验证 pipeline 通路，不代表真实图像理解。配置 `IMAGE_OCR_PROVIDER=rapidocr` 且已安装 RapidOCR 时，可使用真实 OCR。RapidOCR 不是硬依赖，缺失时安全回退 mock。
 
-P0 image OCR does not support PDF figure extraction, image captioning, video/audio, multimodal embeddings, OCR table reconstruction, layout blocks, or frontend image previews.
+Image chunks 携带 `source_media=image`、`source_kind=image_file`、`loader_name=image.ocr`、`ocr_provider`、`retrieval_basis=ocr_text`、`image_filename`。
+
+不支持：image caption、PDF figure extraction、video/audio、multimodal embedding、OCR table reconstruction、layout blocks、frontend image preview。
+
+### CSV source skill 说明
+
+CSV 支持 `knowledge_base/` 下的 `.csv` 文件。
+
+使用 Python 标准库 `csv` 解析，无需 pandas。支持 UTF-8 和 UTF-8 BOM，自动识别 header，无 header 时生成 `Column 1`、`Column 2` 等列名。行数超过 500 时截断并标记 `csv_truncated` warning。
+
+CSV 行被转换为可读文本后进入标准 RAG 路径。metadata 包含 `source_media=text`、`source_kind=csv_file`、`loader_name=csv.extract`、`retrieval_basis=csv_rows_as_text`、`csv_filename`、`csv_columns`、`csv_row_count`、`csv_rows_indexed`。
+
+不支持：Excel、SQL、表格推理引擎、chart generation。
 
 ## 5. 启动后端
 
@@ -191,13 +202,13 @@ conda run --no-capture-output -n minddock python -m app.demo search --query "Mil
 conda run --no-capture-output -n minddock python -m app.demo chat --query "What does the SYSTEM DESIGN section of the Milvus paper describe?" --top-k 4
 ```
 
-查看安全 workflow trace：
+查看 workflow trace：
 
 ```powershell
 conda run --no-capture-output -n minddock python -m app.demo chat --query "What does the SYSTEM DESIGN section of the Milvus paper describe?" --top-k 4 --trace
 ```
 
-`--trace` prints structured pipeline metadata such as requested `top_k`, internal candidate count, applied deterministic rules, and final source summaries. It is for debugging and defense-demo explanation only: it does not change retrieval, answer generation, citation generation, or expose model hidden reasoning.
+`--trace` 打印结构化 pipeline metadata，例如 requested `top_k`、内部 candidate count、已触发的 deterministic rules 和最终 source 摘要。它不改变检索、回答生成或 citation 生成，也不暴露模型隐藏推理。
 
 摘要：
 
@@ -211,6 +222,15 @@ conda run --no-capture-output -n minddock python -m app.demo summarize --topic "
 conda run --no-capture-output -n minddock python -m app.demo compare --question "Compare the Milvus paper with the local RAG pipeline docs." --top-k 4
 ```
 
+CSV source skill 快速验证：
+
+```powershell
+# 假设 knowledge_base/ 下已有 data.csv
+conda run --no-capture-output -n minddock python -m app.demo watch --once
+conda run --no-capture-output -n minddock python -m app.demo source-detail --source data.csv
+conda run --no-capture-output -n minddock python -m app.demo chat --query "data.csv 里第三行是什么?"
+```
+
 评测：
 
 ```powershell
@@ -222,7 +242,7 @@ conda run --no-capture-output -n minddock python -m app.demo evaluate --dataset 
 近期 RAG citation / retrieval 核心回归：
 
 ```powershell
-conda run --no-capture-output -n minddock python -m pytest tests/unit/test_evidence_window.py tests/unit/test_retrieval_models.py tests/unit/test_pdf_citation.py tests/unit/test_citation.py tests/unit/test_schemas.py tests/unit/test_postprocess.py tests/unit/test_chat_service.py tests/unit/test_search_service.py -q
+conda run --no-capture-output -n minddock python -m pytest tests/unit/test_evidence_window.py tests/unit/test_retrieval_models.py tests/unit/test_pdf_citation.py tests/unit/test_citation.py tests/unit/test_schemas.py tests/unit/test_postprocess.py tests/unit/test_chat_service.py tests/unit/test_search_service.py tests/unit/test_csv_loader.py tests/unit/test_source_skill_catalog.py -q
 ```
 
 项目 baseline：
@@ -258,6 +278,14 @@ conda run --no-capture-output -n minddock python -m app.demo ingest
 
 然后再调用 `sources` 或 `chat`。
 
+### Embedding dimension mismatch
+
+如果本地 Chroma 中混有不同 embedding 维度的历史数据，query 时会报错：`Embedding dimension X does not match collection dimensionality Y`。解决方法是重建索引：
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo ingest --rebuild
+```
+
 ### 前端端口
 
 Vite 默认是 `5173`。如果端口被占用，终端会提示新的端口。
@@ -266,6 +294,14 @@ Vite 默认是 `5173`。如果端口被占用，终端会提示新的端口。
 
 建议使用 PowerShell，并确保终端使用 UTF-8。仓库路径包含中文时，优先使用 `conda run --no-capture-output -n minddock ...`，避免环境和编码差异。
 
-### `start.bat`
+### URL 只支持 static HTML
 
-`start.bat` 可作为辅助启动脚本，但答辩演示建议优先使用本文档中的手动命令，便于定位问题。
+不支持 JavaScript 渲染、登录态、反爬。动态网页（如飞书、Notion 公开页）通常无法正确抽取。
+
+### CSV 不支持 Excel
+
+`.csv` 可用，`.xlsx` 不可用。CSV skill 只做行转文本，不做表格推理。
+
+### Image OCR 不是 image caption
+
+Image OCR 提取的是图中文字，不是对图像内容的描述性 caption。也不支持 PDF 内嵌 figure 提取。

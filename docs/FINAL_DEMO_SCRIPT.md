@@ -1,12 +1,12 @@
 # MindDock 最终答辩演示脚本
 
-本文档给出固定演示脚本，适合答辩现场按顺序执行。目标是展示系统闭环和 RAG citation/retrieval 改进效果，而不是现场探索未知问题。
+本文档给出固定演示脚本，适合答辩现场按顺序执行。目标是展示系统闭环和 RAG citation/retrieval 改进效果。
 
-最新真实前端走查后的答辩路线：
+最新前端走查后的稳定主线：
 
-- 核心演示：H1、N2、Summarize、Source drawer / selected source。
-- 可选 / backup：Compare、TC1。
-- 不建议作为核心高光：N1。
+- **核心演示**：H1、N2、Watchdog、Source drawer、Workflow trace
+- **可选 / backup**：URL、Image OCR、CSV、TC1、Compare
+- **不建议核心高光**：N1
 
 ## 0. 启动检查
 
@@ -31,194 +31,235 @@ http://localhost:5173
 http://127.0.0.1:8000/docs
 ```
 
-如果需要 CLI 验证：
+如需 CLI 验证：
 
 ```powershell
 python -m app.demo sources
 ```
 
+---
+
 ## 1. H1: Section-aware Rerank
 
-Query:
+**Query:**
 
 ```text
 What does the SYSTEM DESIGN section of the Milvus paper describe?
 ```
 
-演示目的：
+**演示目的：**
 
-- 展示 section-aware rerank。
-- 展示 citation label 和 evidence preview。
+- 展示 section-aware rerank
+- 展示 citation label 和 evidence preview
 
-操作步骤：
+**操作步骤：**
 
-1. 在 chat 输入 query。
-2. 查看 answer。
-3. 展开 Sources 区域。
+1. 在 chat 输入 query
+2. 查看 answer
+3. 展开 Sources 区域
 
-预期现象：
+**预期现象：**
 
-- top citation 为 `19_SIGMOD21_Milvus.pdf`。
-- `citation_label` 类似 `SYSTEM DESIGN · p.3`。
-- preview 包含 Milvus architecture、query engine、GPU engine、storage engine。
-- `Hit in window` 为 true。
+- top citation 为 `19_SIGMOD21_Milvus.pdf`
+- `citation_label` 类似 `SYSTEM DESIGN · p.3`
+- preview 包含 Milvus architecture、query engine、GPU engine、storage engine
+- `Hit in window` 为 true
 
-关键观察点：
+**关键观察点：**
 
-- 原来 Introduction 容易压过 SYSTEM DESIGN。
-- 现在 query 明确提到 section 时，正确 section 能稳定排到前面。
+- 原来 Introduction 容易压过 SYSTEM DESIGN
+- 现在 query 明确提到 section 时，正确 section 能稳定排到前面
 
-失败备用说法：
+**失败备用说法：**
 
 - 如果没有命中 SYSTEM DESIGN，说明 section-aware rerank 仍有边界，需要进一步 metadata-aware rerank 或 query rewrite。
 
+---
+
 ## 2. N2: Local-doc Source Priority
 
-Query:
+**Query:**
 
 ```text
 What are the main steps in the RAG pipeline according to the local docs?
 ```
 
-演示目的：
+**演示目的：**
 
-- 展示 local-doc source priority。
-- 展示 source scope / source consistency 对可信引用的作用。
+- 展示 local-doc source priority
+- 展示 source scope / source consistency 对可信引用的作用
 
-预期现象：
+**预期现象：**
 
-- citations 来自 `rag_pipeline.md`、`architecture.md` 等本地 Markdown。
-- 不应混入 unrelated arxiv PDF。
-- answer 应列出 ingest、chunking、embedding、vector database、retrieval 等步骤。
+- citations 来自 `rag_pipeline.md`、`architecture.md` 等本地 Markdown
+- 不应混入 unrelated arxiv PDF
+- answer 应列出 ingest、chunking、embedding、vector database、retrieval 等步骤
 
-关键观察点：
+**关键观察点：**
 
-- query 中的 `according to the local docs` 会触发本地文档优先策略。
-- 该策略不覆盖显式 source filters。
+- query 中的 `according to the local docs` 会触发本地文档优先策略
+- 该策略不覆盖显式 source filters
 
-失败备用说法：
+**失败备用说法：**
 
 - 如果混入论文 PDF，说明 source/domain policy 仍需正式 `doc_type/source_kind` metadata。
 
-## 3. TC1: Structured-ref Lexical Injection (Backup / Limitation)
+---
 
-Query:
+## 3. Watchdog Sync-once
+
+**操作：**
+
+1. 在 `knowledge_base/` 下新建 `demo_sync.md`，写入几行内容
+2. 运行：
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo watch --once
+```
+
+3. 运行 `sources` 确认已入库
+4. 修改 `demo_sync.md` 内容，再次运行 `watch --once`
+5. 删除 `demo_sync.md`，再次运行 `watch --once`
+6. 运行 `sources` 确认已移除
+
+**演示目的：**
+
+- 展示基于内容哈希的增量同步
+- 增删改无需 rebuild
+
+**预期现象：**
+
+- 新增：created | updated
+- 修改：modified | updated，chunks 被替换而非重复
+- 删除：deleted | removed
+
+---
+
+## 4. Source Drawer / Citation
+
+**操作：**
+
+- 在 chat 回答中点击任意 citation
+- 或打开前端 source 列表，点击 source detail
+
+**演示目的：**
+
+- 展示用户可以追溯答案来源
+
+**展示点：**
+
+- source catalog 和 source scope 帮助用户理解当前检索范围
+- chunk preview 帮助用户检查回答来源
+- evidence window 保证 `hit_in_window == true`
+
+**已知限制：**
+
+- 当前 source drawer 尚未完整展开 evidence window
+- 完整 evidence window 高亮可作为后续 UI 工作
+
+---
+
+## 5. Workflow Trace
+
+**操作：**
+
+CLI 中加 `--trace`：
+
+```powershell
+python -m app.demo chat --query "What does the SYSTEM DESIGN section of the Milvus paper describe?" --trace
+```
+
+**演示目的：**
+
+- 展示回答背后的 pipeline 可观测性
+
+**展示点：**
+
+- `requested_top_k`、内部 `internal_candidate_k`
+- `applied_rules`：如 `evidence_window`、`source_consistency_cap`
+- `final_sources`：最终使用了哪些 source
+- `trace_warnings`：如有 mixed_sources 等提示
+
+**关键说明：**
+
+- trace 只展示结构化 workflow metadata
+- 不改变回答结果，不暴露模型隐藏推理，不记录完整 prompt 或长 chunk 文本
+
+---
+
+## Backup / Limitation 演示
+
+### TC1: Structured-ref Lexical Injection
+
+**Query:**
 
 ```text
 What differences are summarized in Table 1 of the Milvus paper?
 ```
 
-演示目的：
+**定位：**
 
-- 展示 Table/Figure 编号 query 的 lexical injection。
-- 展示 source consistency cap。
-- 主动说明当前系统能定位 Table 1 引用附近，但还没有完整 table object-level extraction。
+- 不作为核心高光
+- 用于展示 limitation 更稳
 
-预期现象：
+**预期现象：**
 
-- top citation 命中 `19_SIGMOD21_Milvus.pdf:23` 或 Table 1 附近内容。
-- `hit_in_window == true`。
-- final citations 保持在 Milvus PDF。
-- answer 会说明 evidence 没有完整 table body，但能定位到 Table 1 相关上下文。
+- top citation 命中 `19_SIGMOD21_Milvus.pdf:23` 或 Table 1 附近内容
+- `hit_in_window == true`
+- final citations 保持在 Milvus PDF 内
 
-关键观察点：
+**主动说明：**
 
-- 原问题是 BM25 能找到 Table 1，但 dense candidate pool 太浅，chat rerank 看不到。
-- 当前通过窄触发 lexical candidate 注入解决候选可见性问题。
-- 该 query 不作为核心高光，用于展示 limitation 更稳。
+- 系统能定位 Table 1 引用附近，但完整 table body 仍是 future work
+- 展示 structured-ref lexical injection 和 source consistency cap
 
-失败备用说法：
+**失败备用说法：**
 
 - 如果 table body 仍不完整，这是 parser/table object-level metadata 的后续工作，不是 citation pipeline 失败。
 
-## 4. N1: Source Consistency (Not Core Demo)
+---
 
-Query:
+### CSV Source Skill（可选）
+
+如果知识库中已有 CSV，可展示：
+
+```powershell
+python -m app.demo source-detail --source student_projects.csv
+```
+
+**展示点：**
+
+- `source_kind=csv_file`
+- `loader_name=csv.extract`
+- `csv_columns`、`csv_row_count`
+
+**主动说明：**
+
+- CSV 通过 Source Skill Contract 接入，新增 source skill 无需改 retrieval/citation/frontend
+
+---
+
+### Compare（可选）
+
+**Query:**
 
 ```text
-What is Milvus?
+Compare Milvus and the local RAG pipeline
 ```
 
-演示目的：
+**定位：**
 
-- 仅作为备查 query，不建议现场主流程演示。
-- 说明普通开放实体 query 的 source consistency 仍有边界。
+- 作为“能跑通”的跨文档任务类型展示
+- 不作为质量亮点
 
-真实前端走查结果：
+---
 
-- 前两条 citations 通常来自 `19_SIGMOD21_Milvus.pdf`。
-- 低位 citation 仍可能混入 `api_usage.md` / `example.md`。
-- citation label 包含 `Abstract · p.1` 或 `SYSTEM DESIGN · p.3`。
-- answer 是 grounded answer，不是开放聊天。
+## 现场避免事项
 
-建议说法：
-
-- 对普通开放 query，系统仍依赖检索和 rerank 排序；后续需要更正式的 `source_kind` / `doc_type` metadata 与更强 source consistency 策略。
-
-## 5. Summarize
-
-CLI:
-
-```powershell
-python -m app.demo summarize --topic "Milvus system design" --top-k 4
-```
-
-演示目的：
-
-- 展示摘要任务复用 retrieval / citation pipeline。
-
-预期现象：
-
-- 输出 summary。
-- citations 中包含 source、section、label、preview。
-
-失败备用说法：
-
-- 如果 LLM key 不可用，系统可能走 mock fallback；可说明这不影响检索与 citation 链路演示。
-
-## 6. Compare (Optional / Backup)
-
-CLI:
-
-```powershell
-python -m app.demo compare --question "Compare the Milvus paper with the local RAG pipeline docs." --top-k 4
-```
-
-演示目的：
-
-- 展示跨文档任务。
-- 展示 source consistency 不会把 compare query 强行单源化。
-- 作为“能跑通”的任务类型展示，不作为质量亮点。
-
-预期现象：
-
-- citations 至少包含 Milvus PDF 和 local docs。
-- answer 以对比形式组织。
-
-失败备用说法：
-
-- 如果混入额外论文，可说明 compare 是跨源任务，当前仍依赖 rerank 质量，未来可加入 doc_type/source_kind。
-
-## 7. Optional: Source Drawer
-
-操作：
-
-1. 点击任一 citation。
-2. 打开 source drawer。
-3. 查看 source detail 和 chunk previews。
-
-演示目的：
-
-- 展示用户可以追踪答案来源。
-
-已知限制：
-
-- 当前 source drawer 尚未完整展开 evidence window。
-- 完整 evidence window 高亮可作为后续 UI 工作。
-
-## 8. 现场避免事项
-
-- 不临时问复杂 Figure 1 / caption / table body 问题。
-- 不临时问跨页图表数字密集内容。
-- 不现场切换模型或重建大索引。
-- 不删除或重入库核心 demo source。
+- 不临时问复杂 Figure 1 / caption / table body 问题
+- 不现场问跨页图表数字密集内容
+- 不现场切换模型或重建大索引
+- 不删除或重入库核心 demo source
+- 不展示 URL source 作为核心高光（只作为 backup）
+- 不展示 Image OCR 作为核心高光（只作为 backup）
+- 不展示 N1 类普通开放 query 作为核心高光

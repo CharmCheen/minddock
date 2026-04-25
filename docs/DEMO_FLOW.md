@@ -125,6 +125,33 @@ Summarize Milvus system design
 
 ## Backup / Limitation 演示
 
+## Sync-once / Watch Demo
+
+This is optional for Phase 3A. Use it when you want to show that MindDock can keep the local `knowledge_base` aligned without a full rebuild.
+
+Dry-run preview:
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo watch --once --dry-run
+```
+
+Add a small Markdown file under `knowledge_base`, then run:
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo watch --once
+conda run --no-capture-output -n minddock python -m app.demo sources
+```
+
+Modify the same file and run `watch --once` again. The source should stay single and the chunks should be replaced rather than duplicated. Delete the file and run `watch --once`; the source should disappear because the matching Chroma chunks and HashStore entry are removed.
+
+Continuous watch mode:
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo watch --path knowledge_base --debounce 2.0
+```
+
+On Windows, avoid syncing while a large file is still being copied. Use `--once --dry-run` first when the file write state is uncertain.
+
 ### A. Structured Reference Query: Table 1
 
 Query:

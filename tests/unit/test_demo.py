@@ -403,3 +403,32 @@ def test_app_demo_cli_wrapper_calls_own_main(monkeypatch) -> None:
 
     assert len(call_tracker) == 1
     assert call_tracker[0] == ["evaluate", "--dataset", "eval/benchmark/sample_eval_set.jsonl"]
+
+
+def test_cmd_watch_passes_once_dry_run_path_and_debounce(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_watcher(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr("app.rag.watcher.run_watcher", fake_run_watcher)
+
+    from app.demo import main
+
+    main([
+        "watch",
+        "--once",
+        "--dry-run",
+        "--path",
+        "knowledge_base",
+        "--debounce",
+        "2.0",
+    ])
+
+    assert captured == {
+        "path": "knowledge_base",
+        "debounce_seconds": 2.0,
+        "once": True,
+        "dry_run": True,
+    }

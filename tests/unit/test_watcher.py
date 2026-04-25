@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from app.core.config import get_settings
+from app.rag.source_models import IncrementalUpdateResult, SourceDescriptor
 from app.rag.watcher import _WatchHandler
 
 
@@ -52,3 +54,44 @@ def test_watch_handler_translates_move_into_delete_and_create() -> None:
 
     assert service.deleted == [Path("D:/tmp/old.md")]
     assert service.created == [Path("D:/tmp/new.md")]
+
+
+def test_run_watcher_once_runs_sync_and_exits(tmp_path: Path, monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("WATCH_ENABLED", "true")
+    captured: dict[str, object] = {}
+    descriptor = SourceDescriptor(
+        source="notes.md",
+        source_type="file",
+        local_path=tmp_path / "notes.md",
+    )
+    expected = [
+        IncrementalUpdateResult(
+            descriptor=descriptor,
+            event_type="created",
+            status="planned",
+            detail="dry-run: would ingest",
+        )
+    ]
+
+    class FakeIncrementalIngestService:
+        def __init__(self, *, kb_dir, debounce_seconds):
+            captured["kb_dir"] = kb_dir
+            captured["debounce_seconds"] = debounce_seconds
+
+        def sync_directory(self, dry_run: bool):
+            captured["dry_run"] = dry_run
+            return expected
+
+    monkeypatch.setattr("app.rag.watcher.IncrementalIngestService", FakeIncrementalIngestService)
+
+    from app.rag.watcher import run_watcher
+
+    results = run_watcher(path=tmp_path, debounce_seconds=2.5, once=True, dry_run=True)
+
+    assert results == expected
+    assert captured == {
+        "kb_dir": tmp_path.resolve(),
+        "debounce_seconds": 2.5,
+        "dry_run": True,
+    }

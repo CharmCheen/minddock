@@ -143,6 +143,13 @@ For URL sources:
 
 - `page` is usually absent
 - `ref` usually resolves to title or title+section
+- `source_media` is `text`
+- `source_kind` is `web_page`
+- `loader_name` is `url.extract`
+- `canonical_url` and `meta_description` may be present when exposed by the HTML
+
+URL loader warnings are short diagnostics carried in metadata as `loader_warnings`.
+They do not become chunk body text and do not affect embedding input.
 
 ## Loader Extension Model
 
@@ -165,5 +172,6 @@ Examples of future source types:
 - there is no fully generic metadata schema negotiation yet
 - public API filters currently expose only `source`, `section`, and `source_type`
 - URL identity currently follows the final resolved URL, which may differ from the requested URL
+- URL loading supports static HTML extraction only; it does not render JavaScript, crawl links, use login cookies, or bypass anti-bot protections
 - the current catalog is derived from vector-store metadata, not a separate transactional database
 - source inspect intentionally returns truncated preview text rather than raw full chunk bodies

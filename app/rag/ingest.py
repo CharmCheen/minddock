@@ -52,7 +52,7 @@ def _build_page_mode_chunks(
     documents: list[Document] = []
     normalized_text = load_result.text.strip()
     descriptor = load_result.descriptor
-    extra = {k: v for k, v in load_result.metadata.items() if k != "_page_blocks"}
+    extra = _metadata_with_loader_warnings(load_result, exclude_page_blocks=True)
     content_hash = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
     last_ingested_at = utc_now_iso()
     title = load_result.title.strip() or descriptor.display_name
@@ -105,7 +105,7 @@ def _build_structured_chunks(
     """Structured block-level PDF chunking with rich metadata."""
     documents: list[Document] = []
     descriptor = load_result.descriptor
-    extra = {k: v for k, v in load_result.metadata.items() if k != "_page_blocks"}
+    extra = _metadata_with_loader_warnings(load_result, exclude_page_blocks=True)
     content_hash = hashlib.sha256(load_result.text.encode("utf-8")).hexdigest()
     last_ingested_at = utc_now_iso()
     title = load_result.title.strip() or descriptor.display_name
@@ -172,7 +172,7 @@ def _build_chunk_documents(
         return documents
 
     descriptor = load_result.descriptor
-    extra = dict(load_result.metadata)
+    extra = _metadata_with_loader_warnings(load_result)
     content_hash = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
     last_ingested_at = utc_now_iso()
     title = load_result.title.strip() or descriptor.display_name
@@ -218,6 +218,19 @@ def _build_chunk_documents(
         documents.append(Document(page_content=chunk_text, metadata=metadata))
 
     return documents
+
+
+def _metadata_with_loader_warnings(
+    load_result: SourceLoadResult,
+    *,
+    exclude_page_blocks: bool = False,
+) -> dict[str, str]:
+    metadata = dict(load_result.metadata)
+    if exclude_page_blocks:
+        metadata.pop("_page_blocks", None)
+    if load_result.warnings:
+        metadata["loader_warnings"] = ",".join(load_result.warnings)
+    return metadata
 
 
 def build_documents_for_source(

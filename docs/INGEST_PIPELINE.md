@@ -67,9 +67,19 @@ Responsibilities:
 Responsibilities:
 
 - fetch remote HTML
-- normalize title/body text
+- normalize title/body text from static HTML
+- prefer `article` / `main` content and fall back to readable body text
+- remove common noisy regions such as script, style, nav, header, footer, and aside
+- extract canonical URL and description metadata when present
 - attach URL/network metadata
 - return `SourceLoadResult`
+
+Non-goals for the built-in URL loader:
+
+- JavaScript rendering
+- crawling or sitemap traversal
+- login, cookie, or anti-bot flows
+- RSS auto refresh
 
 ## Full Ingest Flow
 
@@ -160,11 +170,26 @@ Shared chunk metadata:
 
 Additional URL metadata:
 
+- `source_media`
+- `source_kind`
+- `loader_name`
 - `requested_url`
 - `final_url`
+- `domain`
 - `status_code`
 - `fetched_at`
 - `ssl_verified`
+- `canonical_url` when available
+- `meta_description` when available
+
+For URL sources, the current metadata convention is:
+
+- `source_media=text`
+- `source_kind=web_page`
+- `loader_name=url.extract`
+
+Loader warnings are short, enum-like diagnostics such as `empty_main_text` or `canonical_missing`.
+They are stored as `loader_warnings` in chunk metadata when present, and are not added to the chunk text used for embeddings.
 
 ## Extension Path
 

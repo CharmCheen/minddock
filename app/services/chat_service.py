@@ -14,6 +14,7 @@ from app.llm.mock import INSUFFICIENT_EVIDENCE
 from app.rag.retrieval_models import GroundedAnswer, RefusalReason, SupportStatus
 from app.rag.retrieval_models import RetrievalFilters
 from app.rag.postprocess import Compressor, Reranker, get_compressor, get_reranker
+from app.rag.vectorstore import get_neighbor_chunks
 from app.runtime import GenerationRuntime, RuntimeRequest
 from app.services.grounded_generation import (
     assess_grounding,
@@ -21,6 +22,7 @@ from app.services.grounded_generation import (
     build_context,
     build_evidence,
     evidence_matches_query,
+    expand_evidence_windows,
     format_evidence_block,
     is_out_of_scope_knowledge_query,
     OUT_OF_SCOPE_ANSWER,
@@ -37,6 +39,57 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
 _CJK_STOP_CHARS = frozenset("\u7684\u4e86\u662f\u4ec0\u4e48\u4e00\u4e0b\u8bf7\u4e2a\u548c\u4e0e\u53ca\u5176\u4e2d")
 _CHAT_DIRECTNESS_WEIGHT = 0.35
 _CHAT_PRE_COMPRESS_SOURCE_CAP = 2
+_CHAT_CANDIDATE_POOL_CAP = 32
+_STRUCTURED_REF_LEXICAL_K = 5
+_SOURCE_CONSISTENCY_LOOKAHEAD = 4
+_STRUCTURED_REF_RE = re.compile(
+    r"(?i)(?:\b(?:table|figure|fig\.?|algorithm)\s*(?:\d+|[ivxlcdm]+)\b|\bappendix\s+[a-z0-9]+\b|(?:表|图|算法)\s*[0-9一二三四五六七八九十]+|附录\s*[A-Za-z0-9一二三四五六七八九十]+)"
+)
+_SOURCE_POINTER_RE = re.compile(r"(?i)\b(?:this|the|milvus|rag|local)?\s*(?:paper|document|doc|file|pdf)\b")
+_CROSS_SOURCE_INTENT_PHRASES = (
+    "compare",
+    "comparison",
+    "contrast",
+    "across documents",
+    "across sources",
+    "all documents",
+    "all docs",
+    "all sources",
+    "multiple documents",
+    "multiple docs",
+    "these papers",
+    "these documents",
+    "these docs",
+    "with the local",
+    "with local",
+    "多篇论文",
+    "所有文档",
+    "全部文档",
+    "对比",
+    "比较",
+)
+_LOCAL_DOC_INTENT_PHRASES = (
+    "local docs",
+    "local doc",
+    "local document",
+    "local documents",
+    "local file",
+    "local files",
+    "local documentation",
+    "project docs",
+    "project doc",
+    "project document",
+    "project documents",
+    "current docs",
+    "current doc",
+    "current document",
+    "current documents",
+    "本地文档",
+    "当前文档",
+    "这些文档",
+    "项目文档",
+    "本地文件",
+)
 
 
 @dataclass
@@ -85,10 +138,12 @@ class ChatService:
 
             retrieval_started = time.perf_counter()
             if precomputed_hits is not None:
-                hits = precomputed_hits
+                hits = self._inject_structured_reference_candidates(query, list(precomputed_hits), filters)
                 retrieval_ms = 0.0
             else:
-                hits = self.search_service.retrieve(query=query, top_k=top_k, filters=filters)
+                candidate_top_k = self._candidate_top_k(top_k)
+                hits = self.search_service.retrieve(query=query, top_k=candidate_top_k, filters=filters)
+                hits = self._inject_structured_reference_candidates(query, hits, filters)
                 retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
             grounded_selection = select_grounded_hits(hits)
             grounded_hits = grounded_selection.hits
@@ -154,13 +209,21 @@ class ChatService:
             rerank_started = time.perf_counter()
             reranked_hits = self.reranker.rerank(query=query, hits=grounded_hits)
             reranked_hits = self._rerank_direct_chat_evidence(query, reranked_hits)
+            reranked_hits = self._prioritize_structured_reference_hits(query, reranked_hits)
+            reranked_hits = self._prioritize_local_doc_hits(query, reranked_hits, filters)
             reranked_hits = self._apply_precompress_source_cap(
                 reranked_hits,
                 _CHAT_PRE_COMPRESS_SOURCE_CAP,
             )
+            reranked_hits = self._apply_source_consistency_cap(query, reranked_hits, top_k, filters)
+            reranked_hits = reranked_hits[:top_k]
+            windowed_hits = expand_evidence_windows(
+                reranked_hits,
+                neighbor_loader=self._load_evidence_neighbors,
+            )
             rerank_ms = round((time.perf_counter() - rerank_started) * 1000, 2)
             compress_started = time.perf_counter()
-            compressed_hits = self.compressor.compress(query=query, hits=reranked_hits)
+            compressed_hits = self.compressor.compress(query=query, hits=windowed_hits)
             compress_ms = round((time.perf_counter() - compress_started) * 1000, 2)
             compressed_hits = self._dedupe_compressed_chat_hits(compressed_hits)
             context = build_context(compressed_hits)
@@ -192,7 +255,7 @@ class ChatService:
 
             logger.info(
                 "Chat completed: query_preview=%s grounded=%d reranked=%d compressed=%d",
-                query[:60], len(grounded_hits), len(reranked_hits), len(compressed_hits),
+                query[:60], len(grounded_hits), len(windowed_hits), len(compressed_hits),
             )
             return ChatServiceResult(
                 answer=answer,
@@ -222,7 +285,7 @@ class ChatService:
                     retrieval_stats=RetrievalStats(
                         retrieved_hits=len(hits),
                         grounded_hits=len(grounded_hits),
-                        reranked_hits=len(reranked_hits),
+                        reranked_hits=len(windowed_hits),
                         returned_hits=len(compressed_hits),
                     ),
                 ),
@@ -323,6 +386,153 @@ class ChatService:
         if hasattr(prompt, "format"):
             return str(prompt.format(**inputs))
         return f"{prompt}\n\nInputs:\n{inputs}"
+
+    def _load_evidence_neighbors(self, hit, before: int, after: int) -> list:
+        return get_neighbor_chunks(hit, before=before, after=after)
+
+    def _candidate_top_k(self, top_k: int) -> int:
+        if top_k <= 0:
+            return top_k
+        return min(max(top_k * 4, top_k + 12), _CHAT_CANDIDATE_POOL_CAP)
+
+    def _inject_structured_reference_candidates(
+        self,
+        query: str,
+        hits: list,
+        filters: RetrievalFilters | None,
+    ) -> list:
+        if not self._has_structured_reference_intent(query):
+            return hits
+
+        retrieve_structured = getattr(self.search_service, "retrieve_structured_reference_candidates", None)
+        if retrieve_structured is None:
+            return hits
+
+        lexical_hits = retrieve_structured(
+            query=query,
+            top_k=_STRUCTURED_REF_LEXICAL_K,
+            filters=filters,
+        )
+        if not lexical_hits:
+            return hits
+
+        lexical_ids = {getattr(hit, "chunk_id", "") for hit in lexical_hits if getattr(hit, "chunk_id", "")}
+        merged = [
+            self._mark_structured_reference_hit(hit) if getattr(hit, "chunk_id", "") in lexical_ids else hit
+            for hit in hits
+        ]
+        seen = {getattr(hit, "chunk_id", "") for hit in merged if getattr(hit, "chunk_id", "")}
+        for hit in lexical_hits:
+            chunk_id = getattr(hit, "chunk_id", "")
+            if chunk_id and chunk_id in seen:
+                continue
+            merged.append(self._mark_structured_reference_hit(hit))
+            if chunk_id:
+                seen.add(chunk_id)
+        return merged
+
+    def _has_structured_reference_intent(self, query: str) -> bool:
+        return bool(_STRUCTURED_REF_RE.search(query))
+
+    def _mark_structured_reference_hit(self, hit):
+        extra_metadata = dict(getattr(hit, "extra_metadata", {}) or {})
+        extra_metadata["retrieval_reason"] = "structured_ref_lexical"
+        return hit.with_updates(extra_metadata=extra_metadata)
+
+    def _prioritize_structured_reference_hits(self, query: str, hits: list) -> list:
+        if not hits or not self._has_structured_reference_intent(query):
+            return hits
+
+        structured_hits = [
+            hit
+            for hit in hits
+            if (getattr(hit, "extra_metadata", {}) or {}).get("retrieval_reason") == "structured_ref_lexical"
+        ]
+        if not structured_hits:
+            return hits
+        structured_ids = {getattr(hit, "chunk_id", "") for hit in structured_hits}
+        remaining = [hit for hit in hits if getattr(hit, "chunk_id", "") not in structured_ids]
+        return structured_hits + remaining
+
+    def _prioritize_local_doc_hits(self, query: str, hits: list, filters: RetrievalFilters | None) -> list:
+        if not hits or not self._has_local_docs_intent(query):
+            return hits
+        if filters is not None and filters.sources:
+            return hits
+
+        local_hits = [hit for hit in hits if self._is_local_markdown_source(hit)]
+        if not local_hits:
+            return hits
+        return local_hits
+
+    def _apply_source_consistency_cap(
+        self,
+        query: str,
+        hits: list,
+        top_k: int,
+        filters: RetrievalFilters | None,
+    ) -> list:
+        if len(hits) <= 1 or top_k <= 1:
+            return hits
+        if filters is not None and filters.sources:
+            return hits
+        if self._has_local_docs_intent(query) or self._has_cross_source_intent(query):
+            return hits
+
+        preferred_source = self._chat_source_key(hits[0])
+        if not preferred_source:
+            return hits
+        if not self._should_apply_source_consistency(query, hits, top_k, preferred_source):
+            return hits
+
+        preferred = [hit for hit in hits if self._chat_source_key(hit) == preferred_source]
+        if len(preferred) < 2:
+            return hits
+        others = [hit for hit in hits if self._chat_source_key(hit) != preferred_source]
+        return preferred + others
+
+    def _should_apply_source_consistency(
+        self,
+        query: str,
+        hits: list,
+        top_k: int,
+        preferred_source: str,
+    ) -> bool:
+        if self._has_structured_reference_intent(query) and self._has_source_pointer_intent(query):
+            return True
+
+        lookahead = min(len(hits), max(top_k, _SOURCE_CONSISTENCY_LOOKAHEAD))
+        front = hits[:lookahead]
+        preferred_count = sum(1 for hit in front if self._chat_source_key(hit) == preferred_source)
+        return preferred_count >= 2 and preferred_count / max(lookahead, 1) >= 0.5
+
+    def _has_source_pointer_intent(self, query: str) -> bool:
+        return bool(_SOURCE_POINTER_RE.search(query))
+
+    def _has_cross_source_intent(self, query: str) -> bool:
+        normalized = " ".join(query.lower().split())
+        if not normalized:
+            return False
+        return any(phrase in normalized for phrase in _CROSS_SOURCE_INTENT_PHRASES)
+
+    def _has_local_docs_intent(self, query: str) -> bool:
+        normalized = " ".join(query.lower().split())
+        if not normalized:
+            return False
+        return any(phrase in normalized for phrase in _LOCAL_DOC_INTENT_PHRASES)
+
+    def _is_local_markdown_source(self, hit) -> bool:
+        candidates = [
+            getattr(hit, "source", ""),
+            getattr(hit, "title", ""),
+            str((getattr(hit, "extra_metadata", {}) or {}).get("source_path") or ""),
+            str((getattr(hit, "extra_metadata", {}) or {}).get("source") or ""),
+        ]
+        return any(self._has_markdown_extension(candidate) for candidate in candidates)
+
+    def _has_markdown_extension(self, value: str) -> bool:
+        normalized = value.strip().lower()
+        return normalized.endswith(".md") or normalized.endswith(".markdown")
 
     def _rerank_direct_chat_evidence(self, query: str, hits: list) -> list:
         """Nudge chat evidence toward passages that directly answer the question."""

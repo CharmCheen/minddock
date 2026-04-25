@@ -17,10 +17,20 @@ export const AgentMessageList: React.FC = () => {
   const currentProgress = [...events].reverse().find((event) => event.event === 'progress');
   const rawPhase = (currentProgress?.data as { phase?: string } | undefined)?.phase;
   const currentPhaseText = rawPhase ? PHASE_LABELS[rawPhase] ?? rawPhase : null;
+  const visibleArtifacts = React.useMemo(() => {
+    if (taskType !== 'compare') {
+      return artifacts;
+    }
+    const structuredCompare = artifacts.find((artifact) => {
+      const content = artifact.content as { schema_name?: string } | undefined;
+      return artifact.kind === 'structured_json' && content?.schema_name === 'compare.v1';
+    });
+    return structuredCompare ? [structuredCompare] : artifacts;
+  }, [artifacts, taskType]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [artifacts, status]);
+  }, [visibleArtifacts, status]);
 
   if (!currentUserQuery && artifacts.length === 0 && status === 'idle') {
     return (
@@ -93,7 +103,7 @@ export const AgentMessageList: React.FC = () => {
           </div>
         )}
 
-        {(artifacts.length > 0 || status === 'running') && (
+        {(visibleArtifacts.length > 0 || status === 'running') && (
           <div
             style={{
               alignSelf: 'flex-start',
@@ -131,7 +141,7 @@ export const AgentMessageList: React.FC = () => {
               <span style={{ fontSize: '14px', color: '#1e293b', fontWeight: 500, letterSpacing: '0.01em' }}>{resultLabel}</span>
             </div>
 
-            {status === 'running' && artifacts.length === 0 && (
+            {status === 'running' && visibleArtifacts.length === 0 && (
               <div
                 style={{
                   padding: '18px 20px',
@@ -164,15 +174,15 @@ export const AgentMessageList: React.FC = () => {
               </div>
             )}
 
-            {artifacts.length > 0 && (
+            {visibleArtifacts.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                {artifacts.map((artifact, index) => (
+                {visibleArtifacts.map((artifact, index) => (
                   <RawArtifactViewer key={artifact.artifact_id || index} artifact={artifact} />
                 ))}
               </div>
             )}
 
-            {status === 'running' && artifacts.length > 0 && (
+            {status === 'running' && visibleArtifacts.length > 0 && (
               <div style={{ padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <svg viewBox="0 0 24 24" width="16" height="16" style={{ animation: 'spin 1.2s linear infinite', color: '#3b82f6', flexShrink: 0 }}>
                   <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" />

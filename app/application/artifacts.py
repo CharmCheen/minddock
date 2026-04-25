@@ -105,22 +105,7 @@ class ArtifactBuilder:
         citations: tuple[dict[str, object], ...] = ()
         if result.grounded_answer is not None:
             grounded_metadata["grounded_answer"] = result.grounded_answer.to_api_dict()
-            # Extract citations from evidence for frontend consumption
-            if result.grounded_answer.evidence:
-                citations = tuple(
-                    {
-                        "doc_id": e.doc_id,
-                        "chunk_id": e.chunk_id,
-                        "source": e.source,
-                        "snippet": e.snippet,
-                        "page": e.page,
-                        "anchor": e.anchor,
-                        "ref": e.chunk_id,
-                        "inline_ref": f"[{i + 1}]",
-                        "chunk_index": i,
-                    }
-                    for i, e in enumerate(result.grounded_answer.evidence)
-                )
+            citations = tuple(self._citation_payload(citation, i) for i, citation in enumerate(result.citations))
         return (
             TextArtifact(
                 artifact_id=self._next_id("text"),
@@ -139,22 +124,7 @@ class ArtifactBuilder:
         citations: tuple[dict[str, object], ...] = ()
         if result.grounded_answer is not None:
             grounded_metadata["grounded_answer"] = result.grounded_answer.to_api_dict()
-            # Extract citations from evidence for frontend consumption
-            if result.grounded_answer.evidence:
-                citations = tuple(
-                    {
-                        "doc_id": e.doc_id,
-                        "chunk_id": e.chunk_id,
-                        "source": e.source,
-                        "snippet": e.snippet,
-                        "page": e.page,
-                        "anchor": e.anchor,
-                        "ref": e.chunk_id,
-                        "inline_ref": f"[{i + 1}]",
-                        "chunk_index": i,
-                    }
-                    for i, e in enumerate(result.grounded_answer.evidence)
-                )
+            citations = tuple(self._citation_payload(citation, i) for i, citation in enumerate(result.citations))
         artifacts: list[BaseArtifact] = [
             TextArtifact(
                 artifact_id=self._next_id("text"),
@@ -206,17 +176,7 @@ class ArtifactBuilder:
                 for evidence in list(point.left_evidence or []) + list(point.right_evidence or []):
                     if evidence.chunk_id not in seen_chunk_ids:
                         seen_chunk_ids.add(evidence.chunk_id)
-                        citations.append({
-                            "doc_id": evidence.doc_id,
-                            "chunk_id": evidence.chunk_id,
-                            "source": evidence.source,
-                            "snippet": evidence.snippet,
-                            "page": evidence.page,
-                            "anchor": evidence.anchor,
-                            "ref": evidence.chunk_id,
-                            "inline_ref": f"[{idx + 1}]",
-                            "chunk_index": idx,
-                        })
+                        citations.append(self._citation_payload(evidence, idx))
                         idx += 1
 
         return (
@@ -276,6 +236,17 @@ class ArtifactBuilder:
             payload=dict(result.output),
             summary_text=summary,
         )
+
+    @staticmethod
+    def _citation_payload(record, index: int) -> dict[str, object]:
+        if hasattr(record, "to_api_dict"):
+            data = dict(record.to_api_dict())
+        else:
+            data = dict(record)
+        data["ref"] = data.get("ref") or data.get("chunk_id")
+        data["inline_ref"] = f"[{index + 1}]"
+        data["chunk_index"] = index
+        return data
 
     @staticmethod
     def _build_search_item(hit: SearchHitRecord) -> SearchResultItemArtifact:

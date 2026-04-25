@@ -87,6 +87,29 @@ class LangChainChromaStore:
         result = self._store.get(where={"doc_id": doc_id}, include=[])
         return list(result.get("ids") or [])
 
+    def get_chunks_by_ids(
+        self,
+        chunk_ids: list[str],
+        filters: RetrievalFilters | None = None,
+    ) -> list[RetrievedChunk]:
+        """Return complete chunks for ids, preserving the requested id order."""
+
+        ordered_ids = [chunk_id for chunk_id in dict.fromkeys(chunk_ids) if chunk_id]
+        if not ordered_ids:
+            return []
+
+        result = self._store._collection.get(ids=ordered_ids, include=["documents", "metadatas"])
+        ids = result.get("ids") or []
+        documents = result.get("documents") or []
+        metadatas = result.get("metadatas") or []
+        by_id: dict[str, RetrievedChunk] = {}
+        for chunk_id, document, metadata in zip(ids, documents, metadatas, strict=True):
+            metadata = dict(metadata or {})
+            by_id[str(chunk_id)] = RetrievedChunk.from_raw(str(document or ""), metadata, None)
+
+        hits = [by_id[chunk_id] for chunk_id in ordered_ids if chunk_id in by_id]
+        return _apply_post_filters(hits, filters)
+
     def delete_ids(self, ids: list[str]) -> int:
         if not ids:
             return 0
@@ -179,6 +202,47 @@ class LangChainChromaStore:
         result = self._store.get(where={"doc_id": doc_id}, include=[])
         ids = result.get("ids") or []
         return len(ids)
+
+    def get_neighbor_chunks(
+        self,
+        hit: RetrievedChunk,
+        *,
+        before: int,
+        after: int,
+    ) -> list[RetrievedChunk]:
+        """Return chunks from the same document around a retrieved hit.
+
+        This is a read-only helper for answer/citation evidence windows. It
+        prefers structured PDF ``order_in_doc`` metadata and falls back to the
+        numeric suffix in ``chunk_id`` for older/non-PDF chunks.
+        """
+
+        if not hit.doc_id:
+            return [hit]
+
+        center_order = _chunk_order_value_from_hit(hit)
+        if center_order is None:
+            return [hit]
+
+        result = self._store.get(where={"doc_id": hit.doc_id}, include=["metadatas", "documents"])
+        metadatas = result.get("metadatas") or []
+        documents = result.get("documents") or []
+        if not metadatas:
+            return [hit]
+
+        lower = center_order - max(before, 0)
+        upper = center_order + max(after, 0)
+        neighbors: list[tuple[int, RetrievedChunk]] = []
+        for metadata, document in zip(metadatas, documents, strict=True):
+            metadata = dict(metadata or {})
+            order = _chunk_order_value_from_metadata(metadata)
+            if order is None or order < lower or order > upper:
+                continue
+            neighbors.append((order, RetrievedChunk.from_raw(str(document or ""), metadata, None)))
+
+        neighbors.sort(key=lambda item: (item[0], item[1].chunk_id))
+        chunks = [chunk for _, chunk in neighbors]
+        return chunks or [hit]
 
     def list_sources(self, query: CatalogQuery | None = None) -> list[SourceCatalogEntry]:
         details = self.list_source_details(query=query)
@@ -398,6 +462,17 @@ def count_document_chunks(doc_id: str) -> int:
     return get_vectorstore().count_document_chunks(doc_id)
 
 
+def get_neighbor_chunks(
+    hit: RetrievedChunk,
+    *,
+    before: int,
+    after: int,
+) -> list[RetrievedChunk]:
+    """Return same-document neighbors around a retrieved hit."""
+
+    return get_vectorstore().get_neighbor_chunks(hit, before=before, after=after)
+
+
 def replace_document(
     *,
     doc_id: str,
@@ -501,8 +576,31 @@ def _first_non_empty(rows: list[dict[str, object]], key: str) -> str | None:
 def _chunk_sort_key(row: dict[str, object]) -> tuple[int, str]:
     metadata = row["metadata"]
     chunk_id = str(metadata.get("chunk_id") or "")
-    chunk_index = _extract_chunk_index(chunk_id)
-    return (chunk_index if chunk_index is not None else 10**9, chunk_id)
+    chunk_order = _chunk_order_value_from_metadata(metadata)
+    return (chunk_order if chunk_order is not None else 10**9, chunk_id)
+
+
+def _chunk_order_value_from_hit(hit: RetrievedChunk) -> int | None:
+    order = _parse_int(hit.extra_metadata.get("order_in_doc"))
+    if order is not None:
+        return order
+    return _extract_chunk_index(hit.chunk_id)
+
+
+def _chunk_order_value_from_metadata(metadata: dict[str, object]) -> int | None:
+    order = _parse_int(metadata.get("order_in_doc"))
+    if order is not None:
+        return order
+    return _extract_chunk_index(str(metadata.get("chunk_id") or ""))
+
+
+def _parse_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _extract_chunk_index(chunk_id: str) -> int | None:

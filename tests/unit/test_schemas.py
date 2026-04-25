@@ -539,6 +539,49 @@ def test_citation_item_from_record_accepts_dataclass() -> None:
     assert citation.chunk_id == "c1"
 
 
+def test_evidence_item_from_citation_record_preserves_window_metadata() -> None:
+    evidence = EvidenceItem.from_record(
+        CitationRecord(
+            doc_id="d1",
+            chunk_id="c2",
+            source="kb/doc.md",
+            snippet="expanded",
+            hit_chunk_id="c2",
+            window_chunk_ids=("c1", "c2", "c3"),
+            page_start=3,
+            page_end=4,
+            section_title="方法设计",
+            block_types=("paragraph",),
+            hit_order_in_doc=7,
+            hit_block_type="paragraph",
+            hit_page=3,
+            is_windowed=True,
+            is_hit_only_fallback=False,
+            citation_label="方法设计 · pp.3-4",
+            evidence_preview="compact preview",
+            window_chunk_count=3,
+            hit_in_window=True,
+            evidence_window_reason="neighbor",
+        )
+    )
+
+    assert evidence.hit_chunk_id == "c2"
+    assert evidence.window_chunk_ids == ["c1", "c2", "c3"]
+    assert evidence.page_start == 3
+    assert evidence.page_end == 4
+    assert evidence.section_title == "方法设计"
+    assert evidence.hit_order_in_doc == 7
+    assert evidence.hit_block_type == "paragraph"
+    assert evidence.hit_page == 3
+    assert evidence.is_windowed is True
+    assert evidence.is_hit_only_fallback is False
+    assert evidence.citation_label == "方法设计 · pp.3-4"
+    assert evidence.evidence_preview == "compact preview"
+    assert evidence.window_chunk_count == 3
+    assert evidence.hit_in_window is True
+    assert evidence.evidence_window_reason == "neighbor"
+
+
 def _item_to_entry(item: SourceCatalogItem) -> SourceCatalogEntry:
     return SourceCatalogEntry(
         doc_id=item.doc_id,

@@ -18,6 +18,19 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
     return citation.source || citation.title || citation.doc_id;
   };
 
+  const getCitationLabel = (citation: CitationItem): string | null => {
+    if (citation.citation_label) return citation.citation_label;
+    const pageStart = citation.page_start ?? citation.page_num ?? citation.page;
+    const pageEnd = citation.page_end ?? citation.page_num ?? citation.page;
+    if (pageStart != null && pageEnd != null && pageEnd !== pageStart) return `pp.${pageStart}-${pageEnd}`;
+    if (pageStart != null) return `p.${pageStart}`;
+    return citation.section_title || citation.section || null;
+  };
+
+  const getCitationPreview = (citation: CitationItem): string | null => {
+    return citation.evidence_preview || citation.snippet || null;
+  };
+
   return (
     <div style={{
       marginTop: '24px',
@@ -106,7 +119,20 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
               }}>
                 {getCitationTitle(c)}
               </div>
-              {c.snippet && (
+              {getCitationLabel(c) && (
+                <div style={{
+                  fontSize: '11px',
+                  color: '#2563eb',
+                  fontWeight: 600,
+                  marginBottom: '5px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {getCitationLabel(c)}
+                </div>
+              )}
+              {getCitationPreview(c) && (
                 <div style={{
                   fontSize: '12px',
                   color: '#475569',
@@ -116,18 +142,23 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
                   WebkitLineClamp: 2,
                   WebkitBoxOrient: 'vertical',
                 }}>
-                  {c.snippet}
+                  {getCitationPreview(c)}
                 </div>
               )}
               <div style={{
                 display: 'flex',
-                gap: '12px',
+                gap: '8px',
                 marginTop: '6px',
                 fontSize: '11px',
-                color: '#94a3b8'
+                color: '#94a3b8',
+                flexWrap: 'wrap'
               }}>
-                {c.page_num && <span>p.{c.page_num}</span>}
-                {c.section && (
+                {c.window_chunk_count != null && c.window_chunk_count > 0 && (
+                  <span>Window: {c.window_chunk_count} chunk{c.window_chunk_count === 1 ? '' : 's'}</span>
+                )}
+                {c.hit_in_window && <span>Hit in window</span>}
+                {c.is_hit_only_fallback && <span>Hit-only fallback</span>}
+                {c.section && !c.citation_label && (
                   <span style={{
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',

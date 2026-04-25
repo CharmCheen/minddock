@@ -179,6 +179,23 @@ class CitationItem(BaseModel):
     section: str | None = None
     location: str | None = None
     ref: str | None = None
+    hit_chunk_id: str | None = None
+    window_chunk_ids: list[str] = Field(default_factory=list)
+    page_start: int | None = None
+    page_end: int | None = None
+    section_title: str | None = None
+    block_types: list[str] = Field(default_factory=list)
+    table_id: str | None = None
+    hit_order_in_doc: int | None = None
+    hit_block_type: str | None = None
+    hit_page: int | None = None
+    is_windowed: bool = False
+    is_hit_only_fallback: bool = False
+    citation_label: str | None = None
+    evidence_preview: str | None = None
+    window_chunk_count: int = 0
+    hit_in_window: bool = False
+    evidence_window_reason: str | None = None
 
     @classmethod
     def from_record(cls, record: CitationRecord | Mapping[str, object]) -> "CitationItem":
@@ -200,20 +217,32 @@ class EvidenceItem(BaseModel):
     source_version: str | None = None
     content_hash: str | None = None
     freshness: Literal["fresh", "stale_possible", "invalidated"] = "fresh"
+    hit_chunk_id: str | None = None
+    window_chunk_ids: list[str] = Field(default_factory=list)
+    page_start: int | None = None
+    page_end: int | None = None
+    section_title: str | None = None
+    block_types: list[str] = Field(default_factory=list)
+    table_id: str | None = None
+    hit_order_in_doc: int | None = None
+    hit_block_type: str | None = None
+    hit_page: int | None = None
+    is_windowed: bool = False
+    is_hit_only_fallback: bool = False
+    citation_label: str | None = None
+    evidence_preview: str | None = None
+    window_chunk_count: int = 0
+    hit_in_window: bool = False
+    evidence_window_reason: str | None = None
 
     @classmethod
     def from_record(cls, record: EvidenceObject | Mapping[str, object] | CitationRecord) -> "EvidenceItem":
         if isinstance(record, EvidenceObject):
             return cls(**record.to_api_dict())
         if isinstance(record, CitationRecord):
-            return cls(
-                doc_id=record.doc_id,
-                chunk_id=record.chunk_id,
-                source=record.source,
-                snippet=record.snippet,
-                page=record.page,
-                anchor=record.anchor,
-            )
+            data = record.to_api_dict()
+            allowed = set(cls.model_fields)
+            return cls(**{key: value for key, value in data.items() if key in allowed})
         return cls(**dict(record))
 
 
@@ -238,33 +267,11 @@ class GroundedAnswerItem(BaseModel):
                 refusal_reason=None if record.refusal_reason is None else record.refusal_reason.value,
             )
         data = dict(record)
-        grounded = GroundedAnswer(
-            answer=str(data.get("answer", "")),
-            evidence=tuple(
-                EvidenceObject(
-                    doc_id=str(item.get("doc_id", "")),
-                    chunk_id=str(item.get("chunk_id", "")),
-                    source=str(item.get("source", "")),
-                    snippet=str(item.get("snippet", "")),
-                    page=item.get("page"),
-                    anchor=item.get("anchor"),
-                    score=item.get("score"),
-                    source_version=item.get("source_version"),
-                    content_hash=item.get("content_hash"),
-                    freshness=EvidenceFreshness(str(item.get("freshness") or "fresh")),
-                )
-                for item in data.get("evidence", [])
-            ),
-            support_status=SupportStatus(str(data.get("support_status") or "supported")),
-            refusal_reason=None
-            if data.get("refusal_reason") is None
-            else RefusalReason(str(data.get("refusal_reason"))),
-        )
         return cls(
-            answer=grounded.answer,
-            evidence=[EvidenceItem.from_record(item) for item in grounded.evidence],
-            support_status=grounded.support_status.value,
-            refusal_reason=None if grounded.refusal_reason is None else grounded.refusal_reason.value,
+            answer=str(data.get("answer", "")),
+            evidence=[EvidenceItem.from_record(item) for item in data.get("evidence", [])],
+            support_status=str(data.get("support_status") or "supported"),
+            refusal_reason=None if data.get("refusal_reason") is None else str(data.get("refusal_reason")),
         )
 
 
@@ -316,21 +323,13 @@ class CompareResultItem(BaseModel):
                 refusal_reason=None if record.refusal_reason is None else record.refusal_reason.value,
             )
         data = dict(record)
-        compare = GroundedCompareResult(
-            query=str(data.get("query", "")),
-            common_points=tuple(_compared_point_from_mapping(item) for item in data.get("common_points", [])),
-            differences=tuple(_compared_point_from_mapping(item) for item in data.get("differences", [])),
-            conflicts=tuple(_compared_point_from_mapping(item) for item in data.get("conflicts", [])),
-            support_status=SupportStatus(str(data.get("support_status") or "supported")),
-            refusal_reason=None if data.get("refusal_reason") is None else RefusalReason(str(data.get("refusal_reason"))),
-        )
         return cls(
-            query=compare.query,
-            common_points=[ComparedPointItem.from_record(item) for item in compare.common_points],
-            differences=[ComparedPointItem.from_record(item) for item in compare.differences],
-            conflicts=[ComparedPointItem.from_record(item) for item in compare.conflicts],
-            support_status=compare.support_status.value,
-            refusal_reason=None if compare.refusal_reason is None else compare.refusal_reason.value,
+            query=str(data.get("query", "")),
+            common_points=[ComparedPointItem.from_record(item) for item in data.get("common_points", [])],
+            differences=[ComparedPointItem.from_record(item) for item in data.get("differences", [])],
+            conflicts=[ComparedPointItem.from_record(item) for item in data.get("conflicts", [])],
+            support_status=str(data.get("support_status") or "supported"),
+            refusal_reason=None if data.get("refusal_reason") is None else str(data.get("refusal_reason")),
         )
 
 

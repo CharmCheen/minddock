@@ -41,9 +41,12 @@ export const useAgentStore = create<AgentState>((set) => ({
     events: [...state.events, event] 
   })),
 
-  appendArtifact: (artifact) => set((state) => ({
-    artifacts: [...state.artifacts, artifact]
-  })),
+  appendArtifact: (artifact) => set((state) => {
+    if (artifact.artifact_id && state.artifacts.some((existing) => existing.artifact_id === artifact.artifact_id)) {
+      return { artifacts: state.artifacts };
+    }
+    return { artifacts: [...state.artifacts, artifact] };
+  }),
 
   finishRun: () => set({ status: 'completed' }),
   

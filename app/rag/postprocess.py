@@ -17,6 +17,27 @@ _SENTENCE_RE = re.compile(r"(?<=[.!?。！？])\s+")
 _MAX_COMPRESSED_CHARS = 280
 _MAX_COMPRESSED_HITS = 4
 _MAX_COMPRESSED_SENTENCES = 2
+_SECTION_CUE_TOKENS = frozenset(
+    {
+        "section",
+        "chapter",
+        "part",
+        "heading",
+        "节",
+        "章节",
+        "部分",
+    }
+)
+_COMMON_SECTION_TITLES = frozenset(
+    {
+        "abstract",
+        "introduction",
+        "background",
+        "conclusion",
+        "references",
+        "related work",
+    }
+)
 
 
 def _tokenize(text: str) -> list[str]:
@@ -33,6 +54,49 @@ def _overlap_score(query: str, text: str) -> float:
     density = matches / max(len(text_tokens), 1)
     coverage = len(query_tokens.intersection(text_tokens)) / max(len(query_tokens), 1)
     return density + coverage
+
+
+def _normalize_section_text(text: str) -> str:
+    tokens = _tokenize(text)
+    return " ".join(tokens)
+
+
+def _section_title_match_score(query: str, section_title: str | None) -> float:
+    """Score high-confidence matches between a query and a chunk section title."""
+
+    if not section_title:
+        return 0.0
+
+    normalized_section = _normalize_section_text(section_title)
+    if not normalized_section:
+        return 0.0
+
+    section_tokens = normalized_section.split()
+    if len(normalized_section) < 4 or all(token.isdigit() for token in section_tokens):
+        return 0.0
+    if len(section_tokens) == 1 and len(section_tokens[0]) <= 2:
+        return 0.0
+
+    normalized_query = _normalize_section_text(query)
+    if not normalized_query:
+        return 0.0
+
+    query_tokens = set(normalized_query.split())
+    has_section_cue = bool(query_tokens.intersection(_SECTION_CUE_TOKENS))
+    is_common_section = normalized_section in _COMMON_SECTION_TITLES
+
+    if normalized_section in normalized_query:
+        if is_common_section and not has_section_cue:
+            return 0.25
+        return 0.9 if has_section_cue else 0.75
+
+    section_token_set = set(section_tokens)
+    if len(section_token_set) >= 2 and section_token_set.issubset(query_tokens):
+        if is_common_section and not has_section_cue:
+            return 0.2
+        return 0.65 if has_section_cue else 0.45
+
+    return 0.0
 
 
 class Reranker(ABC):
@@ -83,8 +147,18 @@ class HeuristicReranker(Reranker):
             )
             lexical_score = _overlap_score(query, text)
             metadata_score = _overlap_score(query, metadata_text)
+            section_score = _section_title_match_score(
+                query,
+                hit.section or str(hit.extra_metadata.get("section_title") or ""),
+            )
             short_bonus = 0.1 / max(math.log(len(text) + 10), 1.0)
-            total = (distance_score * 0.45) + (lexical_score * 0.4) + (metadata_score * 0.1) + short_bonus
+            total = (
+                (distance_score * 0.45)
+                + (lexical_score * 0.4)
+                + (metadata_score * 0.1)
+                + (section_score * 0.35)
+                + short_bonus
+            )
 
             updated_hit = hit.with_updates(
                 rerank_score=round(total, 6),

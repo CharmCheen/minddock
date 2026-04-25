@@ -1,176 +1,215 @@
-# MindDock — 快速启动指南
+# MindDock 运行说明
 
-> 面向本地私有文档的 AI 知识管理助手后端。提供 RAG 检索、引用溯源、多任务对比/摘要等能力。
+本文档给出最稳的本地运行路径，用于毕业设计演示和答辩前自检。
 
----
+## 1. 环境要求
 
-## 前提条件
+- Python 3.11
+- Conda 环境名：`minddock`
+- Node.js 18+，npm
+- 可选：LLM API key。未配置时系统会使用 mock fallback，流程可跑通，但生成质量不代表真实模型效果。
+- Chroma 数据目录：`data/chroma/`
+- 演示文档目录：`knowledge_base/`
 
-* Python 3.11+
-* Node.js 18+ (for frontend)
-* pip 或 uv
+## 2. 创建后端环境
 
----
+首次运行：
 
-## 方式一：本地开发启动（推荐用于开发调试）
-
-### 1. 安装后端依赖
-
-```bash
-# 使用 uv（推荐，fast）
-uv sync
-
-# 或使用 pip
-pip install -e .
+```powershell
+conda env create -f environment.yml
+conda activate minddock
 ```
 
-### 2. 配置环境变量
+如果环境已存在：
 
-```bash
-# 复制示例环境文件
-cp .env.minimax.local .env
-
-# 编辑 .env 填入你的 LLM API key
-# LLM_API_KEY=sk-...
-# LLM_BASE_URL=https://api.minimaxi.com/v1  # 或 https://api.openai.com/v1
-# LLM_MODEL=MiniMax-M2.7  # 或 gpt-4o-mini
+```powershell
+conda activate minddock
 ```
 
-### 3. 启动后端服务
+安装项目依赖：
 
-```bash
+```powershell
+pip install -e ".[dev]"
+```
+
+## 3. LLM 配置
+
+如果需要真实模型生成，请准备 `.env` 或通过前端 runtime settings 配置模型。
+
+可参考：
+
+```powershell
+copy .env.minimax.local .env
+```
+
+然后填入自己的 API key。不要把真实 key 提交到 Git。
+
+没有 API key 时，系统会走 mock fallback，适合验证 API、检索、citation、source 展示链路。
+
+## 4. 构建或复用索引
+
+仓库中已有 `knowledge_base/` 示例文档，也可能已有 `data/chroma/` 索引。
+
+如果需要重新入库：
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo ingest
+```
+
+如果只想追加 URL：
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo ingest --no-rebuild --url https://example.com
+```
+
+## 5. 启动后端
+
+推荐演示命令：
+
+```powershell
+conda activate minddock
+python -m app.demo serve
+```
+
+默认地址：
+
+```text
+http://127.0.0.1:8000
+```
+
+也可以直接使用 uvicorn：
+
+```powershell
 uvicorn app.main:app --reload --port 8000
 ```
 
-服务地址: http://127.0.0.1:8000
+健康检查：
 
-### 4. 入库示例文档（首次运行）
-
-```bash
-# 用内置 CLI 入库 knowledge_base/ 目录下的所有文档
-python -m app.rag.ingest
-
-# 如果想重建（清空旧数据后重新入库）
-python -m app.rag.ingest --rebuild
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo health --via-api
 ```
 
-### 5. 启动前端（独立运行）
+或浏览器打开：
 
-```bash
+```text
+http://127.0.0.1:8000/health
+http://127.0.0.1:8000/docs
+```
+
+## 6. 启动前端
+
+```powershell
 cd frontend
 npm install
 npm run dev
 ```
 
-前端地址: http://localhost:5173
+Vite 默认地址：
 
----
-
-## 方式二：Docker Compose 启动（推荐用于演示/快速复现）
-
-### 1. 配置环境变量
-
-```bash
-cp .env.minimax.local .env
-# 编辑 .env 填入你的 LLM API key
+```text
+http://localhost:5173
 ```
 
-### 2. 构建并启动
+前端构建检查：
 
-```bash
-docker-compose up --build
+```powershell
+cd frontend
+npm run build
 ```
 
-### 3. 入库示例文档（容器内执行）
+## 7. Demo CLI 常用命令
 
-```bash
-# 进入运行中的容器
-docker exec -it minddock-backend bash
+列出已索引 sources：
 
-# 执行入库
-python -m app.rag.ingest
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo sources
 ```
 
-### 4. 验证
+查看某个 source 的 chunks：
 
-```bash
-# 健康检查
-curl http://localhost:8000/health
-
-# 列出已入库文档
-curl http://localhost:8000/sources
-
-# 发起一个 chat 问答测试
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"query": "这是什么系统？", "top_k": 3}'
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo source-chunks --source rag_pipeline.md --limit 5
 ```
 
----
+检索：
 
-## 核心 API 快速验证
-
-### 健康检查
-
-```bash
-curl http://127.0.0.1:8000/health
-# {"status":"ok","service":"MindDock","version":"0.1.0"}
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo search --query "Milvus system design" --top-k 4
 ```
 
-### 文档入库
+问答：
 
-```bash
-curl -X POST http://127.0.0.1:8000/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"rebuild": false, "urls": []}'
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo chat --query "What does the SYSTEM DESIGN section of the Milvus paper describe?" --top-k 4
 ```
 
-### 检索问答
+摘要：
 
-```bash
-# chat（带引用）
-curl -X POST http://127.0.0.1:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"query": "你的知识库包含哪些内容？", "top_k": 3}'
-
-# summarize（摘要）
-curl -X POST http://127.0.0.1:8000/summarize \
-  -H "Content-Type: application/json" \
-  -d '{"topic": "RAG", "top_k": 5, "mode": "basic"}'
-
-# compare（对比分析）
-curl -X POST http://127.0.0.1:8000/compare \
-  -H "Content-Type: application/json" \
-  -d '{"question": "比较 RAG 和 Fine-tuning 两种方法", "top_k": 6}'
-
-# search（纯检索）
-curl -X POST http://127.0.0.1:8000/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "知识管理", "top_k": 5}'
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo summarize --topic "Milvus system design" --top-k 4
 ```
 
----
+对比：
 
-## 目录结构说明
-
-```
-knowledge_base/    # 源文档目录，放入 .md/.txt/.pdf 文件
-data/chroma/      # Chroma 向量数据库持久化目录
-logs/             # 运行日志目录
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo compare --question "Compare the Milvus paper with the local RAG pipeline docs." --top-k 4
 ```
 
----
+评测：
 
-## 常见问题
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo evaluate --dataset eval/benchmark/sample_eval_set.jsonl
+```
 
-### Q: 启动报 "langchain / langgraph not installed"
-A: `uv sync` 会自动安装所有依赖。如使用 pip，直接 `pip install -e .`
+## 8. 测试命令
 
-### Q: 没有 LLM API key 也能跑吗？
-A: 可以。后端内置 MockLLM fallback，会返回预设答案。但无法展示真实生成效果。
+近期 RAG citation / retrieval 核心回归：
 
-### Q: 入库后检索结果为空
-A: 检查 knowledge_base/ 下是否有支持的文档（.md / .txt / .pdf）。也可以先调用 `/sources` 确认已有文档入库。
+```powershell
+conda run --no-capture-output -n minddock python -m pytest tests/unit/test_evidence_window.py tests/unit/test_retrieval_models.py tests/unit/test_pdf_citation.py tests/unit/test_citation.py tests/unit/test_schemas.py tests/unit/test_postprocess.py tests/unit/test_chat_service.py tests/unit/test_search_service.py -q
+```
 
-### Q: 前端无法连接后端
-A: 确认后端在 8000 端口运行。前端默认连接 `http://127.0.0.1:8000`，如需修改，配置 `frontend/.env` 中的 `VITE_API_BASE_URL`。
+项目 baseline：
+
+```powershell
+conda run --no-capture-output -n minddock python scripts/run_ci_baseline.py
+```
+
+前端类型和构建：
+
+```powershell
+cd frontend
+npm run build
+```
+
+## 9. 常见问题
+
+### 未配置 API key
+
+系统会使用 mock fallback。可以演示检索、citation、source drawer 和 API 流程，但生成文本质量不代表真实模型。
+
+### Embedding 模型或 CUDA 问题
+
+如果 `sentence-transformers` 或 GPU 不可用，系统可能降级或变慢。演示前建议提前运行一次 ingest/chat，确认 `data/chroma/` 可用。
+
+### `data/chroma/` 不存在或检索为空
+
+运行：
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo ingest
+```
+
+然后再调用 `sources` 或 `chat`。
+
+### 前端端口
+
+Vite 默认是 `5173`。如果端口被占用，终端会提示新的端口。
+
+### Windows 中文路径和编码
+
+建议使用 PowerShell，并确保终端使用 UTF-8。仓库路径包含中文时，优先使用 `conda run --no-capture-output -n minddock ...`，避免环境和编码差异。
+
+### `start.bat`
+
+`start.bat` 可作为辅助启动脚本，但答辩演示建议优先使用本文档中的手动命令，便于定位问题。

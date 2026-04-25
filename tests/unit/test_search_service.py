@@ -41,6 +41,28 @@ class EmptyVectorStore:
         return []
 
 
+class FakeHybridService:
+    def __init__(self, hits: list[RetrievedChunk], fail: bool = False) -> None:
+        self.hits = hits
+        self.fail = fail
+        self.last_query = ""
+        self.last_top_k = 0
+        self.last_filters: RetrievalFilters | None = None
+
+    def retrieve_lexical_candidates(
+        self,
+        query: str,
+        top_k: int,
+        filters: RetrievalFilters | None = None,
+    ) -> list[RetrievedChunk]:
+        self.last_query = query
+        self.last_top_k = top_k
+        self.last_filters = filters
+        if self.fail:
+            raise RuntimeError("bm25 unavailable")
+        return self.hits[:top_k]
+
+
 def test_search_service_uses_vectorstore_path() -> None:
     vectorstore = FakeVectorStore()
     service = SearchService(vectorstore=vectorstore)
@@ -89,3 +111,35 @@ def test_search_empty_result_sets_metadata() -> None:
     assert result.metadata.empty_result is True
     assert result.metadata.warnings
     assert result.metadata.issues[0].code == "empty_result"
+
+
+def test_search_service_returns_structured_reference_lexical_candidates() -> None:
+    hit = RetrievedChunk(
+        text="Table 1 highlights differences.",
+        doc_id="d1",
+        chunk_id="table1",
+        source="paper.pdf",
+    )
+    hybrid_service = FakeHybridService([hit])
+    service = SearchService(vectorstore=FakeVectorStore(), hybrid_service=hybrid_service)
+    filters = RetrievalFilters(sources=("paper.pdf",))
+
+    result = service.retrieve_structured_reference_candidates(
+        query="What does Table 1 summarize?",
+        top_k=5,
+        filters=filters,
+    )
+
+    assert result == [hit]
+    assert hybrid_service.last_query == "What does Table 1 summarize?"
+    assert hybrid_service.last_top_k == 5
+    assert hybrid_service.last_filters == filters
+
+
+def test_search_service_structured_reference_candidates_fallback_on_bm25_error() -> None:
+    service = SearchService(
+        vectorstore=FakeVectorStore(),
+        hybrid_service=FakeHybridService([], fail=True),
+    )
+
+    assert service.retrieve_structured_reference_candidates("Table 1", top_k=5) == []

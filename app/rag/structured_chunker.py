@@ -128,10 +128,10 @@ _SENTENCE_TERMINATORS: frozenset[str] = frozenset(".!?;。！？；")
 # Configuration (闆嗕腑鍙皟鍙傛暟)
 # ---------------------------------------------------------------------------
 
-CHUNK_MAX_TOKENS: int = 600
-CHUNK_MIN_TOKENS: int = 80
-CHUNK_OVERLAP_TOKENS: int = 80
-LIST_ITEM_OVERLAP_TOKENS: int = 40
+CHUNK_MAX_TOKENS: int = 380
+CHUNK_MIN_TOKENS: int = 60
+CHUNK_OVERLAP_TOKENS: int = 90
+LIST_ITEM_OVERLAP_TOKENS: int = 45
 MINIMAL_OVERLAP_TOKENS: int = 20
 MAX_HEADING_CHARS: int = 200      # 瓒呰繃姝ら暱搴?heading 涔熷綋浣?paragraph 澶勭悊
 
@@ -723,11 +723,8 @@ def blocks_to_chunks(
     seen_page1_title = False
 
     def _estimate_tokens(text: str) -> int:
-        # Simple Chinese-aware token estimate: chars / 1.5 for CJK, words split by space
-        words = re.findall(r"[\w\u4e00-\u9fff]+", text)
-        cjk_chars = sum(len(w) for w in re.findall(r"[\u4e00-\u9fff]", text))
-        english_words = len([w for w in words if re.match(r"[\w]", w)])
-        return int(cjk_chars / 1.5) + english_words
+        from app.rag._tokenizer import token_count
+        return token_count(text)
 
     def _overlap_for_block_type(block_type: BlockType) -> int:
         if block_type == BlockType.PARAGRAPH:

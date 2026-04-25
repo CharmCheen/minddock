@@ -31,6 +31,23 @@ export interface CitationItem {
   inline_ref?: string | null;
   chunk_index?: number;
   page_num?: number | null;
+  hit_chunk_id?: string | null;
+  window_chunk_ids?: string[];
+  page_start?: number | null;
+  page_end?: number | null;
+  section_title?: string | null;
+  block_types?: string[];
+  table_id?: string | null;
+  hit_order_in_doc?: number | null;
+  hit_block_type?: string | null;
+  hit_page?: number | null;
+  is_windowed?: boolean;
+  is_hit_only_fallback?: boolean;
+  citation_label?: string | null;
+  evidence_preview?: string | null;
+  window_chunk_count?: number;
+  hit_in_window?: boolean;
+  evidence_window_reason?: string | null;
 }
 
 export interface ClientRunStartedPayload {

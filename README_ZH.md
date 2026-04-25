@@ -1,93 +1,126 @@
-# MindDock 中文说明
+# MindDock 中文项目说明
 
-## 项目简介
+MindDock 是一个面向个人知识库、中文/英文 PDF 学术文档和本地资料问答的 RAG 系统。项目目标不是做通用聊天机器人，而是把用户提供的文档解析、索引、检索，并生成带可验证引用的 grounded answer。
 
-MindDock 是一个面向毕业设计演示的本地知识库问答后端，当前实现了一套最小可演示的 RAG 流程：
+当前版本已经形成毕业设计演示所需的主体闭环：文档导入、解析、向量索引、检索、问答、摘要、对比、citation 展示、source catalog 和 source drawer。
 
-- 导入本地 `.md` / `.txt` / `.pdf` 文档
-- 构建本地向量知识库
-- 提供 `/search`、`/chat`、`/summarize` 接口
-- 支持基于文件变更的增量更新
+## 核心功能
 
-## 架构简述
+- 文档导入：支持本地文件和 URL 导入。
+- 文件格式：支持 PDF、Markdown、TXT，以及网页 URL 正文抽取。
+- 向量索引：使用 Chroma 持久化存储 chunk、embedding 和 metadata。
+- 检索：提供 `/search` 接口，返回带 source/citation 的检索结果。
+- 问答：提供 `/chat` 接口，基于检索证据生成 grounded answer。
+- 摘要：提供 `/summarize`，复用同一检索和引用链路。
+- 对比：提供 `/compare`，支持多文档 grounded comparison。
+- 引用：citation 包含 hit chunk、evidence window、页码、section、block type 等可验证字段。
+- Source 管理：支持 source 列表、详情、chunk inspect、删除和重新入库。
+- 前端展示：提供 chat、citation list、source drawer、runtime settings 和 source scope 状态。
 
-当前代码结构可以分成 4 层：
+## 技术架构
 
-- API 层：`app/main.py`、`app/api/`
-  负责提供 FastAPI 接口、校验请求和返回数据
-- 服务层：`app/services/`
-  负责搜索、问答、总结，以及引用信息的组织
-- RAG 与存储层：`app/rag/`
-  负责文档切分、向量化、Chroma 存储、全量导入和增量更新
-- LLM 层：`app/llm/`
-  负责选择真实模型或 `MockLLM`
+- Backend：FastAPI。
+- Vector Store：Chroma。
+- RAG Pipeline：loader -> parser/chunker -> embedding -> vectorstore -> retrieval -> rerank -> evidence window -> generation -> citation。
+- PDF 处理：包含 structured chunking，尽量保留 page、section、block type 等 metadata。
+- Evidence Window：检索仍使用小 chunk，回答和引用阶段扩展为更完整的 evidence window。
+- Citation Metadata：后端和前端共同展示 `citation_label`、`evidence_preview`、`hit_in_window`、`window_chunk_count` 等字段。
+- Frontend Facade / Runtime Adapter：前端统一调用应用层 facade，后端 runtime 可切换 mock 或真实 LLM provider。
 
-核心流程如下：
+## 技术亮点
+
+### 1. Structured PDF Chunking
+
+系统在 PDF 入库时尽量保留标题、段落、页码、section、caption/table/list 等结构信息，为后续检索和引用提供 metadata 支撑。
+
+### 2. Retrieval Unit 与 Answer/Citation Unit 分层
+
+传统做法容易把“命中块”直接当作“回答块”和“引用块”。MindDock 将检索粒度和回答/引用粒度分开：检索时保持小 chunk 提升精度，回答和引用时通过 evidence window 补足上下文。
+
+### 3. Hit-preserving Evidence Window
+
+Evidence window 保证 `hit_chunk_id in window_chunk_ids`，避免扩窗、合并、裁剪后丢失真正命中的 chunk。这样 citation 变长后仍然可追溯。
+
+### 4. Verifiable Citation Metadata
+
+Citation 不只返回短 snippet，还包含：
+
+- `hit_chunk_id`
+- `window_chunk_ids`
+- `hit_in_window`
+- `window_chunk_count`
+- `citation_label`
+- `evidence_preview`
+- `page_start` / `page_end`
+- `section_title`
+- `block_types`
+
+这些字段让用户和前端都能判断答案来源是否可信。
+
+### 5. Section-aware Rerank
+
+对于明确提到 section 的 query，系统会对匹配 `section_title` 的候选做轻量加权。例如 `SYSTEM DESIGN section` 能稳定优先命中 `SYSTEM DESIGN · p.3`。
+
+### 6. Local-doc Source Priority
+
+当 query 明确说 `local docs`、`local documents` 或“本地文档”时，系统优先保留本地 Markdown 文档，减少无关论文 PDF 混入。
+
+### 7. Structured-ref Lexical Injection
+
+对于 `Table 1`、`Figure 14`、`Fig. 2`、`表1`、`图2` 这类结构编号 query，系统会窄触发 BM25 lexical candidates，并用 `chunk_id` 回查真实 `RetrievedChunk` 后注入 rerank 候选池。
+
+### 8. Source Consistency Cap
+
+在高置信单源场景下，系统会减少低位 unrelated source citation。例如 `Table 1 of the Milvus paper` 的最终 citations 会优先保持在 Milvus PDF 内。
+
+### 9. Experience-oriented Validation
+
+本阶段采用 10 条真实体验 query 验收，重点观察 citation 是否可验证、source 是否一致、answer 是否被正确证据支撑。它不是大规模 benchmark。
+
+## 当前局限
+
+- Figure/table object-level parsing 仍不完整，尚未建立完整的图表对象级 metadata。
+- Cross-page evidence 仍有局限，跨页段落、图表数字和 layout cleaning 仍需进一步增强。
+- `doc_type` / `source_kind` 还没有在 ingest 阶段正式化，目前部分策略依赖 source string、extension 和启发式规则。
+- 当前 validation 是 small experience-oriented validation，不是大规模定量 benchmark。
+- Rerank 为 heuristic rerank，不是学习型 cross-encoder reranker。
+- Context compression 主要是 trimming / lexical compression，不是 LLM compression。
+
+## 目录结构概览
 
 ```text
-knowledge_base/ 文档
-  -> app.rag.ingest 全量导入
-  -> Chroma 向量库
-  -> /search 检索
-  -> /chat 问答
-  -> /summarize 总结
+app/              后端 FastAPI、RAG、服务层、API schema
+frontend/         React + Vite 前端
+docs/             架构文档、演示脚本、验收报告
+tests/            unit / integration / contract tests
+eval/             小规模评测数据和 chunking 评估材料
+knowledge_base/   演示知识库文档，包括 PDF 和 Markdown
+data/chroma/      本地 Chroma 持久化索引
 ```
 
-如果开启 watcher，则文件变更会进入：
+## 快速开始
 
-```text
-watcher.py -> incremental.py -> vectorstore.py
-```
+详细运行步骤见 [RUN.md](RUN.md)。
 
-## 当前主要改进
-
-目前仓库已经补齐并整理了这些能力：
-
-- 增加 `/summarize` 接口，支持基于检索结果生成带引用的总结
-- `/search` 与 `/chat` 支持统一 citation 结构返回
-- 增量更新支持 create / modify / delete，并补了测试与文档
-- README 与演示文档已经整理为适合本地演示的流程
-- 补充了 `knowledge_base/example.md`，新克隆后可以直接演示
-- 增加了 `app.demo` 命令层，方便彩排与答辩现场操作
-
-## 本地启动流程
-
-当前推荐把 `conda` 作为默认本地环境方案，统一毕业设计演示和日常开发路径。
-
-在项目根目录执行：
+最常用本地演示路径：
 
 ```powershell
-conda env create -f environment.yml
 conda activate minddock
-python -m app.demo ingest
 python -m app.demo serve
 ```
 
-如果你已经有旧的 `.venv` 工作流，也仍然可以继续使用；但新环境准备、演示彩排和文档说明都建议优先以 conda 为准。
-
-启动后可访问：
-
-- `http://127.0.0.1:8000/docs`
-- `http://127.0.0.1:8000/health`
-
-## 增量更新演示
-
-如果要演示知识库文件变更后的自动更新，再开一个终端执行：
+另开一个终端启动前端：
 
 ```powershell
-conda activate minddock
-python -m app.demo watch
+cd frontend
+npm install
+npm run dev
 ```
 
-然后在 `knowledge_base/` 下新增、修改或删除 `.md` / `.txt` 文件即可。
+打开：
 
-## 说明
-
-- 默认不需要额外配置 `.env`
-- 没有 `LLM_API_KEY` 时，`/chat` 和 `/summarize` 会走 `MockLLM`
-- 如果 `sentence-transformers` 不可用，会回退到 `DummyEmbedding`，流程仍可运行，但检索效果会变弱
-- 当前推荐使用 `environment.yml` 创建 conda 环境，并通过 `python -m app.demo ...` 进行演示
-- 日志固定输出到 `logs/`，默认包含：
-  - `logs/minddock.info.log`
-  - `logs/minddock.debug.log`
-  - `logs/minddock.trace.log`
+```text
+Backend API: http://127.0.0.1:8000
+API Docs:    http://127.0.0.1:8000/docs
+Frontend:    http://localhost:5173
+```

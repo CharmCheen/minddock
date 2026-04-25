@@ -78,3 +78,81 @@ def test_build_citation_ref_fallback_to_title() -> None:
 def test_build_citation_ref_fallback_to_source() -> None:
     citation = build_citation(_make_hit(ref="", title="")).to_api_dict()
     assert citation["ref"] == "kb/doc.md"
+
+
+def test_build_citation_raw_hit_uses_hit_only_window_defaults() -> None:
+    citation = build_citation(_make_hit(page=3)).to_api_dict()
+
+    assert citation["hit_chunk_id"] == "c1"
+    assert citation["window_chunk_ids"] == ["c1"]
+    assert citation["hit_in_window"] is True
+    assert citation["window_chunk_count"] == 1
+    assert citation["is_windowed"] is False
+    assert citation["is_hit_only_fallback"] is True
+    assert citation["hit_page"] == 3
+    assert citation["citation_label"] == "Storage · p.3"
+
+
+def test_build_citation_preserves_window_verifiability_metadata() -> None:
+    citation = build_citation(
+        _make_hit(
+            page=5,
+            extra_metadata={
+                "hit_chunk_id": "c2",
+                "window_chunk_ids": ["c1", "c2", "c3"],
+                "page_start": 5,
+                "page_end": 6,
+                "section_title": "方法设计",
+                "block_types": ["paragraph", "list_item"],
+                "order_in_doc": 9,
+                "block_type": "paragraph",
+                "evidence_window_reason": "neighbor",
+            },
+        )
+    ).to_api_dict()
+
+    assert citation["hit_chunk_id"] == "c2"
+    assert citation["window_chunk_ids"] == ["c1", "c2", "c3"]
+    assert citation["hit_in_window"] is True
+    assert citation["window_chunk_count"] == 3
+    assert citation["is_windowed"] is True
+    assert citation["is_hit_only_fallback"] is False
+    assert citation["hit_page"] == 5
+    assert citation["hit_order_in_doc"] == 9
+    assert citation["hit_block_type"] == "paragraph"
+    assert citation["evidence_window_reason"] == "neighbor"
+    assert citation["citation_label"] == "方法设计 · pp.5-6"
+
+
+def test_build_citation_table_caption_label() -> None:
+    citation = build_citation(
+        _make_hit(
+            page=7,
+            extra_metadata={
+                "hit_chunk_id": "c1",
+                "window_chunk_ids": ["c0", "c1"],
+                "page_start": 7,
+                "page_end": 7,
+                "section_title": "Results",
+                "block_types": ["caption", "table"],
+                "evidence_window_reason": "table_caption",
+            },
+        )
+    ).to_api_dict()
+
+    assert citation["citation_label"] == "Table / Caption · p.7"
+
+
+def test_build_citation_label_falls_back_to_section_without_page() -> None:
+    citation = build_citation(_make_hit(page=None, section="方法设计")).to_api_dict()
+    assert citation["citation_label"] == "方法设计"
+
+
+def test_build_citation_evidence_preview_cleans_and_truncates_window_text() -> None:
+    text = ("Line one\n\nLine two   " * 30).strip()
+    citation = build_citation(_make_hit(text=text)).to_api_dict()
+
+    assert citation["evidence_preview"]
+    assert "\n" not in citation["evidence_preview"]
+    assert "  " not in citation["evidence_preview"]
+    assert len(citation["evidence_preview"]) <= 220

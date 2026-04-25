@@ -68,8 +68,25 @@ class CitationRecord:
     section: str | None = None
     location: str | None = None
     ref: str | None = None
+    hit_chunk_id: str | None = None
+    window_chunk_ids: tuple[str, ...] = ()
+    page_start: int | None = None
+    page_end: int | None = None
+    section_title: str | None = None
+    block_types: tuple[str, ...] = ()
+    table_id: str | None = None
+    hit_order_in_doc: int | None = None
+    hit_block_type: str | None = None
+    hit_page: int | None = None
+    is_windowed: bool = False
+    is_hit_only_fallback: bool = False
+    citation_label: str | None = None
+    evidence_preview: str | None = None
+    window_chunk_count: int = 0
+    hit_in_window: bool = False
+    evidence_window_reason: str | None = None
 
-    def to_api_dict(self) -> dict[str, str | int | None]:
+    def to_api_dict(self) -> dict[str, object]:
         return {
             "doc_id": self.doc_id,
             "chunk_id": self.chunk_id,
@@ -81,6 +98,23 @@ class CitationRecord:
             "section": self.section,
             "location": self.location,
             "ref": self.ref,
+            "hit_chunk_id": self.hit_chunk_id,
+            "window_chunk_ids": list(self.window_chunk_ids),
+            "page_start": self.page_start,
+            "page_end": self.page_end,
+            "section_title": self.section_title,
+            "block_types": list(self.block_types),
+            "table_id": self.table_id,
+            "hit_order_in_doc": self.hit_order_in_doc,
+            "hit_block_type": self.hit_block_type,
+            "hit_page": self.hit_page,
+            "is_windowed": self.is_windowed,
+            "is_hit_only_fallback": self.is_hit_only_fallback,
+            "citation_label": self.citation_label,
+            "evidence_preview": self.evidence_preview,
+            "window_chunk_count": self.window_chunk_count,
+            "hit_in_window": self.hit_in_window,
+            "evidence_window_reason": self.evidence_window_reason,
         }
 
 
@@ -124,6 +158,23 @@ class EvidenceObject:
     source_version: str | None = None
     content_hash: str | None = None
     freshness: EvidenceFreshness = EvidenceFreshness.FRESH
+    hit_chunk_id: str | None = None
+    window_chunk_ids: tuple[str, ...] = ()
+    page_start: int | None = None
+    page_end: int | None = None
+    section_title: str | None = None
+    block_types: tuple[str, ...] = ()
+    table_id: str | None = None
+    hit_order_in_doc: int | None = None
+    hit_block_type: str | None = None
+    hit_page: int | None = None
+    is_windowed: bool = False
+    is_hit_only_fallback: bool = False
+    citation_label: str | None = None
+    evidence_preview: str | None = None
+    window_chunk_count: int = 0
+    hit_in_window: bool = False
+    evidence_window_reason: str | None = None
 
     def to_api_dict(self) -> dict[str, object]:
         return {
@@ -137,6 +188,23 @@ class EvidenceObject:
             "source_version": self.source_version,
             "content_hash": self.content_hash,
             "freshness": self.freshness.value,
+            "hit_chunk_id": self.hit_chunk_id,
+            "window_chunk_ids": list(self.window_chunk_ids),
+            "page_start": self.page_start,
+            "page_end": self.page_end,
+            "section_title": self.section_title,
+            "block_types": list(self.block_types),
+            "table_id": self.table_id,
+            "hit_order_in_doc": self.hit_order_in_doc,
+            "hit_block_type": self.hit_block_type,
+            "hit_page": self.hit_page,
+            "is_windowed": self.is_windowed,
+            "is_hit_only_fallback": self.is_hit_only_fallback,
+            "citation_label": self.citation_label,
+            "evidence_preview": self.evidence_preview,
+            "window_chunk_count": self.window_chunk_count,
+            "hit_in_window": self.hit_in_window,
+            "evidence_window_reason": self.evidence_window_reason,
         }
 
 
@@ -286,6 +354,75 @@ class RetrievedChunk:
 
 
 @dataclass(frozen=True)
+class EvidenceWindow:
+    """Expanded answer/citation unit built around a retrieved child chunk."""
+
+    hit: RetrievedChunk
+    chunks: tuple[RetrievedChunk, ...]
+    reason: str = "hit_only"
+
+    @property
+    def chunk_ids(self) -> tuple[str, ...]:
+        return tuple(chunk.chunk_id for chunk in self.chunks if chunk.chunk_id)
+
+    @property
+    def merged_text(self) -> str:
+        parts = [chunk.citation_text().strip() for chunk in self.chunks if chunk.citation_text().strip()]
+        return "\n".join(parts) if parts else self.hit.citation_text()
+
+    @property
+    def page_start(self) -> int | None:
+        pages = [_metadata_int(chunk, "page_start") or chunk.page for chunk in self.chunks]
+        valid_pages = [page for page in pages if page is not None]
+        return min(valid_pages) if valid_pages else self.hit.page
+
+    @property
+    def page_end(self) -> int | None:
+        pages = [_metadata_int(chunk, "page_end") or chunk.page for chunk in self.chunks]
+        valid_pages = [page for page in pages if page is not None]
+        return max(valid_pages) if valid_pages else self.hit.page
+
+    @property
+    def section_title(self) -> str | None:
+        return _metadata_text(self.hit, "section_title") or self.hit.section or None
+
+    @property
+    def block_types(self) -> tuple[str, ...]:
+        seen: list[str] = []
+        for chunk in self.chunks:
+            block_type = _metadata_text(chunk, "block_type")
+            if block_type and block_type not in seen:
+                seen.append(block_type)
+        return tuple(seen)
+
+    @property
+    def table_id(self) -> str | None:
+        return _metadata_text(self.hit, "table_id") or self.hit.anchor
+
+    def to_retrieved_chunk(self) -> RetrievedChunk:
+        extra_metadata = dict(self.hit.extra_metadata)
+        extra_metadata.update(
+            {
+                "evidence_window_reason": self.reason,
+                "hit_chunk_id": self.hit.chunk_id,
+                "window_chunk_ids": list(self.chunk_ids),
+                "page_start": self.page_start,
+                "page_end": self.page_end,
+                "section_title": self.section_title,
+                "block_types": list(self.block_types),
+                "table_id": self.table_id,
+            }
+        )
+        return self.hit.with_updates(
+            text=self.merged_text,
+            original_text=self.merged_text,
+            extra_metadata=extra_metadata,
+            page=self.page_start,
+            section=self.section_title or self.hit.section,
+        )
+
+
+@dataclass(frozen=True)
 class SearchHitRecord:
     """Search hit returned to the API after citation binding."""
 
@@ -387,3 +524,21 @@ def _parse_bool(value: object) -> bool | None:
     if normalized in {"false", "0", "no"}:
         return False
     return None
+
+
+def _metadata_text(hit: RetrievedChunk, key: str) -> str | None:
+    value = hit.extra_metadata.get(key)
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _metadata_int(hit: RetrievedChunk, key: str) -> int | None:
+    value = hit.extra_metadata.get(key)
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

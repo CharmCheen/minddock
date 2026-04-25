@@ -99,6 +99,17 @@ URL ingest does not support JavaScript rendering, crawling, sitemap traversal, l
 
 URL chunks carry short source metadata such as `source_media=text`, `source_kind=web_page`, and `loader_name=url.extract`. Loader warnings, when present, are stored as short metadata in `loader_warnings`; they are not added to the chunk text used for embeddings.
 
+### Image OCR ingest notes
+
+Image ingest supports `.png`, `.jpg`, `.jpeg`, and `.webp` files in `knowledge_base/`.
+Images are converted to OCR text and then follow the existing text RAG path: `SourceLoadResult -> chunking -> Chroma -> retrieval -> citation`.
+
+By default, image OCR uses a mock fallback. The mock result only verifies the pipeline and does not represent real image understanding or real OCR quality. If `IMAGE_OCR_PROVIDER=rapidocr` is configured and RapidOCR is installed, MindDock can use it as an optional OCR provider. RapidOCR is not a hard dependency; if it is unavailable, the loader falls back to mock OCR with a short warning instead of crashing.
+
+Image chunks carry metadata such as `source_media=image`, `source_kind=image_file`, `loader_name=image.ocr`, `ocr_provider`, `retrieval_basis=ocr_text`, and `image_filename`.
+
+P0 image OCR does not support PDF figure extraction, image captioning, video/audio, multimodal embeddings, OCR table reconstruction, layout blocks, or frontend image previews.
+
 ## 5. 启动后端
 
 推荐演示命令：

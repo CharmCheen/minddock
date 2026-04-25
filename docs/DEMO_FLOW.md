@@ -160,6 +160,26 @@ conda run --no-capture-output -n minddock python -m app.demo watch --path knowle
 
 On Windows, avoid syncing while a large file is still being copied. Use `--once --dry-run` first when the file write state is uncertain.
 
+## Image OCR Source Demo
+
+Phase 3D adds image-to-text ingest for `.png`, `.jpg`, `.jpeg`, and `.webp` files in `knowledge_base/`.
+This is not full multimodal RAG: the system extracts OCR text from an image and indexes that text through the existing text chunking, Chroma, retrieval, and citation path.
+
+Default demo behavior uses mock OCR. The mock OCR output only proves that image sources can enter the ingest and retrieval pipeline; it does not claim to read or understand the real image. RapidOCR can be used as an optional provider when installed and configured with `IMAGE_OCR_PROVIDER=rapidocr`. RapidOCR is not a required dependency, and missing RapidOCR should fall back safely instead of breaking normal ingest.
+
+Useful CLI flow:
+
+```powershell
+conda run --no-capture-output -n minddock python -m app.demo watch --once --dry-run
+conda run --no-capture-output -n minddock python -m app.demo watch --once
+conda run --no-capture-output -n minddock python -m app.demo sources
+conda run --no-capture-output -n minddock python -m app.demo chat --query "What does sample_image.png contain?"
+```
+
+Expected metadata for indexed image chunks includes `source_media=image`, `source_kind=image_file`, `loader_name=image.ocr`, `ocr_provider`, `retrieval_basis=ocr_text`, and `image_filename`.
+
+Do not present this as image captioning, PDF figure extraction, frontend image preview, video/audio support, OCR table reconstruction, or multimodal embedding.
+
 ### A. Structured Reference Query: Table 1
 
 Query:

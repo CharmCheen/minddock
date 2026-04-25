@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from urllib.parse import urlparse
 
+from app.rag.image_loader import IMAGE_EXTENSIONS, ImageSourceLoader
 from app.rag.pdf_parser import extract_page_blocks, PageBlocks
 
 # Minimum characters on a page to consider it "has text"
@@ -16,7 +17,7 @@ from app.rag.url_loader import URLContent, fetch_url_content
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {".md", ".txt", ".pdf"}
+SUPPORTED_EXTENSIONS = {".md", ".txt", ".pdf", *IMAGE_EXTENSIONS}
 _TEXT_EXTENSIONS = {".md", ".txt"}
 _PDF_EXTENSIONS = {".pdf"}
 
@@ -135,7 +136,7 @@ class SourceLoaderRegistry:
     """Registry-based dispatcher for source loaders."""
 
     def __init__(self, loaders: list[SourceLoader] | None = None) -> None:
-        self._loaders = list(loaders or [FileSourceLoader(), URLSourceLoader()])
+        self._loaders = list(loaders or [ImageSourceLoader(), FileSourceLoader(), URLSourceLoader()])
 
     def register(self, loader: SourceLoader) -> None:
         self._loaders.append(loader)

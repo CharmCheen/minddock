@@ -4,6 +4,12 @@ from app.rag.incremental import HashStore, IncrementalIngestService
 from app.rag.ingest import build_doc_id
 from app.rag.source_models import ReplaceDocumentResult
 
+PNG_1X1 = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\xf8\x0f"
+    b"\x00\x01\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
 
 class FakeEmbedder:
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
@@ -168,6 +174,44 @@ def test_sync_directory_detects_new_file(tmp_path: Path) -> None:
     assert stored["status"] == "ready"
     assert stored["error"] is None
     assert stored["last_synced_at"]
+
+
+def test_sync_directory_detects_png_image_source(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    image_path = tmp_path / "knowledge_base" / "sample.png"
+    image_path.write_bytes(PNG_1X1)
+
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status) for result in results] == [("created", "updated")]
+    doc_id = build_doc_id(Path("sample.png"))
+    assert collection.count_doc(doc_id) == 1
+    record = next(iter(collection.records.values()))
+    assert "[Image OCR Text]" in record["document"]
+    assert record["metadata"]["source"] == "sample.png"
+    assert record["metadata"]["source_media"] == "image"
+    assert record["metadata"]["source_kind"] == "image_file"
+    assert record["metadata"]["loader_name"] == "image.ocr"
+    assert record["metadata"]["retrieval_basis"] == "ocr_text"
+    assert record["metadata"]["image_filename"] == "sample.png"
+
+
+def test_sync_directory_deletes_png_image_source(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    image_path = tmp_path / "knowledge_base" / "sample.png"
+    image_path.write_bytes(PNG_1X1)
+    service.sync_directory()
+    doc_id = build_doc_id(Path("sample.png"))
+    assert collection.count_doc(doc_id) == 1
+
+    image_path.unlink()
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status, result.chunks_deleted) for result in results] == [("deleted", "removed", 1)]
+    assert collection.count_doc(doc_id) == 0
+    assert service._hash_store.get("sample.png") is None
 
 
 def test_sync_directory_detects_modified_file_without_duplicate_chunks(tmp_path: Path) -> None:

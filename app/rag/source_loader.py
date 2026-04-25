@@ -99,6 +99,9 @@ class URLSourceLoader(SourceLoader):
     def load(self, descriptor: SourceDescriptor) -> SourceLoadResult:
         content = fetch_url_content(descriptor.source)
         metadata: dict[str, str] = {
+            "source_media": "text",
+            "source_kind": "web_page",
+            "loader_name": "url.extract",
             "url": content.final_url,
             "requested_url": content.requested_url,
             "final_url": content.final_url,
@@ -113,6 +116,8 @@ class URLSourceLoader(SourceLoader):
             metadata["og_image"] = content.og_image
         if content.canonical_url:
             metadata["canonical_url"] = content.canonical_url
+        if content.meta_description:
+            metadata["meta_description"] = content.meta_description
         return SourceLoadResult(
             descriptor=SourceDescriptor(
                 source=content.final_url,
@@ -122,6 +127,7 @@ class URLSourceLoader(SourceLoader):
             title=content.title.strip() or _title_from_url(content.final_url),
             text=content.text,
             metadata=metadata,
+            warnings=content.warnings,
         )
 
 

@@ -86,6 +86,19 @@ conda run --no-capture-output -n minddock python -m app.demo watch --path knowle
 
 The watcher scans `.pdf`, `.md`, and `.txt` files. New files are indexed, changed files are replaced by content hash, unchanged files are skipped, and deleted files remove their Chroma chunks plus the HashStore entry. On Windows, wait for large file copies to finish before syncing, or use `--once --dry-run` first to preview the plan.
 
+### URL ingest notes
+
+URL ingest supports single-page static HTML extraction:
+
+- fetch one HTTP/HTTPS URL
+- extract title, readable main text, canonical URL, and description metadata when available
+- prefer `article` / `main` content and fall back to readable body text
+- remove common noisy regions such as script, style, nav, header, footer, and aside
+
+URL ingest does not support JavaScript rendering, crawling, sitemap traversal, login/cookie flows, anti-bot bypass, RSS auto refresh, image/video/audio extraction, or frontend previews.
+
+URL chunks carry short source metadata such as `source_media=text`, `source_kind=web_page`, and `loader_name=url.extract`. Loader warnings, when present, are stored as short metadata in `loader_warnings`; they are not added to the chunk text used for embeddings.
+
 ## 5. 启动后端
 
 推荐演示命令：

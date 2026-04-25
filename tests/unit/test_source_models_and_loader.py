@@ -3,6 +3,7 @@ from pathlib import Path
 from app.rag.ingest import build_payload_for_source
 from app.rag.source_loader import SourceLoaderRegistry, build_file_descriptor, build_url_descriptor
 from app.rag.source_models import IngestBatchResult, IngestSourceResult, SourceDescriptor
+from app.rag.source_models import SourceLoadResult
 
 
 class StubLoader:
@@ -47,6 +48,40 @@ def test_source_loader_registry_allows_extension(tmp_path: Path) -> None:
     assert payload.doc_id == descriptor.doc_id
     assert payload.documents == ["hello world"]
     assert payload.metadatas[0]["source_type"] == "note"
+
+
+def test_source_load_result_warnings_default_to_empty_tuple() -> None:
+    result = SourceLoadResult(
+        descriptor=SourceDescriptor(source="note://1", source_type="note"),
+        title="Note",
+        text="hello world",
+    )
+
+    assert result.warnings == ()
+
+
+def test_source_load_result_warnings_flow_to_chunk_metadata() -> None:
+    class WarningLoader:
+        source_type = "note"
+
+        def supports(self, descriptor: SourceDescriptor) -> bool:
+            return descriptor.source_type == "note"
+
+        def load(self, descriptor: SourceDescriptor):
+            return SourceLoadResult(
+                descriptor=descriptor,
+                title="Warn Note",
+                text="hello warning world",
+                warnings=("empty_main_text", "canonical_missing"),
+            )
+
+    registry = SourceLoaderRegistry(loaders=[WarningLoader()])
+    descriptor = SourceDescriptor(source="note://warn", source_type="note")
+
+    payload = build_payload_for_source(descriptor=descriptor, registry=registry)
+
+    assert payload.documents == ["hello warning world"]
+    assert payload.metadatas[0]["loader_warnings"] == "empty_main_text,canonical_missing"
 
 
 def test_file_and_url_descriptor_doc_ids_are_stable(tmp_path: Path) -> None:

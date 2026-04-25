@@ -54,6 +54,7 @@ class SourceLoadResult:
     title: str
     text: str
     metadata: dict[str, str] = field(default_factory=dict)
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

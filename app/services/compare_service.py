@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -10,9 +11,19 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from app.core.exceptions import ChatError
+from app.llm.factory import get_generation_runtime
 from app.llm.mock import INSUFFICIENT_EVIDENCE
-from app.rag.retrieval_models import ComparedPoint, GroundedCompareResult, RefusalReason, RetrievalFilters, RetrievedChunk, SupportStatus
+from app.rag.retrieval_models import (
+    ComparedPoint,
+    EvidenceObject,
+    GroundedCompareResult,
+    RefusalReason,
+    RetrievalFilters,
+    RetrievedChunk,
+    SupportStatus,
+)
 from app.rag.postprocess import Compressor, Reranker, get_compressor, get_reranker
+from app.runtime import GenerationRuntime, RuntimeRequest
 from app.services.grounded_generation import (
     PARTIAL_SUPPORT_DISTANCE,
     assess_grounding,
@@ -25,6 +36,7 @@ from app.services.search_service import SearchService
 from app.services.source_freshness import refresh_compare_result_freshness
 from app.services.service_models import CompareServiceResult, RetrievalStats, ServiceIssue, UseCaseMetadata, UseCaseTiming
 from app.services.workflow_trace import build_trace_warnings, final_source_summary, source_scope_trace
+from ports.llm import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +82,19 @@ class _EvidenceGroup:
 
 @dataclass
 class CompareService:
-    """Deterministic grounded compare workflow over retrieved evidence groups."""
+    """Deterministic grounded compare workflow over retrieved evidence groups.
+
+    CompareService now attempts an LLM-backed structured comparison first,
+    and falls back to the original heuristic compare when the runtime is
+    unavailable, returns unusable output, or produces invalid JSON.
+    """
 
     search_service: SearchService = field(default_factory=SearchService)
     reranker: Reranker = field(default_factory=get_reranker)
     compressor: Compressor = field(default_factory=get_compressor)
     collection: object = field(default=None)
+    runtime: GenerationRuntime = field(default_factory=get_generation_runtime)
+    llm: LLMProvider | None = None
 
     def compare(
         self,
@@ -150,7 +169,13 @@ class CompareService:
                 )
 
             left_group, right_group = groups[:2]
-            common_points, differences, conflicts = self._compare_groups(question=question, left_group=left_group, right_group=right_group)
+            generation_started = time.perf_counter()
+            common_points, differences, conflicts = self._compare_groups(
+                question=question,
+                left_group=left_group,
+                right_group=right_group,
+            )
+            generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
             compare_result = self._build_compare_result(
                 question=question,
                 hits=hits,
@@ -192,7 +217,10 @@ class CompareService:
                         retrieval_ms=retrieval_ms,
                         rerank_ms=rerank_ms,
                         compress_ms=compress_ms,
+                        generation_ms=generation_ms,
                     ),
+                    runtime_mode=getattr(self.runtime, "runtime_name", type(self.runtime).__name__),
+                    provider_mode=type(self.llm).__name__ if self.llm is not None else getattr(self.runtime, "provider_name", None),
                     filter_applied=filters is not None,
                     retrieval_stats=RetrievalStats(
                         retrieved_hits=len(hits),
@@ -312,6 +340,265 @@ class CompareService:
         return sorted(groups, key=lambda item: self._hit_sort_key(item.best_hit))
 
     def _compare_groups(
+        self,
+        *,
+        question: str,
+        left_group: _EvidenceGroup,
+        right_group: _EvidenceGroup,
+    ) -> tuple[tuple[ComparedPoint, ...], tuple[ComparedPoint, ...], tuple[ComparedPoint, ...]]:
+        """Try LLM-backed structured compare; fall back to heuristic on any failure."""
+        try:
+            return self._generate_compare_result_with_llm(
+                question=question,
+                left_group=left_group,
+                right_group=right_group,
+            )
+        except Exception:
+            logger.info("Compare LLM path failed; falling back to heuristic compare.")
+            return self._compare_groups_heuristic(
+                question=question,
+                left_group=left_group,
+                right_group=right_group,
+            )
+
+    def _generate_compare_result_with_llm(
+        self,
+        *,
+        question: str,
+        left_group: _EvidenceGroup,
+        right_group: _EvidenceGroup,
+    ) -> tuple[tuple[ComparedPoint, ...], tuple[ComparedPoint, ...], tuple[ComparedPoint, ...]]:
+        prompt = self._build_compare_prompt(
+            question=question,
+            left_group=left_group,
+            right_group=right_group,
+        )
+        fallback_evidence = [
+            {
+                "chunk_id": hit.chunk_id,
+                "source": hit.source or hit.doc_id,
+                "text": hit.text,
+            }
+            for hit in (*left_group.hits, *right_group.hits)
+        ]
+        runtime_response = self.runtime.generate(
+            RuntimeRequest(
+                prompt=prompt,
+                inputs={},
+                fallback_query=question,
+                fallback_evidence=fallback_evidence,
+                llm_override=self.llm,
+            )
+        )
+        text = runtime_response.text.strip()
+        if not text:
+            raise ValueError("Runtime returned empty text.")
+        return self._parse_compare_llm_output(
+            text=text,
+            left_group=left_group,
+            right_group=right_group,
+        )
+
+    def _build_compare_prompt(
+        self,
+        *,
+        question: str,
+        left_group: _EvidenceGroup,
+        right_group: _EvidenceGroup,
+    ) -> str:
+        lines: list[str] = [
+            (
+                "You are a grounded comparison assistant. "
+                "Compare the evidence from two sources and produce a structured JSON response. "
+                "Only use the evidence provided below. Do not add outside knowledge."
+            ),
+            "",
+            f"Question: {question}",
+            "",
+            "Left source evidence:",
+        ]
+        for index, hit in enumerate(left_group.hits, start=1):
+            lines.append(f"  L{index}: {hit.text.strip()}")
+        lines.append("")
+        lines.append("Right source evidence:")
+        for index, hit in enumerate(right_group.hits, start=1):
+            lines.append(f"  R{index}: {hit.text.strip()}")
+        lines.extend([
+            "",
+            (
+                "Return strictly valid JSON with this structure:\n"
+                "{\n"
+                '  "common_points": [\n'
+                "    {\n"
+                '      "statement": "string",\n'
+                '      "summary_note": "string",\n'
+                '      "left_evidence_ids": ["L1"],\n'
+                '      "right_evidence_ids": ["R1"]\n'
+                "    }\n"
+                "  ],\n"
+                '  "differences": [...],\n'
+                '  "conflicts": [...]\n'
+                "}"
+            ),
+            "",
+            "Rules:",
+            "1. Evidence ids MUST come from the L1..Ln and R1..Rn labels above.",
+            "2. Every point must have evidence from BOTH sides. Omit any point that cannot be supported by both left and right evidence.",
+            "3. Do not invent evidence IDs or output one-sided points.",
+        ])
+        return "\n".join(lines)
+
+    def _extract_json_text(self, text: str) -> str:
+        """Extract JSON from raw text, handling markdown fences and plain objects."""
+        text = text.strip()
+        # Try raw JSON first
+        try:
+            json.loads(text)
+            return text
+        except Exception:
+            pass
+
+        # Try ```json fence
+        match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
+        if match:
+            candidate = match.group(1).strip()
+            try:
+                json.loads(candidate)
+                return candidate
+            except Exception:
+                pass
+
+        # Try plain ``` fence (take first fenced block)
+        match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
+        if match:
+            candidate = match.group(1).strip()
+            try:
+                json.loads(candidate)
+                return candidate
+            except Exception:
+                pass
+
+        # Try first '{' to last '}'
+        brace_start = text.find("{")
+        brace_end = text.rfind("}")
+        if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
+            candidate = text[brace_start : brace_end + 1]
+            try:
+                json.loads(candidate)
+                return candidate
+            except Exception:
+                pass
+
+        return text
+
+    def _parse_compare_llm_output(
+        self,
+        *,
+        text: str,
+        left_group: _EvidenceGroup,
+        right_group: _EvidenceGroup,
+    ) -> tuple[tuple[ComparedPoint, ...], tuple[ComparedPoint, ...], tuple[ComparedPoint, ...]]:
+        extracted = self._extract_json_text(text)
+        parsed = json.loads(extracted)
+        if not isinstance(parsed, dict):
+            raise ValueError("Parsed JSON is not an object.")
+
+        for key in ("common_points", "differences", "conflicts"):
+            if key not in parsed:
+                raise ValueError(f"Missing required key: {key}")
+            if not isinstance(parsed[key], list):
+                raise ValueError(f"Key '{key}' must be a list.")
+
+        left_map = self._build_evidence_map(left_group, prefix="L")
+        right_map = self._build_evidence_map(right_group, prefix="R")
+
+        common_points = self._build_compared_points(
+            parsed.get("common_points", []), left_map, right_map, left_group, right_group
+        )
+        differences = self._build_compared_points(
+            parsed.get("differences", []), left_map, right_map, left_group, right_group
+        )
+        conflicts = self._build_compared_points(
+            parsed.get("conflicts", []), left_map, right_map, left_group, right_group
+        )
+
+        if not common_points and not differences and not conflicts:
+            raise ValueError("LLM returned empty compare result.")
+
+        return common_points, differences, conflicts
+
+    def _build_evidence_map(self, group: _EvidenceGroup, prefix: str) -> dict[str, RetrievedChunk]:
+        return {f"{prefix}{index}": hit for index, hit in enumerate(group.hits, start=1)}
+
+    def _build_compared_points(
+        self,
+        items: list[object],
+        left_map: dict[str, RetrievedChunk],
+        right_map: dict[str, RetrievedChunk],
+        left_group: _EvidenceGroup,
+        right_group: _EvidenceGroup,
+    ) -> tuple[ComparedPoint, ...]:
+        points: list[ComparedPoint] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            # statement must be a non-empty string
+            statement = item.get("statement")
+            if not isinstance(statement, str) or not statement.strip():
+                continue
+
+            # summary_note must be string/None/missing
+            summary_note = item.get("summary_note")
+            if summary_note is not None and not isinstance(summary_note, str):
+                summary_note = None
+            if isinstance(summary_note, str):
+                summary_note = summary_note.strip() or None
+
+            # evidence_ids must be list or tuple; reject strings and other types
+            left_ids = item.get("left_evidence_ids")
+            right_ids = item.get("right_evidence_ids")
+            if left_ids is not None and not isinstance(left_ids, (list, tuple)):
+                left_ids = []
+            if right_ids is not None and not isinstance(right_ids, (list, tuple)):
+                right_ids = []
+
+            left_evidence = self._resolve_evidence(left_ids, left_map)
+            if not left_evidence:
+                left_evidence = (build_evidence(left_group.best_hit),)
+
+            right_evidence = self._resolve_evidence(right_ids, right_map)
+            if not right_evidence:
+                right_evidence = (build_evidence(right_group.best_hit),)
+
+            # A grounded compare point must have evidence on both sides
+            if not left_evidence or not right_evidence:
+                continue
+
+            points.append(
+                ComparedPoint(
+                    statement=statement,
+                    left_evidence=left_evidence,
+                    right_evidence=right_evidence,
+                    summary_note=summary_note,
+                )
+            )
+        return tuple(points)
+
+    def _resolve_evidence(
+        self,
+        ids: list[object] | tuple[object, ...] | None,
+        evidence_map: dict[str, RetrievedChunk],
+    ) -> tuple[EvidenceObject, ...]:
+        if ids is None:
+            return ()
+        results: list[EvidenceObject] = []
+        for eid in ids:
+            if isinstance(eid, str) and eid in evidence_map:
+                results.append(build_evidence(evidence_map[eid]))
+        return tuple(results)
+
+    def _compare_groups_heuristic(
         self,
         *,
         question: str,

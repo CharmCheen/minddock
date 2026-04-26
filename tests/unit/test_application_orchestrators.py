@@ -1279,3 +1279,121 @@ def test_unified_pipeline_emits_retrieval_trace_events(monkeypatch) -> None:
     from app.application.events import RetrievalPipelineCompletedPayload
     assert isinstance(pipeline_done.payload, RetrievalPipelineCompletedPayload)
     assert pipeline_done.payload.retrieved_hits == len(controlled_hits)
+
+
+# ---------------------------------------------------------------------------
+# Compare execution plan tests
+# ---------------------------------------------------------------------------
+
+
+def test_compare_execution_plan_requires_runtime() -> None:
+    orchestrator = ChatOrchestrator()
+    plan = orchestrator.build_execution_plan_with_skills(
+        UnifiedExecutionRequest(
+            task_type=TaskType.COMPARE,
+            user_input="compare storage",
+            output_mode=OutputMode.STRUCTURED,
+        )
+    )
+    assert plan.decision.requires_runtime is True
+
+
+def test_compare_execution_plan_does_not_require_structured_output() -> None:
+    orchestrator = ChatOrchestrator()
+    plan = orchestrator.build_execution_plan_with_skills(
+        UnifiedExecutionRequest(
+            task_type=TaskType.COMPARE,
+            user_input="compare storage",
+            output_mode=OutputMode.STRUCTURED,
+        )
+    )
+    assert plan.decision.requires_structured_output is False
+
+
+# ---------------------------------------------------------------------------
+# Compare runtime resolver soft-fallback tests
+# ---------------------------------------------------------------------------
+
+
+def test_compare_runtime_resolver_failure_falls_back_to_heuristic(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+
+    def failing_resolve(request):
+        raise RuntimeError("runtime resolver failed")
+
+    monkeypatch.setattr(resolver, "resolve", failing_resolve)
+
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    compare_result = CompareServiceResult(
+        compare_result=GroundedCompareResult(
+            query="compare storage",
+            common_points=(
+                ComparedPoint(
+                    statement="Both docs discuss storage.",
+                    left_evidence=(EvidenceObject(doc_id="d1", chunk_id="c1", source="kb/a.md", snippet="A storage", score=0.2),),
+                    right_evidence=(EvidenceObject(doc_id="d2", chunk_id="c2", source="kb/b.md", snippet="B storage", score=0.3),),
+                ),
+            ),
+        ),
+        citations=[
+            CitationRecord(doc_id="d1", chunk_id="c1", source="kb/a.md", snippet="A storage"),
+            CitationRecord(doc_id="d2", chunk_id="c2", source="kb/b.md", snippet="B storage"),
+        ],
+        metadata=UseCaseMetadata(retrieved_count=2, mode="grounded_compare", support_status="supported"),
+    )
+
+    monkeypatch.setattr(chat_orchestrator, "compare", lambda **kwargs: compare_result)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.COMPARE,
+            user_input="compare storage",
+            output_mode=OutputMode.STRUCTURED,
+            include_metadata=True,
+            include_events=True,
+        )
+    )
+
+    assert response.compare_result is not None
+    assert response.compare_result.support_status.value == "supported"
+    # A warning event should have been emitted for the runtime resolution failure
+    event_kinds = [e.kind.value for e in response.events]
+    assert "warning_emitted" in event_kinds
+
+
+def test_chat_runtime_resolver_failure_still_raises(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+
+    def failing_resolve(request):
+        raise RuntimeError("runtime resolver failed")
+
+    monkeypatch.setattr(resolver, "resolve", failing_resolve)
+
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    run = facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            include_events=True,
+        )
+    )
+
+    assert run.status == ExecutionRunStatus.FAILED
+    assert run.error is not None
+    assert "runtime resolver failed" in str(run.error)

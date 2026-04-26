@@ -145,6 +145,8 @@ Behavior:
 - returns `insufficient_evidence` support status when fewer than 2 groups are available
 - internally calls `frontend_facade.execute_compare_request()` which routes through unified execution
 - route layer serializes through `present_compare_response()`
+- `CompareService` now attempts an LLM-backed structured comparison first; if the runtime is unavailable, returns unusable output, or produces invalid JSON, it falls back to the original heuristic compare
+- evidence IDs in the LLM response are mapped back to retrieved chunks so citations remain traceable
 
 Response:
 

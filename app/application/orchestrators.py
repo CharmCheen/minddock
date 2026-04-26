@@ -277,9 +277,10 @@ class ChatOrchestrator:
                     ExecutionStep(kind=StepKind.RETRIEVE, name="retrieve_evidence"),
                     ExecutionStep(kind=StepKind.RERANK, name="rerank_hits"),
                     ExecutionStep(kind=StepKind.COMPRESS, name="compress_context"),
+                    ExecutionStep(kind=StepKind.GENERATE, name="generate_compare"),
                     ExecutionStep(kind=StepKind.FORMAT_OUTPUT, name="format_compare_output", metadata={"output_mode": "structured"}),
                 ),
-                decision=ExecutionDecision(requires_runtime=False, requires_structured_output=True, supports_citations=True),
+                decision=ExecutionDecision(requires_runtime=True, supports_citations=True),
             )
 
         raise UnsupportedExecutionModeError(detail=f"Task type '{request.task_type.value}' is not supported yet.")
@@ -328,6 +329,27 @@ class ChatOrchestrator:
             filters=request.retrieval.filters,
             mode=mode,
             output_format=output_format,
+            precomputed_hits=precomputed_hits,
+        )
+
+    def run_compare_with_runtime(
+        self,
+        *,
+        request: UnifiedExecutionRequest,
+        runtime: GenerationRuntime,
+        precomputed_hits: list | None = None,
+    ) -> CompareServiceResult:
+        """Execute compare with an explicitly selected runtime.
+
+        Args:
+            precomputed_hits: If provided, the compare service skips retrieval and
+                uses these hits directly.
+        """
+        service = replace(self._compare_service(), runtime=runtime)
+        return service.compare(
+            question=request.user_input,
+            top_k=request.retrieval.top_k,
+            filters=request.retrieval.filters,
             precomputed_hits=precomputed_hits,
         )
 
@@ -534,39 +556,51 @@ class FrontendFacade:
             runtime_match = None
 
             if plan.decision.requires_runtime:
-                runtime_match = self.runtime_resolver.resolve(
-                    RuntimeSelectionRequest(
-                        task_type=request.task_type.value,
-                        output_mode=request.output_mode.value,
-                        citation_policy=request.citation_policy.value,
-                        skill_policy=request.skill_policy.mode.value,
-                        execution_policy=request.execution_policy,
-                        policy=RuntimeSelectionPolicy(
-                            require_structured_output=plan.decision.requires_structured_output or request.execution_policy.require_structured_output,
-                            require_skill_invocation=request.execution_policy.require_skill_support,
-                        ),
+                try:
+                    runtime_match = self.runtime_resolver.resolve(
+                        RuntimeSelectionRequest(
+                            task_type=request.task_type.value,
+                            output_mode=request.output_mode.value,
+                            citation_policy=request.citation_policy.value,
+                            skill_policy=request.skill_policy.mode.value,
+                            execution_policy=request.execution_policy,
+                            policy=RuntimeSelectionPolicy(
+                                require_structured_output=plan.decision.requires_structured_output or request.execution_policy.require_structured_output,
+                                require_skill_invocation=request.execution_policy.require_skill_support,
+                            ),
+                        )
                     )
-                )
-                run.selected_runtime_binding = runtime_match.binding
-                self.run_registry.update_selected_runtime(
-                    run.run_id,
-                    selected_runtime=runtime_match.binding.adapter_kind,
-                    selected_profile_id=runtime_match.binding.selected_profile_id,
-                    selected_provider_kind=runtime_match.binding.provider_kind,
-                )
-                runtime = self.runtime_factory.create(runtime_match.binding)
-                collector.emit(
-                    kind=ExecutionEventKind.METADATA_UPDATED,
-                    payload=MetadataUpdatedPayload(reason="runtime_resolved"),
-                    metadata_delta=ExecutionMetadataDelta(
+                    run.selected_runtime_binding = runtime_match.binding
+                    self.run_registry.update_selected_runtime(
+                        run.run_id,
                         selected_runtime=runtime_match.binding.adapter_kind,
                         selected_profile_id=runtime_match.binding.selected_profile_id,
                         selected_provider_kind=runtime_match.binding.provider_kind,
-                        selected_model_name=runtime_match.binding.model_name,
-                    ),
-                )
-                if self._check_cancellation_requested(run.run_id):
-                    return self._complete_cancelled_run(run=run, collector=collector)
+                    )
+                    runtime = self.runtime_factory.create(runtime_match.binding)
+                    collector.emit(
+                        kind=ExecutionEventKind.METADATA_UPDATED,
+                        payload=MetadataUpdatedPayload(reason="runtime_resolved"),
+                        metadata_delta=ExecutionMetadataDelta(
+                            selected_runtime=runtime_match.binding.adapter_kind,
+                            selected_profile_id=runtime_match.binding.selected_profile_id,
+                            selected_provider_kind=runtime_match.binding.provider_kind,
+                            selected_model_name=runtime_match.binding.model_name,
+                        ),
+                    )
+                    if self._check_cancellation_requested(run.run_id):
+                        return self._complete_cancelled_run(run=run, collector=collector)
+                except Exception:
+                    # COMPARE is allowed to proceed without a resolved runtime.
+                    # CompareService will fall back to heuristic compare internally.
+                    if request.task_type != TaskType.COMPARE:
+                        raise
+                    collector.emit(
+                        kind=ExecutionEventKind.WARNING_EMITTED,
+                        payload=WarningEmittedPayload(
+                            message="Runtime resolution failed for compare; falling back to heuristic compare."
+                        ),
+                    )
 
             response = self._execute_base_task_with_events(
                 request=request,
@@ -1072,12 +1106,19 @@ class FrontendFacade:
             )
             response = self._build_search_response(request=request, result=result)
         elif request.task_type == TaskType.COMPARE:
-            result = self.chat.compare(
-                question=request.user_input,
-                top_k=request.retrieval.top_k,
-                filters=request.retrieval.filters,
-                precomputed_hits=None,  # CompareService has its own internal retrieval
-            )
+            if runtime is not None:
+                result = self.chat.run_compare_with_runtime(
+                    request=request,
+                    runtime=runtime,
+                    precomputed_hits=None,  # CompareService has its own internal retrieval
+                )
+            else:
+                result = self.chat.compare(
+                    question=request.user_input,
+                    top_k=request.retrieval.top_k,
+                    filters=request.retrieval.filters,
+                    precomputed_hits=None,
+                )
             response = self._build_compare_response(request=request, result=result)
         else:
             raise UnsupportedExecutionModeError(detail=f"Task type '{request.task_type.value}' is not supported yet.")

@@ -58,6 +58,18 @@ def test_catalog_contains_csv_extract() -> None:
     assert "csv.extract" in ids
 
 
+def test_catalog_contains_audio_transcribe() -> None:
+    skills = list_builtin_source_skills()
+    ids = {s.id for s in skills}
+    assert "audio.transcribe" in ids
+
+
+def test_catalog_contains_video_transcribe() -> None:
+    skills = list_builtin_source_skills()
+    ids = {s.id for s in skills}
+    assert "video.transcribe" in ids
+
+
 # ---------------------------------------------------------------------------
 # Skill structure invariants
 # ---------------------------------------------------------------------------
@@ -177,7 +189,7 @@ def test_skills_do_not_contain_api_keys_or_secrets() -> None:
 def test_catalog_does_not_contain_future_skills() -> None:
     skills = list_builtin_source_skills()
     ids = {s.id for s in skills}
-    future_ids = {"image.caption", "audio.transcribe", "video.transcribe"}
+    future_ids = {"image.caption", "js_url.render"}
     overlap = ids & future_ids
     assert not overlap, f"future skills found in active catalog: {overlap}"
 
@@ -216,3 +228,28 @@ def test_get_builtin_source_skill_returns_skill_for_known() -> None:
     skill = get_builtin_source_skill("url.extract")
     assert skill is not None
     assert skill.id == "url.extract"
+
+
+def test_audio_transcribe_has_expected_metadata() -> None:
+    skill = get_builtin_source_skill("audio.transcribe")
+    assert skill is not None
+    assert skill.source_media == "audio"
+    assert skill.source_kind == "audio_file"
+    assert skill.loader_name == "audio.transcribe"
+    assert "transcript_text" in skill.capabilities
+    assert "mock_provider" in skill.capabilities
+    assert "transcript_only_p0" in skill.limitations
+    assert "mock" in skill.providers
+
+
+def test_video_transcribe_has_expected_metadata() -> None:
+    skill = get_builtin_source_skill("video.transcribe")
+    assert skill is not None
+    assert skill.source_media == "video"
+    assert skill.source_kind == "video_file"
+    assert skill.loader_name == "video.transcribe"
+    assert "transcript_text" in skill.capabilities
+    assert "mock_provider" in skill.capabilities
+    assert "transcript_only_p0" in skill.limitations
+    assert "no_frame_understanding" in skill.limitations
+    assert "mock" in skill.providers

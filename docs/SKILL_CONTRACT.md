@@ -96,12 +96,21 @@ The `csv.extract` skill was added after the initial Source Skill Contract to val
 
 The following are documented future directions. They do NOT appear in the built-in catalog because they are not yet implemented.
 
+`audio.transcribe` and `video.transcribe` were previously in this list before Skill System v1.3.
+
 | id | description | why not yet |
 |---|---|---|
 | `image.caption` | Generate descriptive captions for images | Requires multimodal LLM or vision model |
-| `audio.transcribe` | Speech-to-text for audio files | Requires Whisper or similar ASR backend |
-| `video.transcribe` | Extract speech and optionally scene descriptions from video | Requires ASR + keyframe extraction pipeline |
 | `url.js_rendered` | Fetch JavaScript-rendered pages | Requires headless browser infrastructure |
+
+### Implemented P0 trusted handlers with mock provider
+
+| id | description | provider status |
+|---|---|---|
+| `audio.transcribe` | Transcript-only source for audio files | `mock` (default), `disabled`, `api_stub` |
+| `video.transcribe` | Transcript-only source for video files | `mock` (default), `disabled`, `api_stub` |
+
+These handlers entered the active catalog in Skill System v1.3. They use `MediaSourceLoader` with a deterministic mock provider by default, so the pipeline works without external ASR dependencies. Real ASR provider, speaker diarization, timestamp citation UI, frame understanding, and multimodal embedding remain future work.
 
 ## Local Manifest Registration (Skill System v1.1)
 

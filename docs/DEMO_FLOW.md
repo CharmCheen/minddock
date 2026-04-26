@@ -182,7 +182,7 @@ Compare Milvus and the local RAG pipeline
 - **大文档 full summarize** — 容易触发 context truncation，不是 summarize 的强项
 - **长截图 OCR 总结** — OCR 质量不可控
 - **动态网页 / 飞书 / Notion URL** — URL loader 不支持 JS 渲染
-- **视频 / 音频** — 未实现
+- **音频 / 视频** — transcript trusted handler P0 已实现，默认使用 mock provider；真实 ASR / 视频理解仍是 future work。现场可作为架构扩展示例展示，但必须说明是 mock placeholder
 - **image caption** — 未实现，当前是 OCR text 路径
 - **复杂 Table/Figure object-level QA** — parser 不完整
 - **N1 类普通开放 query** — source consistency 仍有边界，容易混入无关 source

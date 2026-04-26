@@ -94,6 +94,21 @@ Purpose:
 
 - unify basic summarize, map-reduce summarize, and Mermaid structured output
 
+### `CompareServiceResult`
+
+Fields:
+
+- `compare_result`
+- `citations`
+- `metadata`
+- `context`
+
+Purpose:
+
+- represent grounded multi-document compare outcomes
+- preserve `common_points`, `differences`, and `conflicts` with paired evidence
+- keep the compare use-case composable for both direct `/compare` routes and unified execution
+
 ### `IngestServiceResult`
 
 Wraps:

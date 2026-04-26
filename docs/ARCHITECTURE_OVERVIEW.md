@@ -65,6 +65,7 @@ Files:
 - `app/services/search_service.py`
 - `app/services/chat_service.py`
 - `app/services/summarize_service.py`
+- `app/services/compare_service.py`
 - `app/services/grounded_generation.py`
 
 Responsibilities:
@@ -73,6 +74,7 @@ Responsibilities:
 - `search_service`: retrieval entrypoint returning `SearchServiceResult`
 - `chat_service`: retrieval -> selection -> rerank/compress -> context -> generation -> `ChatServiceResult`
 - `summarize_service`: retrieval workflow -> rerank/compress -> summary chain -> optional Mermaid output -> `SummarizeServiceResult`
+- `compare_service`: retrieval -> rerank/compress -> evidence grouping -> LLM-backed structured compare with heuristic fallback -> `CompareServiceResult`
 - `grounded_generation`: citation/context conversion helpers
 
 The service layer remains the main use-case implementation layer. The application layer sits above it and is intended to become the preferred entrypoint for frontend-style consumers.

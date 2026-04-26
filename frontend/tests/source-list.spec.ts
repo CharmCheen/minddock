@@ -163,4 +163,156 @@ test.describe('source list with new contract', () => {
     // (this test verifies the contract is satisfied at runtime)
     await expect(page.locator('text=Cited Source').first()).toBeVisible();
   });
+
+  test('filter tabs filter sources by type', async ({ page }) => {
+    await page.route('**/sources', (route) => {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              doc_id: 'doc-url',
+              source: 'https://example.com/article',
+              source_type: 'url',
+              title: 'URL Article',
+              chunk_count: 1,
+              sections: [],
+              pages: [],
+              requested_url: 'https://example.com/article',
+              final_url: 'https://example.com/article',
+              source_state: { doc_id: 'doc-url', source: 'https://example.com/article', current_version: 'v1', content_hash: 'a', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 1, ingest_status: 'ready' },
+              domain: 'example.com',
+              description: null,
+            },
+            {
+              doc_id: 'doc-pdf',
+              source: '/docs/report.pdf',
+              source_type: 'file',
+              title: 'PDF Report',
+              chunk_count: 1,
+              sections: [],
+              pages: [],
+              requested_url: null,
+              final_url: null,
+              source_state: { doc_id: 'doc-pdf', source: '/docs/report.pdf', current_version: 'v1', content_hash: 'b', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 1, ingest_status: 'ready' },
+              domain: null,
+              description: null,
+            },
+          ],
+          total: 2,
+        }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.locator('text=URL Article')).toBeVisible();
+    await expect(page.locator('text=PDF Report')).toBeVisible();
+
+    await page.getByRole('button', { name: 'URL' }).click();
+    await expect(page.locator('text=URL Article')).toBeVisible();
+    await expect(page.locator('text=PDF Report')).not.toBeVisible();
+
+    await page.getByRole('button', { name: 'File' }).click();
+    await expect(page.locator('text=URL Article')).not.toBeVisible();
+    await expect(page.locator('text=PDF Report')).toBeVisible();
+
+    await page.getByRole('button', { name: 'All' }).click();
+    await expect(page.locator('text=URL Article')).toBeVisible();
+    await expect(page.locator('text=PDF Report')).toBeVisible();
+  });
+
+  test('delete source triggers confirmation and refreshes list', async ({ page }) => {
+    let deleteCalled = false;
+    let deleted = false;
+
+    // GET /sources
+    await page.route('**/sources', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      if (deleted) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0 }) });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              doc_id: 'doc-001',
+              source: 'https://example.com/article',
+              source_type: 'url',
+              title: 'Example Article',
+              chunk_count: 3,
+              sections: [],
+              pages: [],
+              requested_url: 'https://example.com/article',
+              final_url: 'https://example.com/article',
+              source_state: { doc_id: 'doc-001', source: 'https://example.com/article', current_version: 'v1', content_hash: 'a', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 3, ingest_status: 'ready' },
+              domain: 'example.com',
+              description: null,
+            },
+          ],
+          total: 1,
+        }),
+      });
+    });
+
+    // DELETE /sources/doc-001
+    await page.route('**/sources/**', (route) => {
+      if (route.request().method() === 'DELETE') {
+        deleteCalled = true;
+        deleted = true;
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ found: true, doc_id: 'doc-001', source: 'https://example.com/article', source_type: 'url', deleted_chunks: 3 }) });
+      }
+      return route.fallback();
+    });
+
+    await page.goto('/');
+    await expect(page.locator('text=Example Article')).toBeVisible();
+
+    page.on('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Delete' }).first().click();
+
+    await expect(page.locator('text=Example Article')).not.toBeVisible();
+    expect(deleteCalled).toBe(true);
+  });
+
+  test('reingest source calls API and refreshes list', async ({ page }) => {
+    let reingestCalled = false;
+    await page.route('**/sources', (route) => {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              doc_id: 'doc-001',
+              source: 'https://example.com/article',
+              source_type: 'url',
+              title: 'Example Article',
+              chunk_count: 3,
+              sections: [],
+              pages: [],
+              requested_url: 'https://example.com/article',
+              final_url: 'https://example.com/article',
+              source_state: { doc_id: 'doc-001', source: 'https://example.com/article', current_version: 'v1', content_hash: 'a', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 3, ingest_status: 'ready' },
+              domain: 'example.com',
+              description: null,
+            },
+          ],
+          total: 1,
+        }),
+      });
+    });
+    await page.route('**/sources/doc-001/reingest', (route) => {
+      reingestCalled = true;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ found: true, ok: true, doc_id: 'doc-001', source: 'https://example.com/article', source_type: 'url', chunks_upserted: 3, chunks_deleted: 0 }) });
+    });
+
+    await page.goto('/');
+    await expect(page.locator('text=Example Article')).toBeVisible();
+    await page.getByRole('button', { name: 'Reingest' }).first().click();
+    await expect(page.locator('text=Example Article')).toBeVisible();
+    expect(reingestCalled).toBe(true);
+  });
 });

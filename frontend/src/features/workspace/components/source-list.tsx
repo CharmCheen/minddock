@@ -1,10 +1,18 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { SourceService } from '../../../lib/api/services/sources';
 import { SourceItem } from '../../../core/types/api';
 import { useWorkspaceStore } from '../store';
 import { useSettingsStore } from '../../settings/store';
 import { useAvailabilityStore } from '../../app/store/availability';
 import { useWorkspacePreferences } from '../../settings/workspace-preferences';
+import {
+  IconBooks,
+  IconBookOpen,
+  IconRefresh,
+  IconPlug,
+  IconFolderOpen,
+  IconTrash,
+} from '../../../components/ui/icons';
 
 interface AddUrlDialogProps {
   open: boolean;
@@ -126,14 +134,28 @@ function inferSourceKind(source: string, sourceType: string): { label: string; c
   return { label: 'File', color: '#475569', bg: '#f1f5f9' };
 }
 
+const FILTER_TABS = ['All', 'File', 'URL', 'Image', 'CSV'] as const;
+type FilterTab = typeof FILTER_TABS[number];
+
+function matchesFilterTab(src: SourceItem, tab: FilterTab): boolean {
+  if (tab === 'All') return true;
+  if (tab === 'URL') return src.source_type === 'url';
+  if (tab === 'File') return src.source_type === 'file';
+  const kind = inferSourceKind(src.source, src.source_type);
+  return kind.label === tab;
+}
+
 export const SourceList: React.FC = () => {
   const [sources, setSources] = useState<SourceItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [addUrlOpen, setAddUrlOpen] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterTab, setFilterTab] = useState<FilterTab>('All');
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const { selectedDocIds, toggleSelectedDoc, setSelectedDoc, setDrawerOpen, drawerOpen } = useWorkspaceStore();
+  const { selectedDocIds, toggleSelectedDoc, setSelectedDoc, setDrawerOpen, drawerOpen, clearSelectedDocsById } = useWorkspaceStore();
   const { offline } = useSettingsStore();
   const { status, reset } = useAvailabilityStore();
   const { density, sourceDrawerDefaultOpen } = useWorkspacePreferences();
@@ -151,7 +173,7 @@ export const SourceList: React.FC = () => {
   const isBackendOnline = status === 'online' && !offline;
   const isChecking = status === 'checking';
 
-  const loadSources = () => {
+  const loadSources = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
     }
@@ -168,22 +190,43 @@ export const SourceList: React.FC = () => {
         if (err instanceof Error && err.name === 'CanceledError') return;
         setLoading(false);
       });
-  };
+  }, []);
 
   const handleRetry = () => {
     reset();
   };
 
-  const handleRefresh = async (docId: string, e: React.MouseEvent) => {
+  const handleReingest = async (docId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setActionError(null);
     setRefreshingId(docId);
     try {
       await SourceService.reingestSource(docId);
       loadSources();
-    } catch {
-      // silently fail
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to reingest source';
+      setActionError(msg);
     } finally {
       setRefreshingId(null);
+    }
+  };
+
+  const handleDelete = async (docId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this source? This will remove it from the index and cannot be undone.')) {
+      return;
+    }
+    setActionError(null);
+    setDeletingId(docId);
+    try {
+      await SourceService.deleteSource(docId);
+      clearSelectedDocsById(docId);
+      loadSources();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete source';
+      setActionError(msg);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -196,18 +239,22 @@ export const SourceList: React.FC = () => {
         abortRef.current = null;
       }
     }
-  }, [isBackendOnline]);
+  }, [isBackendOnline, loadSources]);
 
   const filteredSources = useMemo(() => {
-    if (!searchQuery.trim()) return sources;
+    let result = sources;
+    if (filterTab !== 'All') {
+      result = result.filter((s) => matchesFilterTab(s, filterTab));
+    }
+    if (!searchQuery.trim()) return result;
     const q = searchQuery.toLowerCase();
-    return sources.filter(
+    return result.filter(
       (s) =>
         (s.title || '').toLowerCase().includes(q) ||
         s.source.toLowerCase().includes(q) ||
         s.doc_id.toLowerCase().includes(q)
     );
-  }, [sources, searchQuery]);
+  }, [sources, searchQuery, filterTab]);
 
   const d = density;
 
@@ -226,7 +273,7 @@ export const SourceList: React.FC = () => {
           color: '#fff', fontSize: '14px', flexShrink: 0,
           boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)',
         }}>
-          📚
+          <IconBooks size={18} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>Knowledge Base</div>
@@ -293,6 +340,45 @@ export const SourceList: React.FC = () => {
             <path d="m21 21-4.35-4.35"/>
           </svg>
         </div>
+
+        {/* Filter tabs */}
+        <div style={{ display: 'flex', gap: '4px', marginTop: '8px', flexWrap: 'wrap' }}>
+          {FILTER_TABS.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setFilterTab(tab)}
+              style={{
+                padding: '3px 10px',
+                borderRadius: 'var(--radius-full)',
+                border: filterTab === tab ? '1px solid var(--color-brand-200)' : '1px solid var(--color-border-subtle)',
+                background: filterTab === tab ? 'var(--color-brand-50)' : 'var(--color-surface)',
+                color: filterTab === tab ? 'var(--color-brand-600)' : 'var(--color-text-tertiary)',
+                fontSize: '11px',
+                fontWeight: filterTab === tab ? 700 : 500,
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {actionError && (
+          <div style={{
+            marginTop: '8px',
+            padding: '8px 10px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--color-error-bg)',
+            border: '1px solid var(--color-error-border)',
+            color: 'var(--color-error-text)',
+            fontSize: '12px',
+          }}>
+            {actionError}
+          </div>
+        )}
+
         <div style={{
           marginTop: '6px',
           fontSize: '11px',
@@ -327,7 +413,9 @@ export const SourceList: React.FC = () => {
 
         {(offline || status === 'offline') && !isChecking && (
           <div style={{ padding: d === 'compact' ? '24px 12px' : '32px 16px', textAlign: 'center' }}>
-            <div style={{ fontSize: '28px', marginBottom: '10px' }}>🔌</div>
+            <div style={{ fontSize: '28px', marginBottom: '10px', color: 'var(--color-error-text)' }}>
+              <IconPlug size={28} />
+            </div>
             <div style={{ color: 'var(--color-error-text)', fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>Backend Offline</div>
             <div style={{ color: 'var(--color-text-tertiary)', fontSize: '12px', marginBottom: '16px' }}>
               The server is not reachable.
@@ -357,14 +445,16 @@ export const SourceList: React.FC = () => {
 
         {!loading && !isChecking && !offline && filteredSources.length === 0 && (
           <div style={{ padding: d === 'compact' ? '24px 12px' : '32px 16px', textAlign: 'center' }}>
-            <div style={{ fontSize: '28px', marginBottom: '10px' }}>🗂️</div>
+            <div style={{ fontSize: '28px', marginBottom: '10px', color: 'var(--color-text-tertiary)' }}>
+              <IconFolderOpen size={28} />
+            </div>
             <div style={{ color: 'var(--color-text-secondary)', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
-              {searchQuery ? 'No matching sources' : 'No Sources'}
+              {searchQuery || filterTab !== 'All' ? 'No matching sources' : 'No Sources'}
             </div>
             <div style={{ color: 'var(--color-text-tertiary)', fontSize: '12px', marginBottom: '16px' }}>
-              {searchQuery ? 'Try a different search term.' : 'Add documents or URLs to start.'}
+              {searchQuery || filterTab !== 'All' ? 'Try a different filter or search term.' : 'Add documents or URLs to start.'}
             </div>
-            {!searchQuery && (
+            {!searchQuery && filterTab === 'All' && (
               <button
                 onClick={() => setAddUrlOpen(true)}
                 style={{
@@ -389,6 +479,7 @@ export const SourceList: React.FC = () => {
         {filteredSources.map(src => {
           const isSelected = selectedDocIds.includes(src.doc_id);
           const kind = inferSourceKind(src.source, src.source_type);
+          const isBusy = refreshingId === src.doc_id || deletingId === src.doc_id;
           return (
             <div
               key={src.doc_id}
@@ -465,7 +556,7 @@ export const SourceList: React.FC = () => {
                         e.currentTarget.style.background = 'transparent';
                       }}
                     >
-                      📖
+                      <IconBookOpen size={14} />
                     </button>
                   </div>
 
@@ -482,22 +573,54 @@ export const SourceList: React.FC = () => {
                       </span>
                     </div>
 
-                    {src.source_type === 'url' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
                       <button
-                        onClick={(e) => handleRefresh(src.doc_id, e)}
-                        disabled={refreshingId === src.doc_id}
-                        title="Refresh"
+                        onClick={(e) => handleReingest(src.doc_id, e)}
+                        disabled={isBusy}
+                        title="Reingest"
                         style={{
-                          background: 'none', border: 'none', cursor: refreshingId === src.doc_id ? 'not-allowed' : 'pointer',
-                          padding: '2px', borderRadius: '3px', color: refreshingId === src.doc_id ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
-                          fontSize: '12px', transition: 'color var(--transition-fast)',
+                          background: 'none', border: 'none', cursor: isBusy ? 'not-allowed' : 'pointer',
+                          padding: '6px', borderRadius: '4px', color: isBusy ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
+                          fontSize: '12px', transition: 'color var(--transition-fast), background var(--transition-fast)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          minWidth: '24px', minHeight: '24px',
                         }}
-                        onMouseOver={(e) => { if (refreshingId !== src.doc_id) e.currentTarget.style.color = 'var(--color-brand-600)'; }}
-                        onMouseOut={(e) => { e.currentTarget.style.color = refreshingId === src.doc_id ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)'; }}
+                        onMouseOver={(e) => { if (!isBusy) { e.currentTarget.style.color = 'var(--color-brand-600)'; e.currentTarget.style.background = 'var(--color-brand-50)'; } }}
+                        onMouseOut={(e) => { e.currentTarget.style.color = isBusy ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)'; e.currentTarget.style.background = 'transparent'; }}
                       >
-                        {refreshingId === src.doc_id ? '⏳' : '🔄'}
+                        {refreshingId === src.doc_id ? (
+                          <svg viewBox="0 0 24 24" width="12" height="12" style={{ animation: 'spin 1s linear infinite', color: 'var(--color-brand-500)' }}>
+                            <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
+                            <path fill="currentColor" d="M12 2v4a6 6 0 006 6h4a10 10 0 01-10-10z"/>
+                          </svg>
+                        ) : (
+                          <IconRefresh size={12} />
+                        )}
                       </button>
-                    )}
+                      <button
+                        onClick={(e) => handleDelete(src.doc_id, e)}
+                        disabled={isBusy}
+                        title="Delete"
+                        style={{
+                          background: 'none', border: 'none', cursor: isBusy ? 'not-allowed' : 'pointer',
+                          padding: '6px', borderRadius: '4px', color: isBusy ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
+                          fontSize: '12px', transition: 'color var(--transition-fast), background var(--transition-fast)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          minWidth: '24px', minHeight: '24px',
+                        }}
+                        onMouseOver={(e) => { if (!isBusy) { e.currentTarget.style.color = 'var(--color-error-text)'; e.currentTarget.style.background = 'var(--color-error-bg)'; } }}
+                        onMouseOut={(e) => { e.currentTarget.style.color = isBusy ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)'; e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        {deletingId === src.doc_id ? (
+                          <svg viewBox="0 0 24 24" width="12" height="12" style={{ animation: 'spin 1s linear infinite', color: 'var(--color-brand-500)' }}>
+                            <path fill="currentColor" d="M12 2v4a6 6 0 00-6 6H2a10 10 0 0110-10z" opacity="0.3"/>
+                            <path fill="currentColor" d="M12 2v4a6 6 0 006 6h4a10 10 0 01-10-10z"/>
+                          </svg>
+                        ) : (
+                          <IconTrash size={12} />
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

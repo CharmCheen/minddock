@@ -3,6 +3,7 @@ import { useAgentStore } from '../store';
 import type { ConversationTurn } from '../types';
 import { RawArtifactViewer } from './raw-artifact-viewer';
 import { useWorkspacePreferences } from '../../settings/workspace-preferences';
+import { IconSearch } from '../../../components/ui/icons';
 
 const PHASE_LABELS: Record<string, string> = {
   preparing: 'Preparing',
@@ -343,7 +344,7 @@ export const AgentMessageList: React.FC = () => {
             color: '#fff',
             boxShadow: 'var(--shadow-md)',
           }}>
-            🔍
+            <IconSearch size={22} />
           </div>
           <h3 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 8px 0' }}>
             MindDock Knowledge Workspace

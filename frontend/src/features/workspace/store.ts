@@ -19,6 +19,7 @@ interface WorkspaceState {
   setActiveCitation: (citation: CitationItem | null) => void;
   toggleSelectedDoc: (docId: string, detail: SourceItem) => void;
   clearSelectedDocs: () => void;
+  clearSelectedDocsById: (docId: string) => void;
   clearSelectedDoc: () => void;
   setDocChunks: (chunks: SourceChunkResponse[], totalChunks?: number) => void;
   setHighlightedChunkId: (chunkId: string | null) => void;
@@ -114,6 +115,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     return {
       selectedDocIds: [],
       selectedDocDetails: [],
+      ...(shouldClearSingleSelection
+        ? {
+            selectedDocId: null,
+            selectedDocDetail: null,
+            activeCitation: null,
+            highlightedChunkId: null,
+            selectedDocChunks: [],
+            selectedDocTotalChunks: 0,
+          }
+        : {}),
+    };
+  }),
+
+  clearSelectedDocsById: (docId) => set((state) => {
+    const nextSelectedDocIds = state.selectedDocIds.filter((id) => id !== docId);
+    const nextSelectedDocDetails = state.selectedDocDetails.filter((item) => item.doc_id !== docId);
+    const shouldClearSingleSelection = state.selectedDocId === docId;
+    return {
+      selectedDocIds: nextSelectedDocIds,
+      selectedDocDetails: nextSelectedDocDetails,
       ...(shouldClearSingleSelection
         ? {
             selectedDocId: null,

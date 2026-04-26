@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useWorkspaceStore } from '../store';
 import { SourceService } from '../../../lib/api/services/sources';
 import { useAvailabilityStore } from '../../app/store/availability';
+import { IconLink, IconFileText, IconPlug, IconX } from '../../../components/ui/icons';
 
 export const SourceDrawer: React.FC = () => {
   const {
@@ -143,7 +144,7 @@ export const SourceDrawer: React.FC = () => {
               flexShrink: 0,
               border: `1px solid ${selectedDocDetail?.source_type === 'url' ? 'var(--color-info-border)' : 'var(--color-success-border)'}`,
             }}>
-              {selectedDocDetail?.source_type === 'url' ? '🔗' : '📄'}
+              {selectedDocDetail?.source_type === 'url' ? <IconLink size={18} /> : <IconFileText size={18} />}
             </div>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -176,7 +177,7 @@ export const SourceDrawer: React.FC = () => {
               e.currentTarget.style.color = 'var(--color-text-tertiary)';
             }}
           >
-            ×
+            <IconX size={20} />
           </button>
         </div>
 
@@ -296,7 +297,9 @@ export const SourceDrawer: React.FC = () => {
               borderRadius: 'var(--radius-lg)',
               border: '1px solid var(--color-error-border)',
             }}>
-              <div style={{ color: 'var(--color-error-text)', fontSize: '24px', marginBottom: '8px' }}>🔌</div>
+              <div style={{ color: 'var(--color-error-text)', fontSize: '24px', marginBottom: '8px' }}>
+                <IconPlug size={24} />
+              </div>
               <div style={{ color: 'var(--color-error-text)', fontSize: '14px', fontWeight: 700, marginBottom: '4px' }}>Backend Offline</div>
               <div style={{ color: 'var(--color-text-tertiary)', fontSize: '13px' }}>Start the backend or retry connection to load chunks</div>
             </div>

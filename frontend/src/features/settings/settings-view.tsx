@@ -4,6 +4,7 @@ import { deriveRuntimeStatus } from './runtime-status';
 import { useWorkspacePreferences } from './workspace-preferences';
 import { SkillService } from '../../lib/api/services/skills';
 import { SourceSkillItem, SourceSkillValidationResponse } from '../../core/types/api';
+import { IconX } from '../../components/ui/icons';
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai_compatible: 'OpenAI-Compatible',
@@ -156,7 +157,7 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 e.currentTarget.style.color = 'var(--color-text-tertiary)';
               }}
             >
-              脳
+              <IconX size={18} />
             </button>
           </div>
 
@@ -708,6 +709,7 @@ function SourcesTab() {
   const [manifestText, setManifestText] = useState('{\n  "id": "local.project_csv",\n  "name": "Project CSV Skill",\n  "kind": "source",\n  "version": "0.1.0",\n  "description": "Convert project CSV rows into searchable text.",\n  "handler": "csv.extract",\n  "input_kinds": [".csv"],\n  "output_type": "SourceLoadResult",\n  "source_media": "text",\n  "source_kind": "csv_file",\n  "loader_name": "csv.extract",\n  "permissions": ["read_file", "write_index"],\n  "safety_notes": ["uses_builtin_handler"]\n}');
   const [manifestResult, setManifestResult] = useState<SourceSkillValidationResponse | null>(null);
   const [manifestBusy, setManifestBusy] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const loadSkills = () => {
     setLoading(true);
@@ -724,6 +726,24 @@ function SourcesTab() {
   useEffect(() => {
     loadSkills();
   }, []);
+
+  const handleToggleSkill = async (skill: SourceSkillItem, enable: boolean) => {
+    setTogglingId(skill.id);
+    setError(null);
+    try {
+      if (enable) {
+        await SkillService.enableLocalSourceSkill(skill.id);
+      } else {
+        await SkillService.disableLocalSourceSkill(skill.id);
+      }
+      loadSkills();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : `Failed to ${enable ? 'enable' : 'disable'} skill.`;
+      setError(msg);
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   const parseManifest = (): Record<string, unknown> | null => {
     try {
@@ -815,7 +835,13 @@ function SourcesTab() {
             {group.label}
           </div>
           {group.items.map((skill) => (
-            <SourceSkillCard key={skill.id} skill={skill} density={density} />
+            <SourceSkillCard
+              key={skill.id}
+              skill={skill}
+              density={density}
+              togglingId={togglingId}
+              onToggle={handleToggleSkill}
+            />
           ))}
         </div>
       ))}
@@ -872,11 +898,25 @@ function SourcesTab() {
   );
 }
 
-function SourceSkillCard({ skill, density }: { skill: SourceSkillItem; density: 'comfortable' | 'compact' }) {
+function SourceSkillCard({
+  skill,
+  density,
+  togglingId,
+  onToggle,
+}: {
+  skill: SourceSkillItem;
+  density: 'comfortable' | 'compact';
+  togglingId: string | null;
+  onToggle: (skill: SourceSkillItem, enable: boolean) => void;
+}) {
   const isEnabled = skill.enabled && skill.status !== 'future' && skill.status !== 'disabled';
   const input = skill.input_kinds.length ? skill.input_kinds.join(', ') : '-';
   const limitations = skill.limitations.length ? skill.limitations.join(', ') : '-';
   const capabilities = skill.capabilities.length ? skill.capabilities.join(', ') : '-';
+
+  const canDisable = skill.origin === 'local' && skill.status === 'local';
+  const canEnable = skill.origin === 'local' && skill.status === 'disabled';
+  const isToggling = togglingId === skill.id;
 
   return (
     <div
@@ -896,22 +936,45 @@ function SourceSkillCard({ skill, density }: { skill: SourceSkillItem; density: 
           <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>{skill.name}</div>
           <div style={{ fontSize: '12px', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere' }}>{skill.id}</div>
         </div>
-        <span
-          style={{
-            fontSize: '10px',
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-            padding: '3px 10px',
-            borderRadius: 'var(--radius-full)',
-            background: isEnabled ? 'var(--color-success-bg)' : 'var(--color-canvas)',
-            color: isEnabled ? 'var(--color-success-text)' : 'var(--color-text-tertiary)',
-            border: `1px solid ${isEnabled ? 'var(--color-success-border)' : 'var(--color-border-subtle)'}`,
-            flexShrink: 0,
-          }}
-        >
-          {skill.status}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {(canEnable || canDisable) && (
+            <button
+              type="button"
+              onClick={() => onToggle(skill, canEnable)}
+              disabled={isToggling}
+              data-testid={`source-skill-toggle-${skill.id}`}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 'var(--radius-sm)',
+                border: canEnable ? '1px solid var(--color-success-border)' : '1px solid var(--color-error-border)',
+                background: canEnable ? 'var(--color-success-bg)' : 'var(--color-error-bg)',
+                color: canEnable ? 'var(--color-success-text)' : 'var(--color-error-text)',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: isToggling ? 'not-allowed' : 'pointer',
+                opacity: isToggling ? 0.6 : 1,
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {isToggling ? '…' : canEnable ? 'Enable' : 'Disable'}
+            </button>
+          )}
+          <span
+            style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              padding: '3px 10px',
+              borderRadius: 'var(--radius-full)',
+              background: isEnabled ? 'var(--color-success-bg)' : 'var(--color-canvas)',
+              color: isEnabled ? 'var(--color-success-text)' : 'var(--color-text-tertiary)',
+              border: `1px solid ${isEnabled ? 'var(--color-success-border)' : 'var(--color-border-subtle)'}`,
+            }}
+          >
+            {skill.status}
+          </span>
+        </div>
       </div>
       <div style={{ display: 'grid', gap: '3px', fontSize: '13px', color: 'var(--color-text-tertiary)', lineHeight: 1.5 }}>
         <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Handler:</span> {skill.handler || '-'}</div>

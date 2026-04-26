@@ -565,6 +565,10 @@ def _serialize_source_skill(skill) -> dict[str, Any]:
     return skill.to_dict()
 
 
+def _serialize_source_handler(handler) -> dict[str, Any]:
+    return handler.to_dict()
+
+
 def cmd_skills(args: argparse.Namespace) -> None:
     from app.skills.source_registry import get_source_skill_registry
 
@@ -586,6 +590,48 @@ def cmd_skill_detail(args: argparse.Namespace) -> None:
         print(f"Source skill not found: {args.id}", file=sys.stderr)
         raise SystemExit(1)
     _pretty_print(_serialize_source_skill(skill))
+
+
+def cmd_skill_handlers(args: argparse.Namespace) -> None:
+    from app.skills.handlers import list_trusted_source_handlers
+
+    handlers = list_trusted_source_handlers()
+    _pretty_print({"items": [_serialize_source_handler(handler) for handler in handlers], "total": len(handlers)})
+
+
+def cmd_skill_handler_detail(args: argparse.Namespace) -> None:
+    from app.skills.handlers import get_trusted_source_handler
+
+    handler = get_trusted_source_handler(args.id)
+    if handler is None:
+        print(f"Trusted source handler not found: {args.id}", file=sys.stderr)
+        raise SystemExit(1)
+    _pretty_print(_serialize_source_handler(handler))
+
+
+def cmd_skill_resolve(args: argparse.Namespace) -> None:
+    from app.skills.source_binding import resolve_source_skill_binding_with_reason
+
+    result = resolve_source_skill_binding_with_reason(args.source)
+    payload: dict[str, Any] = {
+        "source": args.source,
+        "matched": result.binding is not None,
+        "warning": result.warning,
+        "reason": result.reason,
+        "matches": list(result.matches),
+        "binding": None,
+    }
+    if result.binding is not None:
+        payload["binding"] = {
+            "skill_id": result.binding.skill_id,
+            "skill_name": result.binding.skill_name,
+            "skill_version": result.binding.skill_version,
+            "skill_origin": result.binding.skill_origin,
+            "handler": result.binding.handler,
+            "input_kinds": list(result.binding.input_kinds),
+            "config_keys": sorted(result.binding.config),
+        }
+    _pretty_print(payload)
 
 
 def cmd_skill_validate(args: argparse.Namespace) -> None:
@@ -774,6 +820,17 @@ def build_parser() -> argparse.ArgumentParser:
     skill_detail_parser = subparsers.add_parser("skill-detail", help="Show one source skill catalog entry")
     skill_detail_parser.add_argument("--id", required=True, help="Source skill id, e.g. csv.extract")
     skill_detail_parser.set_defaults(func=cmd_skill_detail)
+
+    skill_handlers_parser = subparsers.add_parser("skill-handlers", help="List trusted source handler contracts")
+    skill_handlers_parser.set_defaults(func=cmd_skill_handlers)
+
+    skill_handler_detail_parser = subparsers.add_parser("skill-handler-detail", help="Show one trusted source handler contract")
+    skill_handler_detail_parser.add_argument("--id", required=True, help="Trusted handler id, e.g. csv.extract")
+    skill_handler_detail_parser.set_defaults(func=cmd_skill_handler_detail)
+
+    skill_resolve_parser = subparsers.add_parser("skill-resolve", help="Resolve a source path or URL to a local source skill binding")
+    skill_resolve_parser.add_argument("--source", required=True, help="Source path or URL to resolve")
+    skill_resolve_parser.set_defaults(func=cmd_skill_resolve)
 
     skill_validate_parser = subparsers.add_parser("skill-validate", help="Validate a local source skill JSON manifest")
     skill_validate_parser.add_argument("--manifest", required=True, help="Path to skill.json")

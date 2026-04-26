@@ -1,0 +1,21 @@
+{
+  "id": "local.project_csv",
+  "name": "Project CSV Skill",
+  "kind": "source",
+  "version": "0.1.0",
+  "description": "Parse project CSV files into searchable rows.",
+  "handler": "csv.extract",
+  "input_kinds": [".csv"],
+  "output_type": "SourceLoadResult",
+  "source_media": "text",
+  "source_kind": "csv_file",
+  "loader_name": "csv.extract",
+  "capabilities": ["csv_rows_as_text", "header_detection"],
+  "limitations": ["no_excel", "no_sql"],
+  "permissions": ["read_file", "write_index"],
+  "config": {
+    "max_rows": 500,
+    "include_header": true
+  },
+  "safety_notes": ["uses_trusted_builtin_handler"]
+}

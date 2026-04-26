@@ -21,6 +21,7 @@ def _valid_manifest() -> dict:
         "source_kind": "csv_file",
         "loader_name": "csv.extract",
         "permissions": ["read_file", "write_index"],
+        "config": {"max_rows": 500, "include_header": True},
         "safety_notes": ["uses_builtin_handler"],
     }
 
@@ -34,6 +35,7 @@ def test_valid_local_manifest_passes_validation() -> None:
     assert result.skill is not None
     assert result.skill.handler == "csv.extract"
     assert result.skill.origin == "local"
+    assert result.skill.config == {"max_rows": 500, "include_header": True}
 
 
 def test_manifest_id_must_use_safe_local_prefix() -> None:
@@ -101,6 +103,48 @@ def test_unsupported_permission_is_rejected() -> None:
     assert any("Forbidden permissions" in error for error in result.errors)
 
 
+def test_manifest_config_uses_handler_schema() -> None:
+    payload = _valid_manifest()
+    payload["config"] = {"max_rows": 0}
+
+    result = validate_manifest(payload)
+
+    assert result.ok is False
+    assert "Handler config 'max_rows' must be >= 1." in result.errors
+
+
+def test_manifest_config_rejects_unknown_key() -> None:
+    payload = _valid_manifest()
+    payload["config"] = {"unknown": True}
+
+    result = validate_manifest(payload)
+
+    assert result.ok is False
+    assert any("Unsupported handler config keys" in error for error in result.errors)
+
+
+def test_manifest_config_rejects_dangerous_key() -> None:
+    payload = _valid_manifest()
+    payload["config"] = {"token": "secret"}
+
+    result = validate_manifest(payload)
+
+    assert result.ok is False
+    assert any("Forbidden handler config keys" in error for error in result.errors)
+
+
+def test_handler_without_schema_rejects_config() -> None:
+    payload = _valid_manifest()
+    payload["handler"] = "file.text"
+    payload["input_kinds"] = [".txt"]
+    payload["config"] = {"max_rows": 10}
+
+    result = validate_manifest(payload)
+
+    assert result.ok is False
+    assert any("does not accept manifest config" in error for error in result.errors)
+
+
 def test_workflow_manifest_can_validate_but_is_display_only() -> None:
     payload = _valid_manifest()
     payload["id"] = "local.workflow_note"
@@ -122,6 +166,8 @@ def test_skill_info_does_not_expose_entrypoint_or_module_path() -> None:
     assert "entrypoint" not in payload
     assert "module_path" not in payload
     assert "script_path" not in payload
+    assert "config_keys" in payload
+    assert "config" not in payload
     assert "api_key" not in json.dumps(payload).lower()
 
 

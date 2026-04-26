@@ -215,6 +215,17 @@ export interface CancelRunResponse {
   detail: string;
 }
 
+export interface SourceHandlerConfigField {
+  name: string;
+  type: string;
+  required: boolean;
+  default: unknown | null;
+  choices: string[];
+  min_value: number | null;
+  max_value: number | null;
+  description: string;
+}
+
 export interface SourceSkillItem {
   id: string;
   name: string;
@@ -233,6 +244,11 @@ export interface SourceSkillItem {
   limitations: string[];
   permissions: string[];
   safety_notes: string[];
+  handler_name: string | null;
+  config_schema: SourceHandlerConfigField[];
+  config_keys: string[];
+  bindable: boolean;
+  executable: boolean;
   enabled: boolean;
   origin: string;
 }

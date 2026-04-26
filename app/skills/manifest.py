@@ -18,6 +18,7 @@ from app.skills.handlers import (
     DANGEROUS_MANIFEST_FIELDS,
     FORBIDDEN_SOURCE_SKILL_PERMISSIONS,
     TRUSTED_SOURCE_HANDLERS,
+    validate_handler_config,
 )
 
 SkillKind = Literal["source", "workflow", "agent"]
@@ -54,6 +55,7 @@ class SkillInfo:
     limitations: tuple[str, ...] = ()
     permissions: tuple[str, ...] = ()
     safety_notes: tuple[str, ...] = ()
+    config: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
     origin: str = "builtin"
 
@@ -76,6 +78,7 @@ class SkillInfo:
             "limitations": list(self.limitations),
             "permissions": list(self.permissions),
             "safety_notes": list(self.safety_notes),
+            "config_keys": sorted(self.config),
             "enabled": self.enabled,
             "origin": self.origin,
         }
@@ -154,6 +157,15 @@ def validate_manifest(payload: dict[str, Any]) -> SkillManifestValidationResult:
     elif handler not in TRUSTED_SOURCE_HANDLERS:
         errors.append(f"Handler '{handler}' is not a trusted built-in source handler.")
 
+    config = payload.get("config", {})
+    if config is None:
+        config = {}
+    if not isinstance(config, dict):
+        errors.append("Manifest config must be an object.")
+        config = {}
+    elif handler:
+        errors.extend(validate_handler_config(handler, config))
+
     permissions = _as_tuple(payload.get("permissions"))
     unsupported_permissions = sorted(set(permissions) - ALLOWED_SOURCE_SKILL_PERMISSIONS)
     forbidden_permissions = sorted(set(permissions) & FORBIDDEN_SOURCE_SKILL_PERMISSIONS)
@@ -189,6 +201,7 @@ def validate_manifest(payload: dict[str, Any]) -> SkillManifestValidationResult:
             limitations=_as_tuple(payload.get("limitations")),
             permissions=permissions,
             safety_notes=_as_tuple(payload.get("safety_notes")),
+            config=dict(config),
             enabled=enabled,
             origin="local",
         )
@@ -213,9 +226,26 @@ def validate_manifest(payload: dict[str, Any]) -> SkillManifestValidationResult:
 
 
 def manifest_to_json_payload(skill: SkillInfo) -> dict[str, Any]:
-    payload = skill.to_dict()
-    payload.pop("status", None)
-    payload.pop("origin", None)
+    payload = {
+        "id": skill.id,
+        "name": skill.name,
+        "kind": skill.kind,
+        "version": skill.version,
+        "description": skill.description,
+        "handler": skill.handler,
+        "input_kinds": list(skill.input_kinds),
+        "output_type": skill.output_type,
+        "source_media": skill.source_media,
+        "source_kind": skill.source_kind,
+        "loader_name": skill.loader_name,
+        "capabilities": list(skill.capabilities),
+        "providers": list(skill.providers),
+        "limitations": list(skill.limitations),
+        "permissions": list(skill.permissions),
+        "safety_notes": list(skill.safety_notes),
+        "config": dict(skill.config),
+        "enabled": skill.enabled,
+    }
     return {key: value for key, value in payload.items() if value not in (None, [], ())}
 
 

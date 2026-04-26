@@ -25,6 +25,7 @@ def _valid_manifest() -> dict:
         "loader_name": "csv.extract",
         "capabilities": ["csv_rows_as_text"],
         "permissions": ["read_file", "write_index"],
+        "config": {"max_rows": 500},
         "safety_notes": ["uses_builtin_handler"],
     }
 
@@ -62,6 +63,7 @@ def test_local_registered_skill_appears_in_registry(tmp_path) -> None:
     assert skill is not None
     assert skill.status == "local"
     assert skill.handler == "csv.extract"
+    assert skill.config == {"max_rows": 500}
 
 
 def test_disabled_local_skill_status_is_preserved(tmp_path) -> None:
@@ -120,6 +122,10 @@ def test_frontend_source_skills_api_lists_catalog(monkeypatch, tmp_path) -> None
     ids = {item["id"] for item in payload["items"]}
     assert "csv.extract" in ids
     assert "audio.transcribe" in ids
+    csv_item = next(item for item in payload["items"] if item["id"] == "csv.extract")
+    assert csv_item["handler_name"] == "CSV Extraction"
+    assert any(field["name"] == "max_rows" for field in csv_item["config_schema"])
+    assert csv_item["executable"] is True
 
 
 def test_frontend_source_skills_validate_and_register(monkeypatch, tmp_path) -> None:
@@ -135,7 +141,11 @@ def test_frontend_source_skills_validate_and_register(monkeypatch, tmp_path) -> 
     assert register_response.status_code == 200
     assert register_response.json()["ok"] is True
     ids = {item["id"] for item in list_response.json()["items"]}
+    local_item = next(item for item in list_response.json()["items"] if item["id"] == "local.project_csv")
     assert "local.project_csv" in ids
+    assert local_item["bindable"] is True
+    assert local_item["executable"] is False
+    assert local_item["config_keys"] == ["max_rows"]
 
 
 def test_frontend_source_skills_rejects_unsafe_manifest(monkeypatch, tmp_path) -> None:

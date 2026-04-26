@@ -21,6 +21,7 @@ from app.rag.source_models import utc_now_iso
 from app.rag.splitter import _chunk_by_tokens, split_text
 from app.rag.vectorstore import clear_vectorstore_cache, get_vectorstore
 from app.rag.structured_chunker import structured_pdf_chunks, ChunkMeta
+from app.skills.source_binding import resolve_source_skill_binding_with_reason
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +231,19 @@ def _metadata_with_loader_warnings(
         metadata.pop("_page_blocks", None)
     if load_result.warnings:
         metadata["loader_warnings"] = ",".join(load_result.warnings)
+    loader_name = str(metadata.get("loader_name") or "").strip() or None
+    binding_resolution = resolve_source_skill_binding_with_reason(load_result.descriptor, loader_name=loader_name)
+    if binding_resolution.binding is not None:
+        binding = binding_resolution.binding
+        metadata["skill_id"] = binding.skill_id
+        metadata["skill_name"] = binding.skill_name
+        metadata["skill_handler"] = binding.handler
+        metadata["skill_origin"] = binding.skill_origin
+        metadata["skill_version"] = binding.skill_version
+        if binding.config:
+            metadata["skill_config_keys"] = ",".join(sorted(binding.config))
+    elif binding_resolution.warning:
+        metadata["skill_binding_warning"] = binding_resolution.warning
     return metadata
 
 

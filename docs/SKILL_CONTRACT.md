@@ -121,6 +121,55 @@ executable skills such as demo utility skills.
 P0 supports JSON manifests only. YAML support is deferred because the project
 does not depend on PyYAML.
 
+## Trusted Handler Integration Contract (Skill System v1.2)
+
+Skill System v1.2 formalizes trusted source handlers as metadata contracts.
+Each trusted handler declares:
+
+- `id`
+- `input_kinds`
+- `output_type`
+- `source_media`
+- `source_kind`
+- `loader_name`
+- `permissions`
+- `capabilities`
+- `limitations`
+- optional `config_schema`
+
+The trusted handler contract does not include a Python callable, module path,
+entrypoint, local path, environment variable, API key, or subprocess command.
+
+Enabled local source manifests can bind to these trusted handlers. During ingest,
+if exactly one enabled local source skill matches the source kind and loader
+name, MindDock adds these fields to chunk metadata:
+
+- `skill_id`
+- `skill_name`
+- `skill_handler`
+- `skill_origin`
+- `skill_version`
+- `skill_config_keys`
+
+This annotation does not change source text, embedding text, loader selection,
+retrieval ranking, rerank, citation generation, grounded answering, or the
+vector-store schema. It only records which local manifest identity was associated
+with an existing trusted handler.
+
+Manifest `config` is schema-validated per trusted handler. For example,
+`csv.extract` accepts bounded `max_rows`, bounded `max_chars`, and
+`include_header`. The full config is not copied into chunk metadata; only the
+safe list of config key names is recorded.
+
+If multiple local manifests match the same source, MindDock does not choose one
+randomly. It skips skill identity annotation and writes a short binding warning
+for debugging.
+
+Future capabilities such as `video.transcribe`, `audio.transcribe`, or
+`notion.import` should be implemented as trusted handlers inside the MindDock
+codebase before users can bind manifests to them. Local manifests still never
+execute arbitrary code.
+
 ## Integration Patterns
 
 ### SourceSkill → MCP-style Integration (Future)

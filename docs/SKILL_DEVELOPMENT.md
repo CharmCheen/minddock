@@ -1,8 +1,9 @@
 # Skill Development
 
-## Skill System v1.1
+## Skill System v1.2
 
-MindDock Skill System v1.1 supports declaration-only local source skill manifests.
+MindDock Skill System v1.2 supports declaration-only local source skill manifests
+and trusted handler binding metadata.
 
 Users can register a `skill.json` file that describes a source skill and binds it
 to a trusted built-in handler. MindDock does not execute arbitrary user code from
@@ -18,6 +19,9 @@ A local manifest can:
 - appear in `/frontend/source-skills`
 - appear in Settings > Sources
 - be enabled or disabled
+- provide safe handler config keys validated against a trusted handler schema
+- mark ingest chunk metadata with local skill identity when exactly one enabled
+  local skill matches a source
 
 A local manifest cannot:
 
@@ -29,10 +33,12 @@ A local manifest cannot:
 - trigger ingest at registration time
 - write Chroma directly
 - join autonomous LLM tool selection
+- change loader selection, embedding models, retrieval ranking, rerank, citation,
+  or answer generation
 
 ## Manifest Format
 
-P0 supports JSON only. YAML manifests are not supported in v1.1 because PyYAML is
+P0 supports JSON only. YAML manifests are not supported in v1.2 because PyYAML is
 not a project dependency.
 
 Example `skill.json`:
@@ -53,6 +59,10 @@ Example `skill.json`:
   "capabilities": ["csv_rows_as_text"],
   "limitations": ["no_excel"],
   "permissions": ["read_file", "write_index"],
+  "config": {
+    "max_rows": 500,
+    "include_header": true
+  },
   "safety_notes": ["uses_builtin_handler"]
 }
 ```
@@ -71,8 +81,59 @@ Local manifests can bind only to trusted built-in source handlers:
 - `image.ocr`
 - `csv.extract`
 
-The manifest names a handler id, not a Python function. Execution remains inside
-MindDock's existing `SourceLoaderRegistry` and ingest pipeline.
+The manifest names a handler id, not a Python function. The trusted handler
+contract records:
+
+- input kinds
+- output type
+- source media/kind
+- loader name
+- permissions
+- capabilities and limitations
+- optional config schema
+
+This contract is metadata, not an executable entrypoint. Execution remains
+inside MindDock's existing `SourceLoaderRegistry` and ingest pipeline.
+
+When one enabled local source skill matches an ingested source, MindDock annotates
+chunk metadata with:
+
+- `skill_id`
+- `skill_name`
+- `skill_handler`
+- `skill_origin`
+- `skill_version`
+- `skill_config_keys`
+
+The full config is not written to chunk metadata. If multiple local skills match
+the same source, MindDock does not pick randomly and records a short binding
+warning instead.
+
+## Handler Config
+
+Manifest `config` must be a JSON object and must match the trusted handler's
+schema. Unknown keys, wrong types, out-of-range values, and dangerous keys are
+rejected.
+
+Dangerous config keys include:
+
+- `api_key`
+- `token`
+- `secret`
+- `env`
+- `command`
+- `script`
+- `subprocess`
+- `path`
+
+Current examples:
+
+- `csv.extract`: `max_rows`, `max_chars`, `include_header`
+- `url.extract`: `timeout_seconds`
+- `image.ocr`: `max_chars`
+
+v1.2 validates these values but does not yet change loader behavior from local
+manifest config.
 
 ## Rejected Fields
 
@@ -91,7 +152,7 @@ Validation rejects these fields:
 - `token`
 
 The validation error is explicit: arbitrary entrypoints are not allowed in Skill
-System v1.1.
+System v1.1/v1.2.
 
 ## Permissions
 
@@ -138,6 +199,9 @@ python -m app.demo skills
 python -m app.demo skills --implemented
 python -m app.demo skills --local
 python -m app.demo skill-detail --id csv.extract
+python -m app.demo skill-handlers
+python -m app.demo skill-handler-detail --id csv.extract
+python -m app.demo skill-resolve --source path\to\data.csv
 python -m app.demo skill-validate --manifest path\to\skill.json
 python -m app.demo skill-register --manifest path\to\skill.json
 python -m app.demo skill-disable --id local.project_csv
@@ -167,3 +231,8 @@ Community skills would require sandboxing, signing, permission review, and a
 separate installer/update model. Those are intentionally out of scope for v1.1
 and especially important for a Windows desktop EXE scenario, where executing
 unknown local plugins would create a large security surface.
+
+Future `video.transcribe`, `audio.transcribe`, and `notion.import` capabilities
+should enter MindDock as trusted handlers implemented in the codebase first.
+Users can then bind local manifests to those handlers without ever supplying
+arbitrary Python code.

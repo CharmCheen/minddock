@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from app.rag.source_skill_catalog import SourceSkillInfo, list_builtin_source_skills
+from app.skills.handlers import get_trusted_source_handler
 from app.skills.local_store import LocalSkillStore
 from app.skills.manifest import SkillInfo, SkillManifestValidationResult, validate_manifest
 
@@ -184,6 +185,7 @@ class SourceSkillRegistry:
 
 
 def _from_builtin(skill: SourceSkillInfo) -> SkillInfo:
+    handler = get_trusted_source_handler(skill.id)
     return SkillInfo(
         id=skill.id,
         name=skill.name,
@@ -191,16 +193,16 @@ def _from_builtin(skill: SourceSkillInfo) -> SkillInfo:
         version=skill.version,
         status="implemented",
         description=f"Built-in source extraction skill for {skill.name}.",
-        input_kinds=skill.input_kinds,
-        output_type=skill.output_type,
-        source_media=skill.source_media,
-        source_kind=skill.source_kind,
-        loader_name=skill.loader_name,
+        input_kinds=handler.input_kinds if handler is not None else skill.input_kinds,
+        output_type=handler.output_type if handler is not None else skill.output_type,
+        source_media=handler.source_media if handler is not None else skill.source_media,
+        source_kind=handler.source_kind if handler is not None else skill.source_kind,
+        loader_name=handler.loader_name if handler is not None else skill.loader_name,
         handler=skill.id,
-        capabilities=skill.capabilities,
+        capabilities=handler.capabilities if handler is not None else skill.capabilities,
         providers=skill.providers,
-        limitations=skill.limitations,
-        permissions=("read_file", "write_index") if skill.id.startswith("file.") or skill.id in {"csv.extract", "image.ocr"} else ("read_url", "write_index"),
+        limitations=handler.limitations if handler is not None else skill.limitations,
+        permissions=handler.permissions if handler is not None else (("read_file", "write_index") if skill.id.startswith("file.") or skill.id in {"csv.extract", "image.ocr"} else ("read_url", "write_index")),
         safety_notes=skill.notes,
         enabled=True,
         origin="builtin",

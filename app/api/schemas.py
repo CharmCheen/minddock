@@ -50,6 +50,7 @@ from app.application.models import (
     UnifiedExecutionResponse,
 )
 from app.skills.manifest import SkillInfo, SkillManifestValidationResult
+from app.skills.handlers import HandlerConfigField, get_trusted_source_handler
 from app.skills.models import SkillCatalogDetail, SkillCatalogEntry, SkillInputSchema, SkillOutputSchema, SkillSchemaField
 from app.runtime.models import (
     LocalityPreference,
@@ -1674,13 +1675,49 @@ class SourceSkillSummaryResponse(BaseModel):
     limitations: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
     safety_notes: list[str] = Field(default_factory=list)
+    handler_name: str | None = None
+    config_schema: list["SourceHandlerConfigFieldResponse"] = Field(default_factory=list)
+    config_keys: list[str] = Field(default_factory=list)
+    bindable: bool = False
+    executable: bool = False
     enabled: bool = True
     origin: str = "builtin"
 
     @classmethod
     def from_info(cls, info: SkillInfo) -> "SourceSkillSummaryResponse":
         data = info.to_dict()
+        handler = get_trusted_source_handler(info.handler or "")
+        data["handler_name"] = None if handler is None else handler.name
+        data["config_schema"] = [] if handler is None else [SourceHandlerConfigFieldResponse.from_field(field) for field in handler.config_schema]
+        data["bindable"] = info.origin == "local" and info.enabled and handler is not None
+        data["executable"] = info.origin == "builtin" and info.status == "implemented" and handler is not None
         return cls(**data)
+
+
+class SourceHandlerConfigFieldResponse(BaseModel):
+    """Frontend-safe trusted handler config schema field."""
+
+    name: str
+    type: str
+    required: bool = False
+    default: Any | None = None
+    choices: list[str] = Field(default_factory=list)
+    min_value: int | float | None = None
+    max_value: int | float | None = None
+    description: str = ""
+
+    @classmethod
+    def from_field(cls, field: HandlerConfigField) -> "SourceHandlerConfigFieldResponse":
+        return cls(
+            name=field.name,
+            type=field.type,
+            required=field.required,
+            default=field.default,
+            choices=list(field.choices),
+            min_value=field.min_value,
+            max_value=field.max_value,
+            description=field.description,
+        )
 
 
 class SourceSkillListResponse(BaseModel):

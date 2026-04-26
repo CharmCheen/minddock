@@ -492,6 +492,23 @@ def test_demo_skill_detail_returns_csv_extract(capsys) -> None:
     assert payload["status"] == "implemented"
 
 
+def test_demo_skill_handlers_lists_trusted_handlers(capsys) -> None:
+    main(["skill-handlers"])
+
+    payload = json.loads(capsys.readouterr().out)
+    ids = {item["id"] for item in payload["items"]}
+    assert "csv.extract" in ids
+    assert "url.extract" in ids
+
+
+def test_demo_skill_handler_detail_returns_csv_schema(capsys) -> None:
+    main(["skill-handler-detail", "--id", "csv.extract"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["id"] == "csv.extract"
+    assert any(field["name"] == "max_rows" for field in payload["config_schema"])
+
+
 def test_demo_skill_validate_and_register(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setenv("MINDDOCK_SKILLS_DIR", str(tmp_path / "skills"))
     manifest_path = tmp_path / "skill.json"
@@ -519,3 +536,31 @@ def test_demo_skill_validate_and_register(monkeypatch, tmp_path, capsys) -> None
     assert validate_payload["ok"] is True
     assert register_payload["ok"] is True
     assert (tmp_path / "skills" / "local.project_csv" / "skill.json").exists()
+
+
+def test_demo_skill_resolve_reports_local_binding(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setenv("MINDDOCK_SKILLS_DIR", str(tmp_path / "skills"))
+    manifest_path = tmp_path / "skill.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "id": "local.project_csv",
+                "name": "Project CSV Skill",
+                "kind": "source",
+                "version": "0.1.0",
+                "description": "Convert project CSV rows into searchable text.",
+                "handler": "csv.extract",
+                "input_kinds": [".csv"],
+                "permissions": ["read_file", "write_index"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    main(["skill-register", "--manifest", str(manifest_path)])
+    capsys.readouterr()
+
+    main(["skill-resolve", "--source", "some.csv"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["matched"] is True
+    assert payload["binding"]["skill_id"] == "local.project_csv"

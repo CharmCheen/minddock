@@ -154,3 +154,125 @@ test('unsafe manifest validation is shown as rejected', async ({ page }) => {
   await expect(page.getByTestId('source-skill-manifest-result')).toContainText('Manifest rejected');
   await expect(page.getByTestId('source-skill-manifest-result')).toContainText('Arbitrary entrypoint');
 });
+
+test('local skill enable and disable are shown and functional', async ({ page }) => {
+  await mockBase(page);
+
+  let localSkillEnabled = true;
+  await page.route('**/frontend/source-skills', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              id: 'csv.extract',
+              name: 'CSV Rows as Text',
+              kind: 'source',
+              version: '1.0.0',
+              status: 'implemented',
+              description: '',
+              input_kinds: ['.csv'],
+              output_type: 'SourceLoadResult',
+              source_media: 'text',
+              source_kind: 'csv_file',
+              loader_name: 'csv.extract',
+              handler: 'csv.extract',
+              capabilities: ['csv_rows_as_text'],
+              providers: [],
+              limitations: ['no_excel'],
+              permissions: ['read_file', 'write_index'],
+              safety_notes: [],
+              enabled: true,
+              origin: 'builtin',
+            },
+            {
+              id: 'local.project_csv',
+              name: 'Project CSV Skill',
+              kind: 'source',
+              version: '0.1.0',
+              status: localSkillEnabled ? 'local' : 'disabled',
+              description: '',
+              input_kinds: ['.csv'],
+              output_type: 'SourceLoadResult',
+              source_media: 'text',
+              source_kind: 'csv_file',
+              loader_name: 'csv.extract',
+              handler: 'csv.extract',
+              capabilities: ['csv_rows_as_text'],
+              providers: [],
+              limitations: [],
+              permissions: ['read_file'],
+              safety_notes: ['uses_builtin_handler'],
+              enabled: localSkillEnabled,
+              origin: 'local',
+            },
+            {
+              id: 'audio.transcribe',
+              name: 'Audio Transcription',
+              kind: 'source',
+              version: '0.1.0',
+              status: 'future',
+              description: '',
+              input_kinds: ['.mp3'],
+              output_type: 'SourceLoadResult',
+              source_media: 'audio',
+              source_kind: 'audio_file',
+              loader_name: 'audio.transcribe',
+              handler: null,
+              capabilities: [],
+              providers: [],
+              limitations: ['not_implemented'],
+              permissions: [],
+              safety_notes: [],
+              enabled: false,
+              origin: 'builtin',
+            },
+          ],
+          total: 3,
+        }),
+      });
+    }
+    return route.fallback();
+  });
+
+  let disableCalled = false;
+  let enableCalled = false;
+  await page.route('**/frontend/source-skills/local.project_csv/disable', (route) => {
+    disableCalled = true;
+    localSkillEnabled = false;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, skill_id: 'local.project_csv', errors: [], warnings: [], executable: true, reason: 'Disabled.', skill: null }) });
+  });
+  await page.route('**/frontend/source-skills/local.project_csv/enable', (route) => {
+    enableCalled = true;
+    localSkillEnabled = true;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, skill_id: 'local.project_csv', errors: [], warnings: [], executable: true, reason: 'Enabled.', skill: null }) });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open settings' }).click();
+  await page.getByRole('button', { name: 'Sources' }).click();
+
+  // Built-in implemented skill should NOT show Disable
+  await expect(page.getByTestId('source-skill-csv.extract')).toBeVisible();
+  await expect(page.getByTestId('source-skill-toggle-csv.extract')).not.toBeVisible();
+
+  // Future skill should NOT show Enable
+  await expect(page.getByTestId('source-skill-audio.transcribe')).toBeVisible();
+  await expect(page.getByTestId('source-skill-toggle-audio.transcribe')).not.toBeVisible();
+
+  // Local skill should show Disable
+  await expect(page.getByTestId('source-skill-local.project_csv')).toBeVisible();
+  await expect(page.getByTestId('source-skill-toggle-local.project_csv')).toContainText('Disable');
+
+  // Click Disable
+  await page.getByTestId('source-skill-toggle-local.project_csv').click();
+  await expect(page.getByTestId('source-skill-toggle-local.project_csv')).toContainText('Enable');
+  expect(disableCalled).toBe(true);
+
+  // Click Enable
+  await page.getByTestId('source-skill-toggle-local.project_csv').click();
+  await expect(page.getByTestId('source-skill-toggle-local.project_csv')).toContainText('Disable');
+  expect(enableCalled).toBe(true);
+});

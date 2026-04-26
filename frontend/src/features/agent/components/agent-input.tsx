@@ -7,6 +7,7 @@ import { ExamplePrompts } from './example-prompts';
 import { ExecutionService } from '../../../lib/api/services/execution';
 import { ClientArtifactPayload, ClientEvent } from '../../../core/types/api';
 import { cancelActiveRun } from '../cancellation';
+import { IconFileText } from '../../../components/ui/icons';
 
 export const AgentInput: React.FC<{
   controller: AbortController | null;
@@ -194,8 +195,8 @@ export const AgentInput: React.FC<{
               whiteSpace: 'nowrap',
             }}>
               {selectedDocIds.length === 1
-                ? `📄 ${selectedDocDetails[0]?.source || ''}`
-                : `📄 已选 ${selectedDocIds.length} 个文档`}
+                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><IconFileText size={12} /> {selectedDocDetails[0]?.source || ''}</span>
+                : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><IconFileText size={12} /> {selectedDocIds.length} selected</span>}
             </span>
             <button
               type="button"

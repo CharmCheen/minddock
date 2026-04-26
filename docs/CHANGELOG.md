@@ -14,6 +14,10 @@ Update it before every push.
 - Open-source governance files: `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `SECURITY.md`
 - Project tracking docs: `docs/ROADMAP.md` and `docs/TEST_PLAN.md`
 - Baseline automated tests for API routes, schemas, chat service, and contract definitions
+- Rule-based `IntentClassifier` that maps user input to `TaskType` via keyword matching (Chinese + English) without LLM inference
+- `task_type` is now optional in `UnifiedExecutionRequest`; omitting it triggers auto-detection
+- Frontend "Auto" mode: omits `task_type` from the request so the backend infers the best task
+- Intent metadata (`detected_intent`) is appended to `workflow_trace` in unified execution responses
 
 ### Changed
 

@@ -90,8 +90,21 @@ const TurnView: React.FC<{ turn: ConversationTurn; isActive: boolean; density: '
   const [showDetails, setShowDetails] = useState(false);
   const d = density;
 
+  const detectedIntent = React.useMemo(() => {
+    if (turn.taskType !== 'auto') return null;
+    for (const artifact of turn.artifacts) {
+      const meta = artifact.metadata as { workflow_trace?: { detected_intent?: { task_type?: string; confidence?: number; reason?: string } } } | undefined;
+      if (meta?.workflow_trace?.detected_intent) {
+        return meta.workflow_trace.detected_intent;
+      }
+    }
+    return null;
+  }, [turn.artifacts, turn.taskType]);
+
+  const effectiveTaskType = detectedIntent?.task_type ?? turn.taskType;
+
   const visibleArtifacts = React.useMemo(() => {
-    if (turn.taskType !== 'compare') {
+    if (effectiveTaskType !== 'compare') {
       return turn.artifacts;
     }
     const structuredCompare = turn.artifacts.find((artifact) => {
@@ -99,14 +112,14 @@ const TurnView: React.FC<{ turn: ConversationTurn; isActive: boolean; density: '
       return artifact.kind === 'structured_json' && content?.schema_name === 'compare.v1';
     });
     return structuredCompare ? [structuredCompare] : turn.artifacts;
-  }, [turn.artifacts, turn.taskType]);
+  }, [turn.artifacts, effectiveTaskType]);
 
   const currentProgress = [...turn.events].reverse().find((event) => event.event === 'progress');
   const rawPhase = (currentProgress?.data as { phase?: string } | undefined)?.phase;
   const currentPhaseText = rawPhase ? PHASE_LABELS[rawPhase] ?? rawPhase : null;
 
-  const taskLabel = turn.taskType === 'compare' ? 'Compare' : turn.taskType === 'summarize' ? 'Summarize' : 'Chat';
-  const resultLabel = turn.taskType === 'compare' ? 'Document Comparison Result' : turn.taskType === 'summarize' ? 'Summary Result' : 'AI Response';
+  const taskLabel = effectiveTaskType === 'compare' ? 'Compare' : effectiveTaskType === 'summarize' ? 'Summarize' : effectiveTaskType === 'auto' ? 'Auto' : 'Chat';
+  const resultLabel = effectiveTaskType === 'compare' ? 'Document Comparison Result' : effectiveTaskType === 'summarize' ? 'Summary Result' : 'AI Response';
 
   const statusBadgeConfig: Record<string, { color: string; bg: string; label: string }> = {
     completed: { color: 'var(--color-success-text)', bg: 'var(--color-success-bg)', label: 'Completed' },
@@ -152,13 +165,18 @@ const TurnView: React.FC<{ turn: ConversationTurn; isActive: boolean; density: '
             letterSpacing: '0.04em',
             background: 'var(--color-surface)',
             border: '1px solid var(--color-border-subtle)',
-            color: turn.taskType === 'compare' ? '#8b5cf6' : turn.taskType === 'summarize' ? '#10b981' : 'var(--color-brand-600)',
+            color: effectiveTaskType === 'compare' ? '#8b5cf6' : effectiveTaskType === 'summarize' ? '#10b981' : effectiveTaskType === 'auto' ? '#f59e0b' : 'var(--color-brand-600)',
             textTransform: 'uppercase',
             boxShadow: 'var(--shadow-sm)',
           }}>
             {taskLabel}
           </span>
           <span style={{ fontSize: '14px', color: 'var(--color-text-primary)', fontWeight: 600, letterSpacing: '0.01em' }}>{resultLabel}</span>
+          {turn.taskType === 'auto' && detectedIntent && (
+            <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+              Detected {detectedIntent.task_type} ({Math.round((detectedIntent.confidence ?? 0) * 100)}%)
+            </span>
+          )}
 
           {/* Status badge for completed/failed/cancelled turns */}
           {!isActive && cfg && (

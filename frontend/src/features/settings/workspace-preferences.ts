@@ -6,7 +6,7 @@ interface WorkspacePreferences {
   showWorkflowDetails: boolean;
   density: 'compact' | 'comfortable';
   sourceDrawerDefaultOpen: boolean;
-  defaultTaskType: 'chat' | 'summarize' | 'compare';
+  defaultTaskType: 'auto' | 'chat' | 'summarize' | 'compare';
   defaultTopK: number;
   defaultCitationPolicy: 'required' | 'preferred' | 'none';
   defaultSummarizeMode: 'basic' | 'map_reduce';
@@ -15,7 +15,7 @@ interface WorkspacePreferences {
   setShowWorkflowDetails: (value: boolean) => void;
   setDensity: (value: 'compact' | 'comfortable') => void;
   setSourceDrawerDefaultOpen: (value: boolean) => void;
-  setDefaultTaskType: (value: 'chat' | 'summarize' | 'compare') => void;
+  setDefaultTaskType: (value: 'auto' | 'chat' | 'summarize' | 'compare') => void;
   setDefaultTopK: (value: number) => void;
   setDefaultCitationPolicy: (value: 'required' | 'preferred' | 'none') => void;
   setDefaultSummarizeMode: (value: 'basic' | 'map_reduce') => void;
@@ -30,7 +30,7 @@ export const useWorkspacePreferences = create<WorkspacePreferences>()(
       showWorkflowDetails: false,
       density: 'comfortable',
       sourceDrawerDefaultOpen: false,
-      defaultTaskType: 'chat',
+      defaultTaskType: 'auto',
       defaultTopK: 5,
       defaultCitationPolicy: 'preferred',
       defaultSummarizeMode: 'basic',

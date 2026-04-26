@@ -3,7 +3,7 @@ import { ClientEvent, ArtifactResponseItem, CitationItem } from '../../core/type
 export interface ConversationTurn {
   id: string;
   runId?: string;
-  taskType: 'chat' | 'summarize' | 'compare';
+  taskType: 'auto' | 'chat' | 'summarize' | 'compare';
   query: string;
   selectedSources: string[];
   status: 'running' | 'completed' | 'failed' | 'cancelled';

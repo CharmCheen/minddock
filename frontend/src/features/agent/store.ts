@@ -11,7 +11,7 @@ function generateTurnId(): string {
 
 interface AgentState {
   status: 'idle' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed';
-  taskType: 'chat' | 'summarize' | 'compare';
+  taskType: 'auto' | 'chat' | 'summarize' | 'compare';
   runId: string | null;
   currentUserQuery: string | null;
   events: ClientEvent[];
@@ -31,13 +31,13 @@ interface AgentState {
   requestCancel: () => void;
   markCancelled: (message?: string) => void;
   reset: () => void;
-  setTaskType: (type: 'chat' | 'summarize' | 'compare') => void;
+  setTaskType: (type: 'auto' | 'chat' | 'summarize' | 'compare') => void;
   clearConversation: () => void;
 }
 
 export const useAgentStore = create<AgentState>((set) => ({
   status: 'idle',
-  taskType: 'chat',
+  taskType: 'auto',
   runId: null,
   currentUserQuery: null,
   events: [],

@@ -128,7 +128,7 @@ class RetrievalOptions:
 class UnifiedExecutionRequest:
     """Single application-facing request contract for frontend execution."""
 
-    task_type: TaskType
+    task_type: TaskType | None
     user_input: str
     retrieval: RetrievalOptions = field(default_factory=RetrievalOptions)
     execution_policy: ExecutionPolicy = field(default_factory=ExecutionPolicy)

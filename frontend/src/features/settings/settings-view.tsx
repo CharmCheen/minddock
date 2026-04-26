@@ -674,7 +674,7 @@ function DisplayTab() {
       }}>
         <span style={{ fontSize: '14px', color: 'var(--color-text-primary)', fontWeight: 500 }}>Default operation</span>
         <div style={{ display: 'flex', gap: '4px' }}>
-          {(['chat', 'summarize', 'compare'] as const).map((t) => (
+          {(['auto', 'chat', 'summarize', 'compare'] as const).map((t) => (
             <button
               key={t}
               type="button"

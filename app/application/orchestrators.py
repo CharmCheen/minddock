@@ -26,6 +26,7 @@ from app.application.events import (
     WarningEmittedPayload,
     build_run_id,
 )
+from app.application.intent_classifier import IntentClassifier, IntentClassificationResult
 from app.application.models import (
     CitationPolicy,
     ExecutionDecision,
@@ -516,6 +517,8 @@ class FrontendFacade:
     def execute_run(self, request: UnifiedExecutionRequest) -> ExecutionRun:
         """Execute one request while collecting a stable event stream."""
 
+        intent_result = self._classify_intent(request)
+        request = replace(request, task_type=intent_result.task_type)
         request = self._route_chat_summary_request(request)
         run = ExecutionRun(
             run_id=build_run_id(),
@@ -633,6 +636,14 @@ class FrontendFacade:
             warnings = response.metadata.warnings
             issues = response.metadata.issues
             fallback_used = response.metadata.fallback_used or (False if runtime_match is None else runtime_match.binding.fallback_used)
+            workflow_trace = dict(response.metadata.workflow_trace or {})
+            workflow_trace["detected_intent"] = {
+                "task_type": intent_result.task_type.value,
+                "confidence": intent_result.confidence,
+                "reason": intent_result.reason,
+                "user_override": intent_result.user_override,
+                "matched_keyword": intent_result.matched_keyword,
+            }
             metadata = replace(
                 response.metadata,
                 selected_runtime=selected_runtime,
@@ -659,6 +670,7 @@ class FrontendFacade:
                 fallback_used=fallback_used,
                 selection_reason=None if runtime_match is None else runtime_match.binding.selection_reason,
                 policy_applied=request.execution_policy.describe(),
+                workflow_trace=workflow_trace,
             )
             if warnings:
                 for warning in warnings:
@@ -859,6 +871,17 @@ class FrontendFacade:
             self.event_projector.project_many(final_events, debug=False),
         )
         return run
+
+    def _classify_intent(self, request: UnifiedExecutionRequest) -> IntentClassificationResult:
+        """Resolve intent when task_type is omitted, or mark as user override."""
+        if request.task_type is None:
+            return IntentClassifier().classify(request.user_input)
+        return IntentClassificationResult(
+            task_type=request.task_type,
+            confidence=1.0,
+            reason="Explicit task_type provided by user.",
+            user_override=True,
+        )
 
     def _route_chat_summary_request(self, request: UnifiedExecutionRequest) -> UnifiedExecutionRequest:
         if request.task_type != TaskType.CHAT:

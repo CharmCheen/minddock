@@ -814,7 +814,7 @@ def test_unified_execution_compare_matches_direct_compare_semantics(monkeypatch)
         metadata=UseCaseMetadata(retrieved_count=2, mode="grounded_compare", support_status="supported"),
     )
 
-    monkeypatch.setattr(chat_orchestrator, "compare", lambda **kwargs: compare_result)
+    monkeypatch.setattr(chat_orchestrator, "run_compare_with_runtime", lambda *, request, runtime, precomputed_hits=None: compare_result)
 
     response = facade.execute(
         UnifiedExecutionRequest(

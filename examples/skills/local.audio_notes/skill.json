@@ -1,0 +1,13 @@
+{
+  "id": "local.audio_notes",
+  "name": "Audio Notes Skill",
+  "kind": "source",
+  "version": "0.1.0",
+  "description": "Transcribe audio files into searchable transcript text.",
+  "handler": "audio.transcribe",
+  "input_kinds": [".mp3", ".wav", ".m4a"],
+  "permissions": ["read_file", "use_llm_api", "write_index"],
+  "capabilities": ["transcript_text"],
+  "limitations": ["transcript_only_p0", "no_speaker_diarization_p0"],
+  "safety_notes": ["uses_trusted_builtin_handler"]
+}

@@ -17,6 +17,44 @@ def test_trusted_handler_registry_contains_csv_extract() -> None:
     assert is_trusted_source_handler("csv.extract") is True
 
 
+def test_trusted_handler_registry_contains_audio_transcribe() -> None:
+    handlers = list_trusted_source_handlers()
+    ids = {handler.id for handler in handlers}
+
+    assert "audio.transcribe" in ids
+    assert get_trusted_source_handler("audio.transcribe") is not None
+    assert is_trusted_source_handler("audio.transcribe") is True
+
+
+def test_trusted_handler_registry_contains_video_transcribe() -> None:
+    handlers = list_trusted_source_handlers()
+    ids = {handler.id for handler in handlers}
+
+    assert "video.transcribe" in ids
+    assert get_trusted_source_handler("video.transcribe") is not None
+    assert is_trusted_source_handler("video.transcribe") is True
+
+
+def test_audio_transcribe_config_schema() -> None:
+    handler = get_trusted_source_handler("audio.transcribe")
+    assert handler is not None
+    names = {field.name for field in handler.config_schema}
+    assert "provider" in names
+    assert "language" in names
+    assert "max_chars" in names
+    assert "include_timestamps" in names
+
+
+def test_video_transcribe_config_schema() -> None:
+    handler = get_trusted_source_handler("video.transcribe")
+    assert handler is not None
+    names = {field.name for field in handler.config_schema}
+    assert "provider" in names
+    assert "language" in names
+    assert "max_chars" in names
+    assert "include_timestamps" in names
+
+
 def test_unknown_handler_returns_none_and_false() -> None:
     assert get_trusted_source_handler("custom.handler") is None
     assert is_trusted_source_handler("custom.handler") is False

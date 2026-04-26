@@ -97,3 +97,17 @@ def test_file_and_url_descriptor_doc_ids_are_stable(tmp_path: Path) -> None:
     assert file_descriptor.source == "notes.md"
     assert file_descriptor.doc_id == same_file_descriptor.doc_id
     assert url_descriptor.doc_id == build_url_descriptor("https://example.com").doc_id
+
+
+def test_source_loader_registry_resolves_media_before_file(tmp_path: Path) -> None:
+    from app.rag.media_loader import MediaSourceLoader
+    from app.rag.source_loader import SourceLoaderRegistry
+    kb_dir = tmp_path / "knowledge_base"
+    kb_dir.mkdir()
+    audio_path = kb_dir / "lecture.mp3"
+    audio_path.write_text("fake", encoding="utf-8")
+    descriptor = build_file_descriptor(audio_path, kb_dir)
+
+    loader = SourceLoaderRegistry().resolve(descriptor)
+
+    assert isinstance(loader, MediaSourceLoader)

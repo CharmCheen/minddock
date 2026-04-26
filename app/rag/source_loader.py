@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from app.rag.image_loader import IMAGE_EXTENSIONS, ImageSourceLoader
+from app.rag.media_loader import AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, MediaSourceLoader
 from app.rag.pdf_parser import extract_page_blocks, PageBlocks
 from app.rag.source_skills.csv_skill import CSV_EXTENSIONS, CsvSourceLoader
 
@@ -18,7 +19,7 @@ from app.rag.url_loader import URLContent, fetch_url_content
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {".md", ".txt", ".pdf", ".csv", *IMAGE_EXTENSIONS}
+SUPPORTED_EXTENSIONS = {".md", ".txt", ".pdf", ".csv", *IMAGE_EXTENSIONS, *MEDIA_EXTENSIONS}
 _TEXT_EXTENSIONS = {".md", ".txt"}
 _PDF_EXTENSIONS = {".pdf"}
 
@@ -137,7 +138,7 @@ class SourceLoaderRegistry:
     """Registry-based dispatcher for source loaders."""
 
     def __init__(self, loaders: list[SourceLoader] | None = None) -> None:
-        self._loaders = list(loaders or [ImageSourceLoader(), CsvSourceLoader(), FileSourceLoader(), URLSourceLoader()])
+        self._loaders = list(loaders or [ImageSourceLoader(), MediaSourceLoader(), CsvSourceLoader(), FileSourceLoader(), URLSourceLoader()])
 
     def register(self, loader: SourceLoader) -> None:
         self._loaders.append(loader)

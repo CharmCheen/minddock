@@ -7,8 +7,8 @@ MindDock 是一个面向个人知识库的可验证 RAG 系统，支持多源知
 ## 核心功能
 
 - **文档导入**：支持本地文件和 URL 导入。
-- **文件格式**：支持 PDF、Markdown、TXT、CSV，以及网页 URL 正文抽取、Image OCR。
-- **多源接入**：通过 Source Skill Contract 规范化异构数据源；已实现 `url.extract`、`image.ocr`、`csv.extract`，未来可扩展 audio/video/image caption skill。
+- **文件格式**：支持 PDF、Markdown、TXT、CSV、Image OCR，以及网页 URL 正文抽取、Audio/Video Transcript（P0 mock provider）。
+- **多源接入**：通过 Source Skill Contract 规范化异构数据源；已实现 `url.extract`、`image.ocr`、`csv.extract`、`audio.transcribe`、`video.transcribe`（P0 mock provider），未来可扩展 image caption skill。
 - **向量索引**：使用 Chroma 持久化存储 chunk、embedding 和 metadata。
 - **检索**：提供 `/search` 接口，返回带 source/citation 的检索结果。
 - **问答**：提供 `/chat` 接口，基于检索证据生成 grounded answer。
@@ -28,7 +28,7 @@ MindDock 是一个面向个人知识库的可验证 RAG 系统，支持多源知
 - **PDF 处理**：包含 structured chunking，尽量保留 page、section、block type 等 metadata。
 - **Evidence Window**：检索仍使用小 chunk，回答和引用阶段扩展为更完整的 evidence window，保证 `hit_chunk_id in window_chunk_ids`。
 - **Citation Metadata**：后端和前端共同展示 `citation_label`、`evidence_preview`、`hit_in_window`、`window_chunk_count` 等字段。
-- **Source Skill Contract**：将 PDF、Markdown、TXT、URL、Image OCR、CSV 等知识源统一描述为 source extraction skills，输出统一的 `SourceLoadResult`。
+- **Source Skill Contract**：将 PDF、Markdown、TXT、URL、Image OCR、CSV、Audio/Video Transcript 等知识源统一描述为 source extraction skills，输出统一的 `SourceLoadResult`。
 - **Frontend Facade / Runtime Adapter**：前端统一调用应用层 facade，后端 runtime 可切换 mock 或真实 LLM provider。
 
 ## 技术亮点
@@ -79,7 +79,7 @@ Citation 不只返回短 snippet，还包含：
 
 ### 9. Source Skill Contract
 
-MindDock 通过 Source Skill Contract 将 URL extraction、Image OCR、CSV rows-as-text 等异构数据源统一接入 RAG pipeline。新增 source skill 只需实现 extraction 层，无需修改 retrieval、rerank、citation 或 frontend。
+MindDock 通过 Source Skill Contract 将 URL extraction、Image OCR、CSV rows-as-text、Audio/Video Transcript 等异构数据源统一接入 RAG pipeline。新增 source skill 只需实现 extraction 层，无需修改 retrieval、rerank、citation 或 frontend。
 
 ### 10. Experience-oriented Validation
 
@@ -100,7 +100,7 @@ MindDock 通过 Source Skill Contract 将 URL extraction、Image OCR、CSV rows-
 
 MindDock 支持本地 source skill manifest 注册，但只作为声明式 catalog 扩展。
 用户可以注册 `skill.json`，并绑定到系统内置 trusted handler，例如
-`csv.extract`、`url.extract`、`image.ocr`。
+`csv.extract`、`url.extract`、`image.ocr`、`audio.transcribe`、`video.transcribe`。
 
 该机制不执行任意 Python 插件，不支持 marketplace，不接入 MCP，也不会让 LLM
 自主选择或调用本地 manifest skill。注册 manifest 不会触发 ingest，也不会写入

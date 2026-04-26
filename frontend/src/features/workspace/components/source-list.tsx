@@ -131,10 +131,12 @@ function inferSourceKind(source: string, sourceType: string): { label: string; c
   if (lower.endsWith('.txt')) return { label: 'TXT', color: '#475569', bg: '#f1f5f9' };
   if (lower.endsWith('.csv')) return { label: 'CSV', color: '#a16207', bg: '#fef9c3' };
   if (/\.(png|jpg|jpeg|webp)$/.test(lower)) return { label: 'Image', color: '#7c3aed', bg: '#ede9fe' };
+  if (/\.(mp3|wav|m4a|aac|flac|ogg)$/.test(lower)) return { label: 'Audio', color: '#c2410c', bg: '#ffedd5' };
+  if (/\.(mp4|mov|mkv|webm)$/.test(lower)) return { label: 'Video', color: '#be123c', bg: '#ffe4e6' };
   return { label: 'File', color: '#475569', bg: '#f1f5f9' };
 }
 
-const FILTER_TABS = ['All', 'File', 'URL', 'Image', 'CSV'] as const;
+const FILTER_TABS = ['All', 'File', 'URL', 'Image', 'CSV', 'Audio', 'Video'] as const;
 type FilterTab = typeof FILTER_TABS[number];
 
 function matchesFilterTab(src: SourceItem, tab: FilterTab): boolean {

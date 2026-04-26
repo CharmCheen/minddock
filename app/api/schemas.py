@@ -1041,7 +1041,9 @@ class ExecutionPolicyItem(BaseModel):
 class UnifiedExecutionRequestBody(BaseModel):
     """Request body for the unified frontend execution endpoint."""
 
-    task_type: Literal["chat", "summarize", "search", "compare", "structured_generation"]
+    task_type: Literal["chat", "summarize", "search", "compare", "structured_generation"] | None = Field(
+        default=None, description="Execution task type. Omit or set null to trigger rule-based intent inference."
+    )
     user_input: str = Field(..., description="Primary user task input.")
     top_k: int = Field(default=5, ge=1, le=20, description="Retrieval depth for retrieval-backed tasks.")
     filters: MetadataFilters | None = Field(default=None, description="Optional retrieval filters.")
@@ -1078,7 +1080,7 @@ class UnifiedExecutionRequestBody(BaseModel):
 
         filters = self.filters.to_retrieval_filters() if self.filters else None
         return UnifiedExecutionRequest(
-            task_type=TaskType(self.task_type),
+            task_type=TaskType(self.task_type) if self.task_type is not None else None,
             user_input=self.user_input,
             retrieval=RetrievalOptions(top_k=self.top_k, filters=filters),
             execution_policy=(self.execution_policy or ExecutionPolicyItem()).to_runtime_policy(),

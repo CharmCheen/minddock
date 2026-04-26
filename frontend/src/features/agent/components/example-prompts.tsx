@@ -1,12 +1,16 @@
 import React from 'react';
 
 interface ExamplePromptsProps {
-  taskType: 'chat' | 'summarize' | 'compare';
+  taskType: 'auto' | 'chat' | 'summarize' | 'compare';
   onSelect: (prompt: string) => void;
 }
 
 export const ExamplePrompts: React.FC<ExamplePromptsProps> = ({ taskType, onSelect }) => {
   const examples = {
+    auto: [
+      "Can you explain the main concepts discussed in the selected document?",
+      "Compare the methodologies proposed in the two selected sources."
+    ],
     chat: [
       "Can you explain the main concepts discussed in the selected document?",
       "What are the key takeaways from this source for a beginner?"

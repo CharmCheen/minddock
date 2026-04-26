@@ -47,12 +47,15 @@ export const ExecutionService = {
     const controller = new AbortController();
 
     const body: UnifiedExecutionRequestBody = {
-      task_type: input.task_type || "chat",
       user_input: input.query,
       top_k: input.top_k ?? 5,
       output_mode: "text",
       citation_policy: input.citation_policy || "preferred"
     };
+
+    if (input.task_type && input.task_type !== 'auto') {
+      body.task_type = input.task_type;
+    }
 
     if (input.sources && input.sources.length > 0) {
       body.filters = { source: input.sources };

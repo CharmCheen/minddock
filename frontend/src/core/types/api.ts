@@ -97,7 +97,7 @@ export interface ArtifactResponseItem {
 }
 
 export interface UnifiedExecutionRequestBody {
-  task_type: string;
+  task_type?: string;
   user_input: string;
   top_k: number;
   filters?: {

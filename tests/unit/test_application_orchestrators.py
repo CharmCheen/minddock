@@ -1397,3 +1397,228 @@ def test_chat_runtime_resolver_failure_still_raises(monkeypatch) -> None:
     assert run.status == ExecutionRunStatus.FAILED
     assert run.error is not None
     assert "runtime resolver failed" in str(run.error)
+
+
+# --- Intent classification tests ---
+
+def test_intent_classification_auto_detects_compare(monkeypatch) -> None:
+    """When task_type is None and input contains compare keywords, route to compare."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fail_chat(*, request, runtime, precomputed_hits=None):
+        raise AssertionError("should not run chat for compare intent")
+
+    def fail_summarize(*, request, runtime, precomputed_hits=None):
+        raise AssertionError("should not run summarize for compare intent")
+
+    def fake_compare(*, request, runtime, precomputed_hits=None):
+        assert request.task_type == TaskType.COMPARE
+        return CompareServiceResult(
+            compare_result=GroundedCompareResult(query=request.user_input),
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=1, mode="grounded"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fail_chat)
+    monkeypatch.setattr(chat_orchestrator, "run_summarize_with_runtime", fail_summarize)
+    monkeypatch.setattr(chat_orchestrator, "run_compare_with_runtime", fake_compare)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=None,
+            user_input="Compare the two methodologies",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    assert response.task_type == TaskType.COMPARE
+    assert response.metadata.workflow_trace is not None
+    assert response.metadata.workflow_trace["detected_intent"]["task_type"] == "compare"
+    assert response.metadata.workflow_trace["detected_intent"]["user_override"] is False
+    assert response.metadata.workflow_trace["detected_intent"]["confidence"] == 0.9
+
+
+def test_intent_classification_auto_detects_summarize(monkeypatch) -> None:
+    """When task_type is None and input contains summarize keywords, route to summarize."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fail_chat(*, request, runtime, precomputed_hits=None):
+        raise AssertionError("should not run chat for summarize intent")
+
+    def fake_summarize(*, request, runtime, precomputed_hits=None):
+        assert request.task_type == TaskType.SUMMARIZE
+        return SummarizeServiceResult(
+            summary="summary response",
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=1, mode="basic"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fail_chat)
+    monkeypatch.setattr(chat_orchestrator, "run_summarize_with_runtime", fake_summarize)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=None,
+            user_input="Summarize the key points",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    assert response.task_type == TaskType.SUMMARIZE
+    assert response.metadata.workflow_trace["detected_intent"]["task_type"] == "summarize"
+    assert response.metadata.workflow_trace["detected_intent"]["user_override"] is False
+
+
+def test_intent_classification_auto_defaults_to_chat(monkeypatch) -> None:
+    """When task_type is None and input has no keywords, default to chat."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fake_chat(*, request, runtime, precomputed_hits=None):
+        assert request.task_type == TaskType.CHAT
+        return ChatServiceResult(
+            answer="chat response",
+            citations=[],
+            grounded_answer=GroundedAnswer(answer="chat response"),
+            metadata=UseCaseMetadata(retrieved_count=1, mode="grounded"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_chat)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=None,
+            user_input="What is the weather today?",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    assert response.task_type == TaskType.CHAT
+    assert response.metadata.workflow_trace["detected_intent"]["task_type"] == "chat"
+    assert response.metadata.workflow_trace["detected_intent"]["user_override"] is False
+    assert response.metadata.workflow_trace["detected_intent"]["confidence"] == 0.5
+
+
+def test_intent_classification_explicit_task_type_preserves_override(monkeypatch) -> None:
+    """When task_type is explicitly provided, user_override=True and task is preserved."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fake_chat(*, request, runtime, precomputed_hits=None):
+        assert request.task_type == TaskType.CHAT
+        return ChatServiceResult(
+            answer="chat response",
+            citations=[],
+            grounded_answer=GroundedAnswer(answer="chat response"),
+            metadata=UseCaseMetadata(retrieved_count=1, mode="grounded"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_chat)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="Compare and summarize everything",  # contains compare/summarize keywords
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    assert response.task_type == TaskType.CHAT
+    assert response.metadata.workflow_trace["detected_intent"]["task_type"] == "chat"
+    assert response.metadata.workflow_trace["detected_intent"]["user_override"] is True
+    assert response.metadata.workflow_trace["detected_intent"]["confidence"] == 1.0
+
+
+def test_intent_classification_routing_after_auto_detect(monkeypatch) -> None:
+    """Auto-detected chat can still be re-routed to summarize by _route_chat_summary_request."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fail_chat(*, request, runtime, precomputed_hits=None):
+        raise AssertionError("should not run chat for summarized intent")
+
+    def fake_summarize(*, request, runtime, precomputed_hits=None):
+        assert request.task_type == TaskType.SUMMARIZE
+        return SummarizeServiceResult(
+            summary="summary response",
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=1, mode="basic"),
+        )
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            return {"hits": []}
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fail_chat)
+    monkeypatch.setattr(chat_orchestrator, "run_summarize_with_runtime", fake_summarize)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=None,
+            user_input="告诉我知识库中的主要内容",  # auto-detects chat, then routed to summarize by _route_chat_summary_request
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    assert response.task_type == TaskType.SUMMARIZE
+    # detected_intent should still reflect the auto-detected value before routing
+    assert response.metadata.workflow_trace["detected_intent"]["task_type"] == "chat"
+    assert response.metadata.workflow_trace["detected_intent"]["user_override"] is False

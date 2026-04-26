@@ -103,12 +103,14 @@ export const AgentInput: React.FC<{
   const d = density;
 
   const modes = [
+    { id: 'auto', label: 'Auto' },
     { id: 'chat', label: 'Chat' },
     { id: 'summarize', label: 'Summarize' },
     { id: 'compare', label: 'Compare' }
   ];
 
   const PLACEHOLDERS: Record<string, string> = {
+    auto: 'Ask anything — the agent will choose the best mode...',
     chat: 'Ask a question about your knowledge base...',
     summarize: 'What would you like to summarize?',
     compare: 'Compare perspectives across your sources...',
@@ -119,7 +121,7 @@ export const AgentInput: React.FC<{
   const getButtonLabel = () => {
     if (isCancelling) return 'Cancelling';
     if (isRunning) return 'Stop';
-    return taskType === 'chat' ? 'Send' : taskType === 'summarize' ? 'Summarize' : 'Compare';
+    return taskType === 'chat' ? 'Send' : taskType === 'summarize' ? 'Summarize' : taskType === 'compare' ? 'Compare' : 'Send';
   };
 
   return (

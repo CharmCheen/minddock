@@ -109,6 +109,23 @@ Purpose:
 - preserve `common_points`, `differences`, and `conflicts` with paired evidence
 - keep the compare use-case composable for both direct `/compare` routes and unified execution
 
+### `IntentClassificationResult`
+
+Fields:
+
+- `task_type` — inferred `TaskType` (`CHAT`, `SUMMARIZE`, or `COMPARE`)
+- `confidence` — match confidence (`0.9` strong, `0.65` weak, `0.5` fallback)
+- `reason` — human-readable classification reason
+- `matched_keyword` — the keyword that triggered the match, or `None`
+- `user_override` — `True` when the user explicitly provided a `task_type`
+
+Purpose:
+
+- lightweight, deterministic intent classification without LLM inference
+- used by `FrontendFacade.execute_run()` to resolve `task_type` when the frontend omits it (auto mode)
+- keyword lists cover both Chinese and English compare/summarize terms
+- preserves explicit user choice via `user_override=True`
+
 ### `IngestServiceResult`
 
 Wraps:

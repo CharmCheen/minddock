@@ -161,6 +161,36 @@ Response:
 
 Note: compare results also appear in the unified execution response at `compare_result` and in the `compare.v1` structured artifact. Both `/compare` and `/frontend/execute` return the same core compare contract.
 
+### `POST /frontend/execute`
+
+Request (via `UnifiedExecutionRequestBody`):
+
+- `task_type: "chat" | "summarize" | "compare" | null` — optional; omit or send `null` to enable auto-detection
+- `user_input` — the user's query or instruction
+- `top_k`
+- `filters`
+- `output_mode`
+- `citation_policy`
+- `task_options`
+
+Behavior:
+
+- when `task_type` is omitted or `null`, a rule-based `IntentClassifier` inspects `user_input` for compare/summarize keywords and selects the most likely task type
+  - strong compare keywords: 比较, 对比, 区别, 差异, 异同, compare, comparison, difference, contrast, versus, vs, …
+  - strong summarize keywords: 总结, 概括, 归纳, 摘要, summarize, summary, recap, outline, …
+  - if no keyword matches, defaults to `chat` with confidence 0.5
+  - confidence levels: strong match = 0.9, weak match = 0.65, fallback = 0.5
+- when `task_type` is explicitly provided, the classifier records `user_override=True` and preserves the requested type
+- after intent classification, the existing `_route_chat_summary_request` logic can still re-route `chat` → `summarize` based on summary phrases
+- intent metadata (`detected_intent`) is appended to `workflow_trace` in the response metadata, including `task_type`, `confidence`, `reason`, `matched_keyword`, and `user_override`
+
+Response:
+
+- `task_type` — the task type that was actually executed (may differ from the auto-detected value if routing re-routed it)
+- `artifacts` — primary result artifact(s) depending on task type
+- `citations` — evidence citations
+- `metadata.workflow_trace.detected_intent` — intent classification details when auto-detection was used
+
 ### `POST /frontend/execute` with `task_type=compare`
 
 Request (via `UnifiedExecutionRequestBody`):

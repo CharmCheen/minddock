@@ -50,7 +50,9 @@ def test_list_implemented_skills_excludes_future(tmp_path) -> None:
     ids = {skill.id for skill in registry.list_implemented_skills()}
 
     assert "csv.extract" in ids
-    assert "audio.transcribe" not in ids
+    assert "audio.transcribe" in ids
+    assert "video.transcribe" in ids
+    assert "image.caption" not in ids
 
 
 def test_local_registered_skill_appears_in_registry(tmp_path) -> None:
@@ -83,12 +85,12 @@ def test_enable_disable_only_allows_local_skills(tmp_path) -> None:
     registry = _registry(tmp_path)
 
     disable_builtin = registry.disable_skill("csv.extract")
-    enable_future = registry.enable_skill("audio.transcribe")
+    enable_builtin = registry.enable_skill("audio.transcribe")
 
     assert disable_builtin.ok is False
     assert "Only local skills can be disabled." in disable_builtin.errors
-    assert enable_future.ok is False
-    assert "Only local skills can be enabled." in enable_future.errors
+    assert enable_builtin.ok is False
+    assert "Only local skills can be enabled." in enable_builtin.errors
 
 
 def test_all_skill_ids_unique_and_json_serializable(tmp_path) -> None:

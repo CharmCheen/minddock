@@ -84,7 +84,7 @@ conda run --no-capture-output -n minddock python -m app.demo watch --once
 conda run --no-capture-output -n minddock python -m app.demo watch --path knowledge_base --debounce 2.0
 ```
 
-Watcher 扫描 `.pdf`、`.md`、`.txt`、`.csv` 文件和 `.png`/`.jpg`/`.jpeg`/`.webp` 图片。新增文件会入库，修改文件按内容哈希替换，未变文件跳过，删除文件会同步移除 Chroma chunks 和 HashStore 记录。Windows 下建议等大文件复制完成后再同步，或先用 `--once --dry-run` 预览。
+Watcher 扫描 `.pdf`、`.md`、`.txt`、`.csv` 文件，`.png`/`.jpg`/`.jpeg`/`.webp` 图片，以及 `.mp3`/`.wav`/`.m4a`/`.aac`/`.flac`/`.ogg`/`.webm` 音频和 `.mp4`/`.mov`/`.mkv`/`.webm` 视频。新增文件会入库，修改文件按内容哈希替换，未变文件跳过，删除文件会同步移除 Chroma chunks 和 HashStore 记录。Windows 下建议等大文件复制完成后再同步，或先用 `--once --dry-run` 预览。
 
 ### URL ingest 说明
 
@@ -109,7 +109,9 @@ Image 支持 `knowledge_base/` 下的 `.png`、`.jpg`、`.jpeg`、`.webp`。
 
 Image chunks 携带 `source_media=image`、`source_kind=image_file`、`loader_name=image.ocr`、`ocr_provider`、`retrieval_basis=ocr_text`、`image_filename`。
 
-不支持：image caption、PDF figure extraction、video/audio、multimodal embedding、OCR table reconstruction、layout blocks、frontend image preview。
+不支持：image caption、PDF figure extraction、multimodal embedding、OCR table reconstruction、layout blocks、frontend image preview。
+
+Audio/video 使用 transcript-only trusted handler，默认 mock provider，不依赖真实 ASR。
 
 ### CSV source skill 说明
 

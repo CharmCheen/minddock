@@ -188,6 +188,53 @@ _BUILTIN_SOURCE_SKILLS: tuple[SourceSkillInfo, ...] = (
             "no_layout_reconstruction",
         ),
     ),
+    SourceSkillInfo(
+        id="audio.transcribe",
+        name="Audio Transcript",
+        kind="source",
+        version="1.0.0",
+        input_kinds=(".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".webm"),
+        output_type="SourceLoadResult",
+        source_media="audio",
+        source_kind="audio_file",
+        loader_name="audio.transcribe",
+        capabilities=(
+            "transcript_text",
+            "mock_provider",
+            "loader_warnings",
+        ),
+        providers=("mock", "disabled", "api_stub"),
+        limitations=(
+            "transcript_only_p0",
+            "no_speaker_diarization_p0",
+            "no_timestamp_citation_ui",
+            "real_asr_future",
+        ),
+    ),
+    SourceSkillInfo(
+        id="video.transcribe",
+        name="Video Transcript",
+        kind="source",
+        version="1.0.0",
+        input_kinds=(".mp4", ".mov", ".mkv", ".webm"),
+        output_type="SourceLoadResult",
+        source_media="video",
+        source_kind="video_file",
+        loader_name="video.transcribe",
+        capabilities=(
+            "transcript_text",
+            "mock_provider",
+            "loader_warnings",
+        ),
+        providers=("mock", "disabled", "api_stub"),
+        limitations=(
+            "transcript_only_p0",
+            "no_frame_understanding",
+            "no_multimodal_embedding",
+            "no_player_ui",
+            "real_asr_future",
+        ),
+    ),
 )
 
 

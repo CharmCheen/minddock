@@ -117,9 +117,13 @@
 - Rerank 是 heuristic，不是 cross-encoder
 - Context compression 是 trimming，不是 LLM compression
 
+### Post-V4 Update / Latest Status
+
+After PR #18 (merged to master), `audio.transcribe` and `video.transcribe` are implemented as transcript-only trusted handlers with mock provider by default. They validate the Source Skill / Trusted Handler extension path, while real ASR, full video understanding, multimodal embedding, timestamp citation UI, and player UI remain future work.
+
 ### Future work（答辩时可提及）
 
-- Audio/video transcription via Source Skill Contract
+- Real ASR provider for audio/video transcription
 - Image caption via multimodal model
 - JS-rendered URL via headless browser
 - Full Agent Skill Runtime（当前是 deterministic contract）

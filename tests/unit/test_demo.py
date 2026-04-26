@@ -481,7 +481,14 @@ def test_demo_skills_lists_source_skills(monkeypatch, tmp_path, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     ids = {item["id"] for item in payload["items"]}
     assert "csv.extract" in ids
-    assert "audio.transcribe" not in ids
+    assert "audio.transcribe" in ids
+    assert "video.transcribe" in ids
+
+    implemented = {item["id"]: item for item in payload["items"]}
+    for skill_id in ("audio.transcribe", "video.transcribe"):
+        assert implemented[skill_id]["status"] == "implemented", skill_id
+        assert implemented[skill_id]["enabled"] is True, skill_id
+        assert implemented[skill_id]["origin"] == "builtin", skill_id
 
 
 def test_demo_skill_detail_returns_csv_extract(capsys) -> None:

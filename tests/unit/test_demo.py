@@ -1,5 +1,7 @@
 """Unit tests for demo serialization helpers."""
 
+import json
+
 import pytest
 import sys
 from pathlib import Path
@@ -469,3 +471,51 @@ def test_cmd_watch_passes_once_dry_run_path_and_debounce(monkeypatch) -> None:
         "once": True,
         "dry_run": True,
     }
+
+
+def test_demo_skills_lists_source_skills(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setenv("MINDDOCK_SKILLS_DIR", str(tmp_path / "skills"))
+
+    main(["skills", "--implemented"])
+
+    payload = json.loads(capsys.readouterr().out)
+    ids = {item["id"] for item in payload["items"]}
+    assert "csv.extract" in ids
+    assert "audio.transcribe" not in ids
+
+
+def test_demo_skill_detail_returns_csv_extract(capsys) -> None:
+    main(["skill-detail", "--id", "csv.extract"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["id"] == "csv.extract"
+    assert payload["status"] == "implemented"
+
+
+def test_demo_skill_validate_and_register(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setenv("MINDDOCK_SKILLS_DIR", str(tmp_path / "skills"))
+    manifest_path = tmp_path / "skill.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "id": "local.project_csv",
+                "name": "Project CSV Skill",
+                "kind": "source",
+                "version": "0.1.0",
+                "description": "Convert project CSV rows into searchable text.",
+                "handler": "csv.extract",
+                "input_kinds": [".csv"],
+                "permissions": ["read_file", "write_index"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    main(["skill-validate", "--manifest", str(manifest_path)])
+    validate_payload = json.loads(capsys.readouterr().out)
+    main(["skill-register", "--manifest", str(manifest_path)])
+    register_payload = json.loads(capsys.readouterr().out)
+
+    assert validate_payload["ok"] is True
+    assert register_payload["ok"] is True
+    assert (tmp_path / "skills" / "local.project_csv" / "skill.json").exists()

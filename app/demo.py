@@ -561,6 +561,81 @@ def cmd_skill_run(args: argparse.Namespace) -> None:
     )
 
 
+def _serialize_source_skill(skill) -> dict[str, Any]:
+    return skill.to_dict()
+
+
+def cmd_skills(args: argparse.Namespace) -> None:
+    from app.skills.source_registry import get_source_skill_registry
+
+    registry = get_source_skill_registry()
+    if args.local:
+        skills = registry.list_local_skills()
+    elif args.implemented:
+        skills = registry.list_implemented_skills()
+    else:
+        skills = registry.list_skills(include_future=not args.no_future, include_local=not args.no_local)
+    _pretty_print({"items": [_serialize_source_skill(skill) for skill in skills], "total": len(skills)})
+
+
+def cmd_skill_detail(args: argparse.Namespace) -> None:
+    from app.skills.source_registry import get_source_skill_registry
+
+    skill = get_source_skill_registry().get_skill(args.id)
+    if skill is None:
+        print(f"Source skill not found: {args.id}", file=sys.stderr)
+        raise SystemExit(1)
+    _pretty_print(_serialize_source_skill(skill))
+
+
+def cmd_skill_validate(args: argparse.Namespace) -> None:
+    from app.skills.manifest import SkillManifestError, load_manifest_file
+    from app.skills.source_registry import get_source_skill_registry
+
+    try:
+        manifest = load_manifest_file(Path(args.manifest))
+    except SkillManifestError as exc:
+        _pretty_print({"ok": False, "errors": [str(exc)], "warnings": [], "executable": False})
+        raise SystemExit(1) from exc
+    result = get_source_skill_registry().validate_manifest(manifest)
+    _pretty_print(result.to_dict())
+    if not result.ok:
+        raise SystemExit(1)
+
+
+def cmd_skill_register(args: argparse.Namespace) -> None:
+    from app.skills.manifest import SkillManifestError, load_manifest_file
+    from app.skills.source_registry import get_source_skill_registry
+
+    try:
+        manifest = load_manifest_file(Path(args.manifest))
+    except SkillManifestError as exc:
+        _pretty_print({"ok": False, "errors": [str(exc)], "warnings": [], "executable": False})
+        raise SystemExit(1) from exc
+    result = get_source_skill_registry().register_manifest(manifest)
+    _pretty_print(result.to_dict())
+    if not result.ok:
+        raise SystemExit(1)
+
+
+def cmd_skill_enable(args: argparse.Namespace) -> None:
+    from app.skills.source_registry import get_source_skill_registry
+
+    result = get_source_skill_registry().enable_skill(args.id)
+    _pretty_print(result.to_dict())
+    if not result.ok:
+        raise SystemExit(1)
+
+
+def cmd_skill_disable(args: argparse.Namespace) -> None:
+    from app.skills.source_registry import get_source_skill_registry
+
+    result = get_source_skill_registry().disable_skill(args.id)
+    _pretty_print(result.to_dict())
+    if not result.ok:
+        raise SystemExit(1)
+
+
 def _check_chroma_available() -> None:
     """Raise a clear error if langchain-chroma is not installed.
 
@@ -688,6 +763,33 @@ def build_parser() -> argparse.ArgumentParser:
     skill_parser.add_argument("--text", default="hello", help="Text payload for the skill")
     skill_parser.add_argument("--debug", action="store_true", help="Enable debug mode for skill execution")
     skill_parser.set_defaults(func=cmd_skill_run)
+
+    skills_parser = subparsers.add_parser("skills", help="List source skill catalog entries")
+    skills_parser.add_argument("--implemented", action="store_true", help="Only list enabled implemented/local source skills")
+    skills_parser.add_argument("--local", action="store_true", help="Only list local source skill manifests")
+    skills_parser.add_argument("--no-future", action="store_true", help="Exclude future source skills")
+    skills_parser.add_argument("--no-local", action="store_true", help="Exclude local source skill manifests")
+    skills_parser.set_defaults(func=cmd_skills)
+
+    skill_detail_parser = subparsers.add_parser("skill-detail", help="Show one source skill catalog entry")
+    skill_detail_parser.add_argument("--id", required=True, help="Source skill id, e.g. csv.extract")
+    skill_detail_parser.set_defaults(func=cmd_skill_detail)
+
+    skill_validate_parser = subparsers.add_parser("skill-validate", help="Validate a local source skill JSON manifest")
+    skill_validate_parser.add_argument("--manifest", required=True, help="Path to skill.json")
+    skill_validate_parser.set_defaults(func=cmd_skill_validate)
+
+    skill_register_parser = subparsers.add_parser("skill-register", help="Register a local source skill JSON manifest")
+    skill_register_parser.add_argument("--manifest", required=True, help="Path to skill.json")
+    skill_register_parser.set_defaults(func=cmd_skill_register)
+
+    skill_disable_parser = subparsers.add_parser("skill-disable", help="Disable a local source skill")
+    skill_disable_parser.add_argument("--id", required=True, help="Local source skill id")
+    skill_disable_parser.set_defaults(func=cmd_skill_disable)
+
+    skill_enable_parser = subparsers.add_parser("skill-enable", help="Enable a local source skill")
+    skill_enable_parser.add_argument("--id", required=True, help="Local source skill id")
+    skill_enable_parser.set_defaults(func=cmd_skill_enable)
 
     evaluate_parser = subparsers.add_parser("evaluate", help="Run the local benchmark evaluation workflow")
     evaluate_parser.add_argument(

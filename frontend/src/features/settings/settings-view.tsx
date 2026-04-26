@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { RuntimeFormValues, useSettingsStore } from './store';
 import { deriveRuntimeStatus } from './runtime-status';
 import { useWorkspacePreferences } from './workspace-preferences';
+import { SkillService } from '../../lib/api/services/skills';
+import { SourceSkillItem, SourceSkillValidationResponse } from '../../core/types/api';
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai_compatible: 'OpenAI-Compatible',
@@ -48,62 +50,6 @@ const tabButtonStyle = (active: boolean): React.CSSProperties => ({
   transition: 'all var(--transition-fast)',
 });
 
-const SOURCE_SKILLS = [
-  {
-    name: 'PDF',
-    status: 'implemented' as const,
-    inputs: '.pdf',
-    limitations: 'Text extraction only; no figure/table OCR',
-  },
-  {
-    name: 'Markdown',
-    status: 'implemented' as const,
-    inputs: '.md',
-    limitations: 'Standard Markdown',
-  },
-  {
-    name: 'TXT',
-    status: 'implemented' as const,
-    inputs: '.txt',
-    limitations: 'Plain text',
-  },
-  {
-    name: 'URL',
-    status: 'implemented' as const,
-    inputs: 'HTTP/HTTPS static pages',
-    limitations: 'No JS rendering, no login, no crawl',
-  },
-  {
-    name: 'Image OCR',
-    status: 'implemented' as const,
-    inputs: '.png, .jpg, .jpeg, .webp',
-    limitations: 'OCR text only; not image caption',
-  },
-  {
-    name: 'CSV',
-    status: 'implemented' as const,
-    inputs: '.csv',
-    limitations: 'No Excel; rows-as-text only',
-  },
-  {
-    name: 'Audio',
-    status: 'future' as const,
-    inputs: '—',
-    limitations: 'Future work',
-  },
-  {
-    name: 'Video',
-    status: 'future' as const,
-    inputs: '—',
-    limitations: 'Future work',
-  },
-  {
-    name: 'Image Caption',
-    status: 'future' as const,
-    inputs: '—',
-    limitations: 'Future work; currently OCR only',
-  },
-];
 
 export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<TabId>('runtime');
@@ -210,7 +156,7 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 e.currentTarget.style.color = 'var(--color-text-tertiary)';
               }}
             >
-              ×
+              脳
             </button>
           </div>
 
@@ -588,9 +534,9 @@ function RetrievalTab() {
           onChange={(e) => setDefaultCitationPolicy(e.target.value as 'required' | 'preferred' | 'none')}
           style={fieldStyle}
         >
-          <option value="preferred">Preferred — cite when evidence exists</option>
-          <option value="required">Required — refuse if no evidence</option>
-          <option value="none">None — do not include citations</option>
+          <option value="preferred">Preferred 鈥?cite when evidence exists</option>
+          <option value="required">Required 鈥?refuse if no evidence</option>
+          <option value="none">None 鈥?do not include citations</option>
         </select>
         <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
           Whether answers must include verifiable source citations.
@@ -604,8 +550,8 @@ function RetrievalTab() {
           onChange={(e) => setDefaultSummarizeMode(e.target.value as 'basic' | 'map_reduce')}
           style={fieldStyle}
         >
-          <option value="basic">Basic — single-pass summarization</option>
-          <option value="map_reduce">Map-Reduce — multi-chunk then combine</option>
+          <option value="basic">Basic 鈥?single-pass summarization</option>
+          <option value="map_reduce">Map-Reduce 鈥?multi-chunk then combine</option>
         </select>
         <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
           Strategy used when running Summarize tasks. Map-Reduce is better for long documents.
@@ -756,6 +702,93 @@ function DisplayTab() {
 
 function SourcesTab() {
   const { density } = useWorkspacePreferences();
+  const [skills, setSkills] = useState<SourceSkillItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [manifestText, setManifestText] = useState('{\n  "id": "local.project_csv",\n  "name": "Project CSV Skill",\n  "kind": "source",\n  "version": "0.1.0",\n  "description": "Convert project CSV rows into searchable text.",\n  "handler": "csv.extract",\n  "input_kinds": [".csv"],\n  "output_type": "SourceLoadResult",\n  "source_media": "text",\n  "source_kind": "csv_file",\n  "loader_name": "csv.extract",\n  "permissions": ["read_file", "write_index"],\n  "safety_notes": ["uses_builtin_handler"]\n}');
+  const [manifestResult, setManifestResult] = useState<SourceSkillValidationResponse | null>(null);
+  const [manifestBusy, setManifestBusy] = useState(false);
+
+  const loadSkills = () => {
+    setLoading(true);
+    setError(null);
+    SkillService.listSourceSkills()
+      .then((items) => setSkills(items))
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : 'Unable to load source skills.');
+        setSkills([]);
+      })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadSkills();
+  }, []);
+
+  const parseManifest = (): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(manifestText) as Record<string, unknown>;
+    } catch (err) {
+      setManifestResult({
+        ok: false,
+        skill_id: null,
+        errors: [err instanceof Error ? err.message : 'Invalid JSON manifest.'],
+        warnings: [],
+        executable: false,
+        reason: 'Manifest JSON parse failed.',
+        skill: null,
+      });
+      return null;
+    }
+  };
+
+  const validateManifest = () => {
+    const manifest = parseManifest();
+    if (!manifest) return;
+    setManifestBusy(true);
+    SkillService.validateSourceSkillManifest(manifest)
+      .then(setManifestResult)
+      .catch((err) => setManifestResult({
+        ok: false,
+        skill_id: null,
+        errors: [err instanceof Error ? err.message : 'Validation failed.'],
+        warnings: [],
+        executable: false,
+        reason: 'Request failed.',
+        skill: null,
+      }))
+      .finally(() => setManifestBusy(false));
+  };
+
+  const registerManifest = () => {
+    const manifest = parseManifest();
+    if (!manifest) return;
+    setManifestBusy(true);
+    SkillService.registerSourceSkillManifest(manifest)
+      .then((result) => {
+        setManifestResult(result);
+        if (result.ok) loadSkills();
+      })
+      .catch((err) => setManifestResult({
+        ok: false,
+        skill_id: null,
+        errors: [err instanceof Error ? err.message : 'Registration failed.'],
+        warnings: [],
+        executable: false,
+        reason: 'Request failed.',
+        skill: null,
+      }))
+      .finally(() => setManifestBusy(false));
+  };
+
+  const groups = [
+    { label: 'Implemented', items: skills.filter((skill) => skill.status === 'implemented') },
+    { label: 'Local', items: skills.filter((skill) => skill.origin === 'local' && skill.status === 'local') },
+    { label: 'Disabled', items: skills.filter((skill) => skill.status === 'disabled') },
+    { label: 'Future', items: skills.filter((skill) => skill.status === 'future') },
+    { label: 'Invalid', items: skills.filter((skill) => skill.status === 'invalid') },
+  ].filter((group) => group.items.length > 0);
+
   return (
     <div style={{ display: 'grid', gap: density === 'compact' ? '10px' : '14px' }}>
       <div style={{
@@ -766,53 +799,125 @@ function SourcesTab() {
         fontSize: '13px',
         color: 'var(--color-text-tertiary)',
       }}>
-        Source skills define what kinds of documents MindDock can ingest and retrieve. Watchdog sync-once is available via CLI; desktop exposure is planned.
+        Source skills define what kinds of documents MindDock can ingest and retrieve. Local manifests bind only to trusted built-in handlers.
       </div>
 
-      <div style={{ display: 'grid', gap: density === 'compact' ? '8px' : '10px' }}>
-        {SOURCE_SKILLS.map((skill) => {
-          const isImplemented = skill.status === 'implemented';
-          return (
-            <div
-              key={skill.name}
-              style={{
-                padding: density === 'compact' ? '12px 14px' : '14px 16px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid',
-                borderColor: isImplemented ? 'var(--color-border-subtle)' : 'var(--color-border-subtle)',
-                background: isImplemented ? 'var(--color-surface)' : 'var(--color-canvas-subtle)',
-                opacity: isImplemented ? 1 : 0.7,
-                boxShadow: isImplemented ? 'var(--shadow-sm)' : 'none',
-                transition: 'all var(--transition-fast)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>{skill.name}</span>
-                <span
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    padding: '3px 10px',
-                    borderRadius: 'var(--radius-full)',
-                    background: isImplemented ? 'var(--color-success-bg)' : 'var(--color-canvas)',
-                    color: isImplemented ? 'var(--color-success-text)' : 'var(--color-text-tertiary)',
-                    border: `1px solid ${isImplemented ? 'var(--color-success-border)' : 'var(--color-border-subtle)'}`,
-                  }}
-                >
-                  {isImplemented ? 'Implemented' : 'Future'}
-                </span>
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--color-text-tertiary)', lineHeight: 1.5 }}>
-                <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Input:</span> {skill.inputs}
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--color-text-tertiary)', lineHeight: 1.5, marginTop: '2px' }}>
-                <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Limit:</span> {skill.limitations}
-              </div>
-            </div>
-          );
-        })}
+      {loading && <p style={{ color: 'var(--color-text-tertiary)', fontSize: '14px' }}>Loading source skills...</p>}
+      {error && (
+        <div style={{ padding: '10px 14px', background: 'var(--color-error-bg)', border: '1px solid var(--color-error-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-error-text)', fontSize: '13px' }}>
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && groups.map((group) => (
+        <div key={group.label} style={{ display: 'grid', gap: density === 'compact' ? '8px' : '10px' }}>
+          <div style={{ fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            {group.label}
+          </div>
+          {group.items.map((skill) => (
+            <SourceSkillCard key={skill.id} skill={skill} density={density} />
+          ))}
+        </div>
+      ))}
+
+      <div style={{ display: 'grid', gap: '10px', paddingTop: '6px', borderTop: '1px solid var(--color-border-subtle)' }}>
+        <div style={{ fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Register Local Manifest
+        </div>
+        <textarea
+          data-testid="source-skill-manifest"
+          value={manifestText}
+          onChange={(event) => setManifestText(event.target.value)}
+          style={{ ...fieldStyle, minHeight: '150px', fontFamily: 'var(--font-mono)', fontSize: '12px', resize: 'vertical' }}
+        />
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            type="button"
+            onClick={validateManifest}
+            disabled={manifestBusy}
+            style={{ padding: '8px 13px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', background: 'var(--color-canvas-subtle)', color: 'var(--color-text-secondary)', cursor: manifestBusy ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '13px' }}
+          >
+            Validate
+          </button>
+          <button
+            type="button"
+            onClick={registerManifest}
+            disabled={manifestBusy}
+            style={{ padding: '8px 13px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-brand-600)', color: '#fff', cursor: manifestBusy ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '13px' }}
+          >
+            Register
+          </button>
+        </div>
+        {manifestResult && (
+          <div
+            data-testid="source-skill-manifest-result"
+            style={{
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-md)',
+              background: manifestResult.ok ? 'var(--color-success-bg)' : 'var(--color-error-bg)',
+              border: `1px solid ${manifestResult.ok ? 'var(--color-success-border)' : 'var(--color-error-border)'}`,
+              color: manifestResult.ok ? 'var(--color-success-text)' : 'var(--color-error-text)',
+              fontSize: '13px',
+            }}
+          >
+            <strong>{manifestResult.ok ? 'Valid manifest' : 'Manifest rejected'}</strong>
+            <div style={{ marginTop: '4px' }}>{manifestResult.reason}</div>
+            {[...manifestResult.errors, ...manifestResult.warnings].map((item) => (
+              <div key={item} style={{ marginTop: '3px' }}>{item}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SourceSkillCard({ skill, density }: { skill: SourceSkillItem; density: 'comfortable' | 'compact' }) {
+  const isEnabled = skill.enabled && skill.status !== 'future' && skill.status !== 'disabled';
+  const input = skill.input_kinds.length ? skill.input_kinds.join(', ') : '-';
+  const limitations = skill.limitations.length ? skill.limitations.join(', ') : '-';
+  const capabilities = skill.capabilities.length ? skill.capabilities.join(', ') : '-';
+
+  return (
+    <div
+      data-testid={`source-skill-${skill.id}`}
+      style={{
+        padding: density === 'compact' ? '12px 14px' : '14px 16px',
+        borderRadius: 'var(--radius-md)',
+        border: '1px solid var(--color-border-subtle)',
+        background: isEnabled ? 'var(--color-surface)' : 'var(--color-canvas-subtle)',
+        opacity: isEnabled ? 1 : 0.72,
+        boxShadow: isEnabled ? 'var(--shadow-sm)' : 'none',
+        transition: 'all var(--transition-fast)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '8px' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>{skill.name}</div>
+          <div style={{ fontSize: '12px', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere' }}>{skill.id}</div>
+        </div>
+        <span
+          style={{
+            fontSize: '10px',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            padding: '3px 10px',
+            borderRadius: 'var(--radius-full)',
+            background: isEnabled ? 'var(--color-success-bg)' : 'var(--color-canvas)',
+            color: isEnabled ? 'var(--color-success-text)' : 'var(--color-text-tertiary)',
+            border: `1px solid ${isEnabled ? 'var(--color-success-border)' : 'var(--color-border-subtle)'}`,
+            flexShrink: 0,
+          }}
+        >
+          {skill.status}
+        </span>
+      </div>
+      <div style={{ display: 'grid', gap: '3px', fontSize: '13px', color: 'var(--color-text-tertiary)', lineHeight: 1.5 }}>
+        <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Handler:</span> {skill.handler || '-'}</div>
+        <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Input:</span> {input}</div>
+        <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Capabilities:</span> {capabilities}</div>
+        <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Limit:</span> {limitations}</div>
       </div>
     </div>
   );

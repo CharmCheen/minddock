@@ -49,6 +49,7 @@ from app.application.models import (
     UnifiedExecutionRequest,
     UnifiedExecutionResponse,
 )
+from app.skills.manifest import SkillInfo, SkillManifestValidationResult
 from app.skills.models import SkillCatalogDetail, SkillCatalogEntry, SkillInputSchema, SkillOutputSchema, SkillSchemaField
 from app.runtime.models import (
     LocalityPreference,
@@ -1651,6 +1652,77 @@ class SkillListResponse(BaseModel):
     def from_entries(cls, entries: tuple[SkillCatalogEntry, ...] | list[SkillCatalogEntry]) -> "SkillListResponse":
         items = [SkillSummaryResponse.from_entry(entry) for entry in entries]
         return cls(items=items, total=len(items))
+
+
+class SourceSkillSummaryResponse(BaseModel):
+    """Declaration-only source skill shown in Settings > Sources."""
+
+    id: str
+    name: str
+    kind: str
+    version: str
+    status: str
+    description: str
+    input_kinds: list[str] = Field(default_factory=list)
+    output_type: str = ""
+    source_media: str | None = None
+    source_kind: str | None = None
+    loader_name: str | None = None
+    handler: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    providers: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list)
+    safety_notes: list[str] = Field(default_factory=list)
+    enabled: bool = True
+    origin: str = "builtin"
+
+    @classmethod
+    def from_info(cls, info: SkillInfo) -> "SourceSkillSummaryResponse":
+        data = info.to_dict()
+        return cls(**data)
+
+
+class SourceSkillListResponse(BaseModel):
+    """Response body for source skill catalog listing."""
+
+    items: list[SourceSkillSummaryResponse]
+    total: int
+
+    @classmethod
+    def from_infos(cls, infos: tuple[SkillInfo, ...] | list[SkillInfo]) -> "SourceSkillListResponse":
+        items = [SourceSkillSummaryResponse.from_info(info) for info in infos]
+        return cls(items=items, total=len(items))
+
+
+class SourceSkillManifestRequest(BaseModel):
+    """Request body for validating or registering a local source skill manifest."""
+
+    manifest: dict[str, Any]
+
+
+class SourceSkillValidationResponse(BaseModel):
+    """Validation/register/enable/disable result for local source skills."""
+
+    ok: bool
+    skill_id: str | None = None
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    executable: bool = False
+    reason: str = ""
+    skill: SourceSkillSummaryResponse | None = None
+
+    @classmethod
+    def from_result(cls, result: SkillManifestValidationResult) -> "SourceSkillValidationResponse":
+        return cls(
+            ok=result.ok,
+            skill_id=result.skill_id,
+            errors=list(result.errors),
+            warnings=list(result.warnings),
+            executable=result.executable,
+            reason=result.reason,
+            skill=None if result.skill is None else SourceSkillSummaryResponse.from_info(result.skill),
+        )
 
 
 class RuntimeProfileSummaryResponse(BaseModel):

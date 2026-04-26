@@ -103,6 +103,24 @@ The following are documented future directions. They do NOT appear in the built-
 | `video.transcribe` | Extract speech and optionally scene descriptions from video | Requires ASR + keyframe extraction pipeline |
 | `url.js_rendered` | Fetch JavaScript-rendered pages | Requires headless browser infrastructure |
 
+## Local Manifest Registration (Skill System v1.1)
+
+MindDock now supports local source skill manifests as a declaration-only catalog
+extension. A user can register `skill.json` under `skills/local/<id>/`, but the
+manifest can only bind to a trusted built-in handler such as `csv.extract`,
+`url.extract`, or `image.ocr`.
+
+This does not add arbitrary plugin execution. Local manifests cannot contain
+`entrypoint`, `module_path`, `script_path`, `python_path`, `execute`, `run`,
+`subprocess`, `env`, `api_key`, `secret`, or `token`.
+
+The frontend source-skill catalog is exposed at `/frontend/source-skills`.
+The existing `/frontend/skills` endpoint remains reserved for application-level
+executable skills such as demo utility skills.
+
+P0 supports JSON manifests only. YAML support is deferred because the project
+does not depend on PyYAML.
+
 ## Integration Patterns
 
 ### SourceSkill → MCP-style Integration (Future)

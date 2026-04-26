@@ -214,3 +214,40 @@ export interface CancelRunResponse {
   accepted: boolean;
   detail: string;
 }
+
+export interface SourceSkillItem {
+  id: string;
+  name: string;
+  kind: string;
+  version: string;
+  status: string;
+  description: string;
+  input_kinds: string[];
+  output_type: string;
+  source_media: string | null;
+  source_kind: string | null;
+  loader_name: string | null;
+  handler: string | null;
+  capabilities: string[];
+  providers: string[];
+  limitations: string[];
+  permissions: string[];
+  safety_notes: string[];
+  enabled: boolean;
+  origin: string;
+}
+
+export interface SourceSkillListResponse {
+  items: SourceSkillItem[];
+  total: number;
+}
+
+export interface SourceSkillValidationResponse {
+  ok: boolean;
+  skill_id: string | null;
+  errors: string[];
+  warnings: string[];
+  executable: boolean;
+  reason: string;
+  skill: SourceSkillItem | null;
+}

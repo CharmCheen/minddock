@@ -50,6 +50,10 @@ from app.api.schemas import (
     SearchResponse,
     SkillDetailResponse,
     SkillListResponse,
+    SourceSkillListResponse,
+    SourceSkillManifestRequest,
+    SourceSkillSummaryResponse,
+    SourceSkillValidationResponse,
     SourceCatalogResponse,
     SourceChunkPageResponse,
     SourceDetailResponse,
@@ -65,6 +69,7 @@ from app.core.config import get_settings
 from app.core.exceptions import RunNotFoundError, SkillNotFoundError, SkillNotPublicError
 from app.core.logging import TRACE_LEVEL_NUM
 from app.rag.vectorstore import health_check_vectorstore
+from app.skills.source_registry import get_source_skill_registry
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -526,6 +531,53 @@ def list_skills() -> SkillListResponse:
     logger.debug("Skill catalog list endpoint called")
     result = frontend_facade.list_skills()
     return present_skill_list_response(result)
+
+
+@router.get("/frontend/source-skills", response_model=SourceSkillListResponse, summary="List source skill manifests and built-ins")
+def list_source_skills(
+    include_future: bool = Query(default=True),
+    include_local: bool = Query(default=True),
+) -> SourceSkillListResponse:
+    logger.debug("Source skill catalog list endpoint called")
+    skills = get_source_skill_registry().list_skills(include_future=include_future, include_local=include_local)
+    return SourceSkillListResponse.from_infos(skills)
+
+
+@router.post("/frontend/source-skills/validate", response_model=SourceSkillValidationResponse, summary="Validate a local source skill manifest")
+def validate_source_skill_manifest(payload: SourceSkillManifestRequest) -> SourceSkillValidationResponse:
+    logger.debug("Source skill manifest validate endpoint called")
+    result = get_source_skill_registry().validate_manifest(payload.manifest)
+    return SourceSkillValidationResponse.from_result(result)
+
+
+@router.post("/frontend/source-skills/register", response_model=SourceSkillValidationResponse, summary="Register a local source skill manifest")
+def register_source_skill_manifest(payload: SourceSkillManifestRequest) -> SourceSkillValidationResponse:
+    logger.info("Source skill manifest register endpoint called")
+    result = get_source_skill_registry().register_manifest(payload.manifest)
+    return SourceSkillValidationResponse.from_result(result)
+
+
+@router.get("/frontend/source-skills/{skill_id}", response_model=SourceSkillSummaryResponse, summary="Get one source skill")
+def get_source_skill_detail(skill_id: str) -> SourceSkillSummaryResponse:
+    logger.debug("Source skill detail endpoint called: skill_id=%s", skill_id)
+    result = get_source_skill_registry().get_skill(skill_id)
+    if result is None:
+        raise SkillNotFoundError(detail=f"Source skill '{skill_id}' was not found.")
+    return SourceSkillSummaryResponse.from_info(result)
+
+
+@router.post("/frontend/source-skills/{skill_id}/enable", response_model=SourceSkillValidationResponse, summary="Enable a local source skill")
+def enable_source_skill(skill_id: str) -> SourceSkillValidationResponse:
+    logger.info("Source skill enable endpoint called: skill_id=%s", skill_id)
+    result = get_source_skill_registry().enable_skill(skill_id)
+    return SourceSkillValidationResponse.from_result(result)
+
+
+@router.post("/frontend/source-skills/{skill_id}/disable", response_model=SourceSkillValidationResponse, summary="Disable a local source skill")
+def disable_source_skill(skill_id: str) -> SourceSkillValidationResponse:
+    logger.info("Source skill disable endpoint called: skill_id=%s", skill_id)
+    result = get_source_skill_registry().disable_skill(skill_id)
+    return SourceSkillValidationResponse.from_result(result)
 
 
 @router.get("/frontend/skills/{skill_id}", response_model=SkillDetailResponse, summary="Get one frontend-safe skill detail")

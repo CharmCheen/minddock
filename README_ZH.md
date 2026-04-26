@@ -96,6 +96,16 @@ MindDock 通过 Source Skill Contract 将 URL extraction、Image OCR、CSV rows-
 - CSV source skill 将行转换为文本，不支持 Excel、SQL、表格推理引擎。
 - 当前 validation 是 small experience-oriented validation，不是大规模定量 benchmark。
 
+## Skill System v1.1
+
+MindDock 支持本地 source skill manifest 注册，但只作为声明式 catalog 扩展。
+用户可以注册 `skill.json`，并绑定到系统内置 trusted handler，例如
+`csv.extract`、`url.extract`、`image.ocr`。
+
+该机制不执行任意 Python 插件，不支持 marketplace，不接入 MCP，也不会让 LLM
+自主选择或调用本地 manifest skill。注册 manifest 不会触发 ingest，也不会写入
+Chroma。
+
 ## 目录结构概览
 
 ```text

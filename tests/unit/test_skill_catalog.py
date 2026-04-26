@@ -227,7 +227,7 @@ def test_unified_execution_requested_skill_binds_plan_step_and_returns_skill_art
         run_registry=_run_registry(),
     )
 
-    def fake_run_chat_with_runtime(*, request, runtime):
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
         return ChatServiceResult(answer="chat response", citations=[], metadata=UseCaseMetadata(retrieved_count=1))
 
     monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
@@ -265,7 +265,7 @@ def test_skill_result_flows_into_run_replay(monkeypatch) -> None:
         run_registry=registry,
     )
 
-    def fake_run_chat_with_runtime(*, request, runtime):
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
         return ChatServiceResult(answer="chat response", citations=[], metadata=UseCaseMetadata(retrieved_count=1))
 
     monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)

@@ -216,3 +216,23 @@ To add a new source type later:
 4. reuse the existing chunking/payload/vector-store path
 
 This avoids rewriting `IngestService` for every new source.
+
+## Source Skill Manifest Catalog
+
+Skill System v1.1 adds local source skill manifests as a catalog and registration
+layer. Registration writes a validated `skill.json` manifest only. It does not
+execute a handler, trigger ingest, or write Chroma.
+
+Local manifests can bind only to trusted built-in handlers that already exist in
+the ingest system. This keeps the RAG, ingest, retrieval, citation, and vector
+store paths unchanged while allowing Settings > Sources and CLI commands to show
+project-specific source-skill declarations.
+
+Unsupported in v1.1:
+
+- arbitrary Python plugin execution
+- dynamic import of user code
+- YAML manifests
+- marketplace installation
+- MCP server exposure
+- LLM-autonomous skill selection

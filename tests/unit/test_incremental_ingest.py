@@ -359,3 +359,91 @@ def test_sync_directory_deletes_csv_source(tmp_path: Path) -> None:
     assert results[0].chunks_deleted == before_count
     assert collection.count_doc(doc_id) == 0
     assert service._hash_store.get("data.csv") is None
+
+
+def test_sync_directory_detects_audio_source(tmp_path: Path) -> None:
+    from app.rag.media_loader import MockMediaTranscriptionClient, MediaSourceLoader
+    from app.rag.source_loader import SourceLoaderRegistry
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    service._loader_registry = SourceLoaderRegistry(
+        loaders=[MediaSourceLoader(transcription_client=MockMediaTranscriptionClient(text="Audio transcript"))]
+    )
+    audio_path = tmp_path / "knowledge_base" / "lecture.mp3"
+    audio_path.write_text("fake-audio", encoding="utf-8")
+
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status) for result in results] == [("created", "updated")]
+    doc_id = build_doc_id(Path("lecture.mp3"))
+    assert collection.count_doc(doc_id) == 1
+    record = next(iter(collection.records.values()))
+    assert "Audio transcript" in record["document"]
+    assert record["metadata"]["source_media"] == "audio"
+    assert record["metadata"]["source_kind"] == "audio_file"
+    assert record["metadata"]["loader_name"] == "audio.transcribe"
+    assert record["metadata"]["retrieval_basis"] == "transcript_text"
+
+
+def test_sync_directory_detects_video_source(tmp_path: Path) -> None:
+    from app.rag.media_loader import MockMediaTranscriptionClient, MediaSourceLoader
+    from app.rag.source_loader import SourceLoaderRegistry
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    service._loader_registry = SourceLoaderRegistry(
+        loaders=[MediaSourceLoader(transcription_client=MockMediaTranscriptionClient(text="Video transcript"))]
+    )
+    video_path = tmp_path / "knowledge_base" / "lecture.mp4"
+    video_path.write_text("fake-video", encoding="utf-8")
+
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status) for result in results] == [("created", "updated")]
+    doc_id = build_doc_id(Path("lecture.mp4"))
+    assert collection.count_doc(doc_id) == 1
+    record = next(iter(collection.records.values()))
+    assert "Video transcript" in record["document"]
+    assert record["metadata"]["source_media"] == "video"
+    assert record["metadata"]["source_kind"] == "video_file"
+    assert record["metadata"]["loader_name"] == "video.transcribe"
+    assert record["metadata"]["retrieval_basis"] == "transcript_text"
+
+
+def test_sync_directory_deletes_audio_source(tmp_path: Path) -> None:
+    from app.rag.media_loader import MockMediaTranscriptionClient, MediaSourceLoader
+    from app.rag.source_loader import SourceLoaderRegistry
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    service._loader_registry = SourceLoaderRegistry(
+        loaders=[MediaSourceLoader(transcription_client=MockMediaTranscriptionClient(text="Audio transcript"))]
+    )
+    audio_path = tmp_path / "knowledge_base" / "lecture.mp3"
+    audio_path.write_text("fake-audio", encoding="utf-8")
+    service.sync_directory()
+    doc_id = build_doc_id(Path("lecture.mp3"))
+    assert collection.count_doc(doc_id) == 1
+
+    audio_path.unlink()
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status, result.chunks_deleted) for result in results] == [("deleted", "removed", 1)]
+    assert collection.count_doc(doc_id) == 0
+    assert service._hash_store.get("lecture.mp3") is None
+
+
+def test_sync_directory_empty_transcript_does_not_upsert_empty_records(tmp_path: Path) -> None:
+    from app.rag.media_loader import MockMediaTranscriptionClient, MediaSourceLoader
+    from app.rag.source_loader import SourceLoaderRegistry
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    service._loader_registry = SourceLoaderRegistry(
+        loaders=[MediaSourceLoader(transcription_client=MockMediaTranscriptionClient(text=""))]
+    )
+    audio_path = tmp_path / "knowledge_base" / "lecture.mp3"
+    audio_path.write_text("fake-audio", encoding="utf-8")
+
+    results = service.sync_directory()
+
+    assert [(result.event_type, result.status) for result in results] == [("created", "updated")]
+    doc_id = build_doc_id(Path("lecture.mp3"))
+    assert collection.count_doc(doc_id) == 0

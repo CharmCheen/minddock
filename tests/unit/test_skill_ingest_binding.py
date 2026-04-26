@@ -145,3 +145,92 @@ def test_ambiguous_local_skills_do_not_write_skill_identity(tmp_path: Path, monk
     assert documents
     assert "skill_id" not in documents[0].metadata
     assert documents[0].metadata["skill_binding_warning"] == "ambiguous_local_skill_binding"
+
+
+def test_enabled_local_audio_skill_matches_audio_source(tmp_path: Path, monkeypatch) -> None:
+    from app.rag.media_loader import MockMediaTranscriptionClient, MediaSourceLoader
+    from app.rag.source_loader import SourceLoaderRegistry
+    registry = _registry(tmp_path, monkeypatch)
+    manifest = {
+        "id": "local.audio_notes",
+        "name": "Audio Notes Skill",
+        "kind": "source",
+        "version": "0.1.0",
+        "description": "Transcribe audio files.",
+        "handler": "audio.transcribe",
+        "input_kinds": [".mp3", ".wav", ".m4a"],
+        "output_type": "SourceLoadResult",
+        "source_media": "audio",
+        "source_kind": "audio_file",
+        "loader_name": "audio.transcribe",
+        "permissions": ["read_file", "use_llm_api", "write_index"],
+        "enabled": True,
+    }
+    assert registry.register_manifest(manifest).ok is True
+    kb_dir = tmp_path / "knowledge_base"
+    kb_dir.mkdir()
+    audio_path = kb_dir / "lecture.mp3"
+    audio_path.write_text("fake-audio", encoding="utf-8")
+
+    documents = build_documents_for_source(
+        build_file_descriptor(audio_path, kb_dir),
+        registry=SourceLoaderRegistry(loaders=[MediaSourceLoader(transcription_client=MockMediaTranscriptionClient(text="Audio transcript"))]),
+    )
+
+    assert documents
+    assert documents[0].metadata["skill_id"] == "local.audio_notes"
+    assert documents[0].metadata["skill_handler"] == "audio.transcribe"
+    assert documents[0].metadata["skill_origin"] == "local"
+
+
+def test_enabled_local_video_skill_matches_video_source(tmp_path: Path, monkeypatch) -> None:
+    from app.rag.media_loader import MockMediaTranscriptionClient, MediaSourceLoader
+    from app.rag.source_loader import SourceLoaderRegistry
+    registry = _registry(tmp_path, monkeypatch)
+    manifest = {
+        "id": "local.video_notes",
+        "name": "Video Notes Skill",
+        "kind": "source",
+        "version": "0.1.0",
+        "description": "Transcribe video files.",
+        "handler": "video.transcribe",
+        "input_kinds": [".mp4", ".mov", ".mkv"],
+        "output_type": "SourceLoadResult",
+        "source_media": "video",
+        "source_kind": "video_file",
+        "loader_name": "video.transcribe",
+        "permissions": ["read_file", "use_llm_api", "write_index"],
+        "enabled": True,
+    }
+    assert registry.register_manifest(manifest).ok is True
+    kb_dir = tmp_path / "knowledge_base"
+    kb_dir.mkdir()
+    video_path = kb_dir / "lecture.mp4"
+    video_path.write_text("fake-video", encoding="utf-8")
+
+    documents = build_documents_for_source(
+        build_file_descriptor(video_path, kb_dir),
+        registry=SourceLoaderRegistry(loaders=[MediaSourceLoader(transcription_client=MockMediaTranscriptionClient(text="Video transcript"))]),
+    )
+
+    assert documents
+    assert documents[0].metadata["skill_id"] == "local.video_notes"
+    assert documents[0].metadata["skill_handler"] == "video.transcribe"
+    assert documents[0].metadata["skill_origin"] == "local"
+
+
+def test_disabled_local_audio_skill_does_not_match(tmp_path: Path, monkeypatch) -> None:
+    registry = _registry(tmp_path, monkeypatch)
+    manifest = {
+        "id": "local.audio_notes",
+        "name": "Audio Notes Skill",
+        "kind": "source",
+        "version": "0.1.0",
+        "handler": "audio.transcribe",
+        "input_kinds": [".mp3"],
+        "permissions": ["read_file", "use_llm_api", "write_index"],
+        "enabled": False,
+    }
+    assert registry.register_manifest(manifest).ok is True
+    binding = resolve_source_skill_binding("lecture.mp3", registry=registry)
+    assert binding is None

@@ -80,6 +80,8 @@ Local manifests can bind only to trusted built-in source handlers:
 - `url.extract`
 - `image.ocr`
 - `csv.extract`
+- `audio.transcribe`
+- `video.transcribe`
 
 The manifest names a handler id, not a Python function. The trusted handler
 contract records:
@@ -131,9 +133,70 @@ Current examples:
 - `csv.extract`: `max_rows`, `max_chars`, `include_header`
 - `url.extract`: `timeout_seconds`
 - `image.ocr`: `max_chars`
+- `audio.transcribe`: `provider`, `language`, `max_chars`, `include_timestamps`
+- `video.transcribe`: `provider`, `language`, `max_chars`, `include_timestamps`
 
 v1.2 validates these values but does not yet change loader behavior from local
 manifest config.
+
+## Contributing a New Trusted Handler
+
+MindDock does not execute arbitrary user scripts. If you want to add a new
+source-processing capability, contribute it as a **trusted built-in handler**
+through a Pull Request.
+
+### What to include
+
+1. **Register handler metadata** in `app/skills/handlers.py`:
+   - `handler id`
+   - `input_kinds`
+   - `permissions` (from the allowed set)
+   - `source_media` / `source_kind`
+   - `loader_name`
+   - `capabilities` and `limitations`
+   - Safe `config_schema` (no `api_key`, `secret`, `token`, `env`)
+
+2. **Implement a safe loader** under `app/rag/` or `app/rag/source_skills/`:
+   - Return `SourceLoadResult` with normalized text and metadata.
+   - Include `source_media`, `source_kind`, `loader_name`, `retrieval_basis`.
+   - Provide a **mock provider** that works without external dependencies.
+   - Provide a **disabled provider** that returns empty text + warning.
+   - Stub or implement a real **API provider** with fallback to mock when unconfigured.
+   - Do not store raw media bytes, absolute paths, or API keys in metadata.
+   - Reference implementation: `app/rag/media_loader.py` (v1.3)
+
+3. **Register the loader** in `app/rag/source_loader.py`:
+   - Add to `SourceLoaderRegistry` at the correct priority.
+   - Add extensions to `SUPPORTED_EXTENSIONS` if applicable.
+
+4. **Add tests** covering:
+   - Handler registry presence
+   - Manifest validation (bindable, rejects unsafe config)
+   - Loader support for expected extensions
+   - Mock provider returns safe placeholder text
+   - Empty output does not create chunks
+   - Metadata contract (no leaked paths, keys, or bytes)
+   - Incremental ingest add/delete
+   - Skill binding metadata when enabled
+
+5. **Add docs and example manifest**:
+   - Update `docs/SKILL_DEVELOPMENT.md` and `docs/INGEST_PIPELINE.md`.
+   - Add an example under `examples/skills/local.<name>/skill.json`.
+
+6. **PR description must include**:
+   - Input types supported
+   - Permissions required
+   - Provider behavior (mock / disabled / api)
+   - Limitations and safety notes
+   - Test results
+
+### Three layers
+
+| Layer | What it is | Who controls it |
+|---|---|---|
+| **Manifest skill** | User-created `skill.json` — declarative, no code | End user |
+| **Trusted handler** | Built-in, reviewed, safe processing logic | MindDock maintainers |
+| **External plugin** | Future sandboxed execution model | Out of scope for v1.3 |
 
 ## Rejected Fields
 
@@ -232,7 +295,10 @@ separate installer/update model. Those are intentionally out of scope for v1.1
 and especially important for a Windows desktop EXE scenario, where executing
 unknown local plugins would create a large security surface.
 
-Future `video.transcribe`, `audio.transcribe`, and `notion.import` capabilities
-should enter MindDock as trusted handlers implemented in the codebase first.
-Users can then bind local manifests to those handlers without ever supplying
-arbitrary Python code.
+`audio.transcribe` and `video.transcribe` entered MindDock as trusted handlers
+in Skill System v1.3. They serve as the reference implementation for future
+contributors.
+
+Future capabilities such as `notion.import` should follow the same pattern:
+implement the trusted handler in the codebase first, then users can bind local
+manifests to it without ever supplying arbitrary Python code.

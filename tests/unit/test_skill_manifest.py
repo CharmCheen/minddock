@@ -180,6 +180,80 @@ def test_json_manifest_file_loads(tmp_path) -> None:
     assert payload["id"] == "local.project_csv"
 
 
+def _audio_manifest() -> dict:
+    return {
+        "id": "local.audio_notes",
+        "name": "Audio Notes Skill",
+        "kind": "source",
+        "version": "0.1.0",
+        "description": "Transcribe audio files into searchable transcript text.",
+        "handler": "audio.transcribe",
+        "input_kinds": [".mp3", ".wav", ".m4a"],
+        "output_type": "SourceLoadResult",
+        "source_media": "audio",
+        "source_kind": "audio_file",
+        "loader_name": "audio.transcribe",
+        "permissions": ["read_file", "use_llm_api", "write_index"],
+        "capabilities": ["transcript_text"],
+        "limitations": ["transcript_only_p0", "no_speaker_diarization_p0"],
+        "safety_notes": ["uses_trusted_builtin_handler"],
+    }
+
+
+def _video_manifest() -> dict:
+    return {
+        "id": "local.video_notes",
+        "name": "Video Notes Skill",
+        "kind": "source",
+        "version": "0.1.0",
+        "description": "Transcribe video files into searchable transcript text.",
+        "handler": "video.transcribe",
+        "input_kinds": [".mp4", ".mov", ".mkv"],
+        "output_type": "SourceLoadResult",
+        "source_media": "video",
+        "source_kind": "video_file",
+        "loader_name": "video.transcribe",
+        "permissions": ["read_file", "use_llm_api", "write_index"],
+        "capabilities": ["transcript_text"],
+        "limitations": ["transcript_only_p0", "no_frame_understanding", "no_multimodal_embedding"],
+        "safety_notes": ["uses_trusted_builtin_handler"],
+    }
+
+
+def test_valid_local_audio_manifest_passes_validation() -> None:
+    result = validate_manifest(_audio_manifest())
+    assert result.ok is True
+    assert result.skill_id == "local.audio_notes"
+    assert result.executable is True
+    assert result.skill is not None
+    assert result.skill.handler == "audio.transcribe"
+
+
+def test_valid_local_video_manifest_passes_validation() -> None:
+    result = validate_manifest(_video_manifest())
+    assert result.ok is True
+    assert result.skill_id == "local.video_notes"
+    assert result.executable is True
+    assert result.skill is not None
+    assert result.skill.handler == "video.transcribe"
+
+
+def test_audio_manifest_config_rejects_dangerous_key() -> None:
+    payload = _audio_manifest()
+    payload["config"] = {"api_key": "secret"}
+    result = validate_manifest(payload)
+    assert result.ok is False
+    assert any("Forbidden handler config keys" in error for error in result.errors)
+
+
+def test_video_manifest_untrusted_handler_rejected() -> None:
+    payload = _video_manifest()
+    payload["handler"] = "custom.video"
+    result = validate_manifest(payload)
+    assert result.ok is False
+    assert any("not a trusted built-in source handler" in error for error in result.errors)
+
+
 def test_yaml_manifest_file_is_rejected(tmp_path) -> None:
     path = tmp_path / "skill.yaml"
     path.write_text("id: local.project_csv\n", encoding="utf-8")

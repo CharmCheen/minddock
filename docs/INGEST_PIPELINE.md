@@ -37,6 +37,10 @@ Built-in file support:
 - `.md`
 - `.txt`
 - `.pdf`
+- `.csv`
+- `.png`, `.jpg`, `.jpeg`, `.webp`
+- `.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.webm`
+- `.mp4`, `.mov`, `.mkv`, `.webm`
 
 ### URLs
 
@@ -61,6 +65,27 @@ Responsibilities:
 - load local text files
 - load PDF text page-by-page
 - normalize into `SourceLoadResult`
+
+### `MediaSourceLoader`
+
+Responsibilities:
+
+- load audio and video files via transcription
+- normalize into `SourceLoadResult.text` as transcript text
+- attach media metadata (`source_media`, `transcript_provider`, `retrieval_basis`)
+- default mock provider works without external dependencies
+- disabled provider returns empty text + warning
+- API provider stubbed for future use; falls back to mock when unconfigured
+
+Limitations (P0):
+
+- transcript-only retrieval
+- no speaker diarization
+- no video frame understanding
+- no multimodal embedding
+- no player or timestamp citation UI
+- no local large-model dependency
+- no ffmpeg dependency
 
 ### `URLSourceLoader`
 
@@ -216,6 +241,11 @@ To add a new source type later:
 4. reuse the existing chunking/payload/vector-store path
 
 This avoids rewriting `IngestService` for every new source.
+
+The `audio.transcribe` and `video.transcribe` handlers (v1.3) follow this exact
+pattern: `MediaSourceLoader` produces `SourceLoadResult.text` containing a
+placeholder transcript, then the existing chunker, embedder, and vector-store
+path handles the rest without any media-specific logic in retrieval or citation.
 
 ## Source Skill Manifest Catalog
 

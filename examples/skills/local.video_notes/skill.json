@@ -1,0 +1,13 @@
+{
+  "id": "local.video_notes",
+  "name": "Video Notes Skill",
+  "kind": "source",
+  "version": "0.1.0",
+  "description": "Transcribe video files into searchable transcript text.",
+  "handler": "video.transcribe",
+  "input_kinds": [".mp4", ".mov", ".mkv"],
+  "permissions": ["read_file", "use_llm_api", "write_index"],
+  "capabilities": ["transcript_text"],
+  "limitations": ["transcript_only_p0", "no_frame_understanding", "no_multimodal_embedding"],
+  "safety_notes": ["uses_trusted_builtin_handler"]
+}

@@ -147,6 +147,10 @@ Behavior:
 - route layer serializes through `present_compare_response()`
 - `CompareService` now attempts an LLM-backed structured comparison first; if the runtime is unavailable, returns unusable output, or produces invalid JSON, it falls back to the original heuristic compare
 - evidence IDs in the LLM response are mapped back to retrieved chunks so citations remain traceable
+- **source-scoped compare**: when `filters.sources` contains exactly 2 sources, CompareService runs independent retrieval for each source, then reranks and compresses per source before building the left/right evidence groups
+- when `filters.sources` contains more than 2 sources, only the first two are used and a warning is recorded in response metadata (`compare_source_limit`)
+- when `filters.sources` is empty or contains 1 source, the existing single-retrieval behavior is preserved
+- N-way compare (more than 2 sources compared simultaneously) is not yet supported
 
 Response:
 

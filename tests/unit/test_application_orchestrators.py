@@ -1121,12 +1121,33 @@ def test_precomputed_hits_equivalence_summarize(monkeypatch) -> None:
     assert result_a.summary == result_b.summary
 
 
-def test_unified_pipeline_retrieval_called_once_in_chat(monkeypatch) -> None:
-    """The facade must run the unified pipeline once for CHAT and pass the hits
-    to the service; SearchService.retrieve must be called exactly once."""
+def test_unified_pipeline_retrieval_called_once_in_chat_when_quality_sufficient(monkeypatch) -> None:
+    """When retrieval returns sufficient evidence, the pipeline runs exactly once (no retry)."""
     chat_orchestrator = ChatOrchestrator()
     profile_registry, resolver, factory = _runtime_stack()
     registry = _run_registry()
+
+    controlled_hits = [
+        RetrievedChunk(
+            text="MindDock stores chunks in local Chroma.",
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/doc.md",
+            source_type="file",
+            title="doc",
+            section="Storage",
+            location="Storage",
+            ref="doc > Storage",
+            page=None,
+            anchor=None,
+            distance=0.1,
+        ),
+    ]
+
+    def fake_retrieve(self, query, top_k, filters=None):
+        return controlled_hits
+
+    monkeypatch.setattr(SearchService, "retrieve", fake_retrieve)
 
     retrieval_count = 0
     original_retrieve = SearchService.retrieve
@@ -1161,21 +1182,37 @@ def test_unified_pipeline_retrieval_called_once_in_chat(monkeypatch) -> None:
     assert retrieval_count == 1, f"Expected exactly 1 retrieval call, got {retrieval_count}"
 
 
-def test_unified_pipeline_retrieval_called_once_in_summarize(monkeypatch) -> None:
-    """Same check as above but for the SUMMARIZE task type."""
+def test_unified_pipeline_retrieval_called_once_in_summarize_when_quality_sufficient(monkeypatch) -> None:
+    """When retrieval returns sufficient evidence, the pipeline runs exactly once (no retry)."""
     chat_orchestrator = ChatOrchestrator()
     profile_registry, resolver, factory = _runtime_stack()
     registry = _run_registry()
 
-    retrieval_count = 0
-    original_retrieve = SearchService.retrieve
+    controlled_hits = [
+        RetrievedChunk(
+            text="MindDock stores chunks in local Chroma.",
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/doc.md",
+            source_type="file",
+            title="doc",
+            section="Storage",
+            location="Storage",
+            ref="doc > Storage",
+            page=None,
+            anchor=None,
+            distance=0.1,
+        ),
+    ]
 
-    def counting_retrieve(self, query, top_k, filters=None):
+    retrieval_count = 0
+
+    def fake_counting_retrieve(self, query, top_k, filters=None):
         nonlocal retrieval_count
         retrieval_count += 1
-        return original_retrieve(self, query, top_k, filters)
+        return controlled_hits
 
-    monkeypatch.setattr(SearchService, "retrieve", counting_retrieve)
+    monkeypatch.setattr(SearchService, "retrieve", fake_counting_retrieve)
 
     facade = FrontendFacade(
         chat=chat_orchestrator,

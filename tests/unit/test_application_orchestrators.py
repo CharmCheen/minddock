@@ -1259,16 +1259,25 @@ def test_unified_pipeline_emits_retrieval_trace_events(monkeypatch) -> None:
         )
     )
 
-    event_kinds = {e.kind for e in run.events}
-    expected_pipeline_events = {
+    pipeline_event_kinds = [
+        e.kind for e in run.events
+        if e.kind in {
+            ExecutionEventKind.RETRIEVAL_STARTED,
+            ExecutionEventKind.RETRIEVAL_COMPLETED,
+            ExecutionEventKind.RERANK_COMPLETED,
+            ExecutionEventKind.COMPRESS_COMPLETED,
+            ExecutionEventKind.RETRIEVAL_PIPELINE_COMPLETED,
+        }
+    ]
+    expected_pipeline_events = [
         ExecutionEventKind.RETRIEVAL_STARTED,
         ExecutionEventKind.RETRIEVAL_COMPLETED,
         ExecutionEventKind.RERANK_COMPLETED,
         ExecutionEventKind.COMPRESS_COMPLETED,
         ExecutionEventKind.RETRIEVAL_PIPELINE_COMPLETED,
-    }
-    assert expected_pipeline_events.issubset(event_kinds), (
-        f"Missing pipeline events. Expected {expected_pipeline_events}, got {event_kinds & expected_pipeline_events}"
+    ]
+    assert pipeline_event_kinds == expected_pipeline_events, (
+        f"Pipeline events out of order. Expected {expected_pipeline_events}, got {pipeline_event_kinds}"
     )
 
     # verify retrieval_pipeline_completed payload has non-zero hit counts

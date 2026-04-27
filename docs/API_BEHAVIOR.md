@@ -220,6 +220,50 @@ Response fields for compare:
 
 Both `/compare` and `/frontend/execute?task_type=compare` return the same `compare_result` structure. The unified execute additionally wraps it in a `compare.v1` artifact and adds execution metadata.
 
+## Unified Retrieval Pipeline
+
+CHAT and SUMMARIZE tasks share a single `RetrievalPipeline` backed by LangGraph.
+
+Current graph shape:
+
+```text
+START -> retrieve -> rerank -> compress -> quality_check
+  quality_ok or max_retries reached -> END
+  insufficient and retry available -> query_expand -> retrieve …
+```
+
+### quality_check rules (deterministic)
+
+- **chat**: fails if `hits` is empty or `compressed_hits` is empty. One good hit is acceptable.
+- **summarize**: fails if `hits` is empty, `compressed_hits` is empty, or `len(compressed_hits) < 2` when `len(hits) > 1`.
+- **weak retrieval**: `low_confidence` is set when all distance values are present and `>= 1.5`. This does not alone trigger retry.
+- No source-diversity check is applied.
+- No compare-specific rules are applied.
+
+### query_expand rules (deterministic, one retry only)
+
+- `max_retries = 1` for this phase.
+- Instruction words are stripped from the query: 总结, 概括, 归纳, 摘要, 提炼, 梳理, 比较, 对比, 区别, 差异, 异同, summarize, summary, recap, outline, compare, comparison, difference, differences, contrast, versus, vs.
+- Whitespace and punctuation are normalized.
+- `top_k` is increased modestly: `retry_top_k = min(max(top_k + 3, int(top_k * 1.5)), 20)`.
+- Filters are preserved unchanged.
+- No LLM is used for expansion.
+
+### Event behavior
+
+- No-retry path preserves the existing stable event order:
+  `retrieval_started → retrieval_completed → rerank_completed → compress_completed → retrieval_pipeline_completed`.
+- Retry path emits the same stage events for each attempt, then one final `retrieval_pipeline_completed`.
+- `quality_check` and `query_expand` node completions do not emit separate trace events.
+
+### Low-confidence warning
+
+If the pipeline finishes with `low_confidence=True` or with insufficient evidence after the retry is exhausted, a `WARNING_EMITTED` event is surfaced and the warning is appended to response metadata.
+
+### Compare path
+
+COMPARE does **not** use the unified retrieval pipeline. It continues to rely on its own internal retrieval path.
+
 ## Shared Filters
 
 Current supported filter fields:

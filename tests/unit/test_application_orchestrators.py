@@ -1291,6 +1291,230 @@ def test_unified_pipeline_emits_retrieval_trace_events(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Retrieval reflection / retry integration tests
+# ---------------------------------------------------------------------------
+
+
+def test_chat_path_passes_task_type_into_pipeline(monkeypatch) -> None:
+    """The chat execution path must pass task_type='chat' into RetrievalPipeline.run."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    registry = _run_registry()
+
+    captured_kwargs: dict | None = None
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            nonlocal captured_kwargs
+            captured_kwargs = kwargs
+            return {
+                "hits": [],
+                "reranked_hits": [],
+                "compressed_hits": [],
+                "quality_ok": True,
+                "low_confidence": False,
+                "retry_count": 0,
+                "max_retries": 1,
+            }
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "run_chat_with_runtime",
+        lambda *, request, runtime, precomputed_hits=None: ChatServiceResult(
+            answer="a",
+            citations=[],
+            grounded_answer=GroundedAnswer(answer="a"),
+            metadata=UseCaseMetadata(retrieved_count=0, mode="grounded", support_status="supported"),
+        ),
+    )
+
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=registry,
+    )
+
+    facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+        )
+    )
+
+    assert captured_kwargs is not None
+    assert captured_kwargs.get("task_type") == "chat"
+
+
+def test_summarize_path_passes_task_type_into_pipeline(monkeypatch) -> None:
+    """The summarize execution path must pass task_type='summarize' into RetrievalPipeline.run."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    registry = _run_registry()
+
+    captured_kwargs: dict | None = None
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            nonlocal captured_kwargs
+            captured_kwargs = kwargs
+            return {
+                "hits": [],
+                "reranked_hits": [],
+                "compressed_hits": [],
+                "quality_ok": True,
+                "low_confidence": False,
+                "retry_count": 0,
+                "max_retries": 1,
+            }
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "run_summarize_with_runtime",
+        lambda *, request, runtime, precomputed_hits=None: SummarizeServiceResult(
+            summary="s",
+            citations=[],
+            grounded_answer=GroundedAnswer(answer="s"),
+            metadata=UseCaseMetadata(retrieved_count=0, mode="grounded", support_status="supported"),
+        ),
+    )
+
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=registry,
+    )
+
+    facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.SUMMARIZE,
+            user_input="hello",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+        )
+    )
+
+    assert captured_kwargs is not None
+    assert captured_kwargs.get("task_type") == "summarize"
+
+
+def test_compare_path_does_not_call_unified_pipeline(monkeypatch) -> None:
+    """COMPARE must remain unaffected and must not invoke RetrievalPipeline.run."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    registry = _run_registry()
+
+    pipeline_called = False
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            nonlocal pipeline_called
+            pipeline_called = True
+            return {}
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "compare",
+        lambda **kwargs: CompareServiceResult(
+            compare_result=GroundedCompareResult(query="compare"),
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=0, mode="heuristic_compare", support_status="supported"),
+        ),
+    )
+
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=registry,
+    )
+
+    facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.COMPARE,
+            user_input="compare A and B",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_events=True,
+        )
+    )
+
+    assert pipeline_called is False
+
+
+def test_low_confidence_warning_surfaced_after_retry(monkeypatch) -> None:
+    """If the pipeline reports low_confidence after exhausting retries,
+    a WARNING_EMITTED event must appear in the run events."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    registry = _run_registry()
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            return {
+                "hits": [],
+                "reranked_hits": [],
+                "compressed_hits": [],
+                "quality_ok": False,
+                "low_confidence": True,
+                "retry_count": 1,
+                "max_retries": 1,
+                "quality_reasons": ["No hits retrieved"],
+            }
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "run_chat_with_runtime",
+        lambda *, request, runtime, precomputed_hits=None: ChatServiceResult(
+            answer="a",
+            citations=[],
+            grounded_answer=GroundedAnswer(answer="a"),
+            metadata=UseCaseMetadata(retrieved_count=0, mode="grounded", support_status="supported"),
+        ),
+    )
+
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=registry,
+    )
+
+    run = facade.execute_run(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_events=True,
+        )
+    )
+
+    warning_events = [e for e in run.events if e.kind == ExecutionEventKind.WARNING_EMITTED]
+    assert len(warning_events) >= 1
+    assert any("low" in (e.payload.message or "").lower() for e in warning_events)
+
+
+# ---------------------------------------------------------------------------
 # Compare execution plan tests
 # ---------------------------------------------------------------------------
 

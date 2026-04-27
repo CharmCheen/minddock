@@ -11,10 +11,16 @@ class FakeSearchService:
     def __init__(self, hits: list[RetrievedChunk]) -> None:
         self._hits = hits
         self.last_filters: RetrievalFilters | None = None
+        self.calls: list[tuple[str, RetrievalFilters | None]] = []
 
     def retrieve(self, query: str, top_k: int, filters: RetrievalFilters | None = None) -> list[RetrievedChunk]:
         self.last_filters = filters
-        return self._hits[:top_k]
+        self.calls.append((query, filters))
+        hits = self._hits
+        if filters is not None and len(filters.sources) == 1:
+            source = filters.sources[0]
+            hits = [h for h in hits if h.source == source]
+        return hits[:top_k]
 
 
 class FakeCollection:
@@ -932,3 +938,293 @@ def test_compare_llm_used_fallback_with_invalid_json_fallback_heuristic() -> Non
     # Invalid JSON even with used_fallback=True -> fallback heuristic
     assert result.compare_result.common_points
     assert result.compare_result.support_status.value == "supported"
+
+
+# ---------------------------------------------------------------------------
+# Source-scoped compare tests (Phase 6B)
+# ---------------------------------------------------------------------------
+
+
+def test_two_selected_sources_triggers_separate_retrieval_calls() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="A uses Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="B uses Postgres.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+        ],
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare storage",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
+    )
+    assert len(service.search_service.calls) == 2
+    assert service.search_service.calls[0][1].sources == ("kb/a.md",)
+    assert service.search_service.calls[1][1].sources == ("kb/b.md",)
+    assert result.compare_result.support_status.value == "supported"
+
+
+def test_two_selected_sources_preserves_non_source_filters() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="A uses Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="B uses Postgres.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+        ],
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare storage",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md"), section="intro"),
+    )
+    assert len(service.search_service.calls) == 2
+    for _query, filters in service.search_service.calls:
+        assert filters.section == "intro"
+
+
+def test_two_selected_sources_result_contains_evidence_from_both() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="A uses Chroma vector store.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Project A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="B uses Postgres vector store.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Project B",
+                distance=0.3,
+            ),
+        ],
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare storage",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
+    )
+    assert result.compare_result.support_status.value == "supported"
+    assert result.compare_result.differences
+    point = result.compare_result.differences[0]
+    assert point.left_evidence[0].source == "kb/a.md"
+    assert point.right_evidence[0].source == "kb/b.md"
+
+
+def test_two_selected_sources_one_empty_returns_insufficient() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="A uses Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+        ],
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare storage",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
+    )
+    assert result.compare_result.support_status.value == "insufficient_evidence"
+    assert result.metadata.insufficient_evidence is True
+
+
+def test_more_than_two_selected_sources_uses_first_two_and_warns() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="A uses Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="B uses Postgres.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+            RetrievedChunk(
+                text="C uses Redis.",
+                doc_id="d3",
+                chunk_id="c3",
+                source="kb/c.md",
+                distance=0.4,
+            ),
+        ],
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare storage",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md", "kb/c.md")),
+    )
+    assert len(service.search_service.calls) == 2
+    assert result.compare_result.support_status.value == "supported"
+    assert any("two sources" in w for w in result.metadata.warnings)
+    assert any(issue.code == "compare_source_limit" for issue in result.metadata.issues)
+
+
+def test_no_selected_sources_keeps_single_retrieval() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="A uses Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="B uses Postgres.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+        ],
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare storage",
+        top_k=4,
+    )
+    assert len(service.search_service.calls) == 1
+    assert result.compare_result.support_status.value == "supported"
+
+
+def test_llm_path_works_with_two_selected_sources() -> None:
+    llm_json = (
+        '{"common_points":['
+        '{"statement":"Both use vector stores.","summary_note":"Shared storage pattern.","left_evidence_ids":["L1"],"right_evidence_ids":["R1"]}'
+        '],"differences":['
+        '{"statement":"Different backends.","summary_note":"A uses Chroma, B uses Postgres.","left_evidence_ids":["L1"],"right_evidence_ids":["R1"]}'
+        '],"conflicts":[]}'
+    )
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A uses Chroma vector store.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Project A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B uses Postgres vector store.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Project B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text=llm_json),
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare storage",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
+    )
+    assert result.compare_result.common_points
+    assert result.compare_result.differences
+    assert result.compare_result.common_points[0].statement == "Both use vector stores."
+    assert result.compare_result.differences[0].statement == "Different backends."
+
+
+def test_heuristic_fallback_works_with_two_selected_sources() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A uses Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B uses Postgres.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare storage",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
+    )
+    assert result.compare_result.common_points
+    assert result.compare_result.support_status.value == "supported"
+
+
+def test_more_than_two_selected_sources_insufficient_preserves_source_limit_warning() -> None:
+    """When >2 sources are selected but only one has evidence,
+    the source limit warning still appears in metadata and issues."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="A uses Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+        ],
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare storage",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md", "kb/c.md")),
+    )
+    assert result.compare_result.support_status.value == "insufficient_evidence"
+    assert result.metadata.insufficient_evidence is True
+    assert any("two sources" in w for w in result.metadata.warnings)
+    assert any("Insufficient grounded evidence" in w for w in result.metadata.warnings)
+    assert any(issue.code == "compare_source_limit" for issue in result.metadata.issues)
+    assert any(issue.code == "insufficient_evidence" for issue in result.metadata.issues)
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert any("two sources" in w for w in trace["trace_warnings"])

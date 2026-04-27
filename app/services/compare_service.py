@@ -7,7 +7,7 @@ import logging
 import re
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 
 from app.core.exceptions import ChatError
@@ -79,6 +79,33 @@ class _EvidenceGroup:
     def best_hit(self) -> RetrievedChunk:
         return self.hits[0]
 
+@dataclass
+class _PreparedCompareState:
+    """Intermediate state produced by the retrieval/preparation stage."""
+
+    hits: list[RetrievedChunk]
+    grounded_hits: list[RetrievedChunk]
+    reranked_hits: list[RetrievedChunk]
+    compressed_hits: list[RetrievedChunk]
+    groups: list[_EvidenceGroup]
+    retrieval_ms: float
+    rerank_ms: float
+    compress_ms: float
+    source_warnings: list[str]
+
+
+@dataclass
+class _SourceRetrievalState:
+    """Per-source retrieval and post-processing state."""
+
+    hits: list[RetrievedChunk]
+    grounded_hits: list[RetrievedChunk]
+    reranked_hits: list[RetrievedChunk]
+    compressed_hits: list[RetrievedChunk]
+    retrieval_ms: float
+    rerank_ms: float
+    compress_ms: float
+
 
 @dataclass
 class CompareService:
@@ -113,62 +140,66 @@ class CompareService:
             started = time.perf_counter()
             logger.info("Compare started: question_preview=%s top_k=%d", question[:60], top_k)
 
-            retrieval_started = time.perf_counter()
-            if precomputed_hits is not None:
-                hits = precomputed_hits
-                retrieval_ms = 0.0
-            else:
-                hits = self.search_service.retrieve(query=question, top_k=top_k, filters=filters)
-                retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
+            state = self._prepare_compare_state(
+                question=question,
+                top_k=top_k,
+                filters=filters,
+                precomputed_hits=precomputed_hits,
+            )
+
             workflow_trace_base = {
                 "operation": "compare",
                 "requested_top_k": top_k,
-                "internal_candidate_k": len(hits),
+                "internal_candidate_k": len(state.hits),
                 **source_scope_trace(filters),
                 "cross_document_intent_detected": True,
-                "initial_candidate_count": len(hits),
+                "initial_candidate_count": len(state.hits),
                 "applied_rules": [],
             }
-            grounded_hits = select_grounded_hits(hits).hits
-            if not grounded_hits:
+
+            if not state.grounded_hits:
+                insufficient_trace = self._finalize_insufficient_trace(workflow_trace_base)
+                for warning in state.source_warnings:
+                    if warning not in insufficient_trace["trace_warnings"]:
+                        insufficient_trace["trace_warnings"].append(warning)
+                issues = self._build_source_limit_issues(state.source_warnings)
                 return self._insufficient_result(
                     question=question,
-                    hits=hits,
-                    retrieval_ms=retrieval_ms,
+                    hits=state.hits,
+                    retrieval_ms=state.retrieval_ms,
                     started=started,
                     filters=filters,
-                    workflow_trace=self._finalize_insufficient_trace(workflow_trace_base),
+                    workflow_trace=insufficient_trace,
+                    extra_warnings=tuple(state.source_warnings),
+                    extra_issues=tuple(issues),
                 )
 
-            rerank_started = time.perf_counter()
-            reranked_hits = self.reranker.rerank(query=question, hits=grounded_hits)
-            rerank_ms = round((time.perf_counter() - rerank_started) * 1000, 2)
-            compress_started = time.perf_counter()
-            compressed_hits = self.compressor.compress(query=question, hits=reranked_hits)
-            compress_ms = round((time.perf_counter() - compress_started) * 1000, 2)
-
-            groups = self._group_hits(compressed_hits)
-            if len(groups) < 2:
+            if len(state.groups) < 2:
+                trace_extra_warnings = list(state.source_warnings)
+                trace_extra_warnings.append("insufficient_context")
+                issues = self._build_source_limit_issues(state.source_warnings)
                 return self._insufficient_result(
                     question=question,
-                    hits=hits,
-                    grounded_hits=grounded_hits,
-                    returned_hits=compressed_hits,
-                    retrieval_ms=retrieval_ms,
-                    rerank_ms=rerank_ms,
-                    compress_ms=compress_ms,
+                    hits=state.hits,
+                    grounded_hits=state.grounded_hits,
+                    returned_hits=state.compressed_hits,
+                    retrieval_ms=state.retrieval_ms,
+                    rerank_ms=state.rerank_ms,
+                    compress_ms=state.compress_ms,
                     started=started,
                     filters=filters,
                     reason="insufficient_context",
                     workflow_trace=self._finalize_insufficient_trace(
                         workflow_trace_base,
-                        after_rerank_count=len(reranked_hits),
-                        final_candidate_count=len(compressed_hits),
-                        extra_warnings=("insufficient_context",),
+                        after_rerank_count=len(state.reranked_hits),
+                        final_candidate_count=len(state.compressed_hits),
+                        extra_warnings=tuple(trace_extra_warnings),
                     ),
+                    extra_warnings=tuple(state.source_warnings),
+                    extra_issues=tuple(issues),
                 )
 
-            left_group, right_group = groups[:2]
+            left_group, right_group = state.groups[:2]
             generation_started = time.perf_counter()
             common_points, differences, conflicts = self._compare_groups(
                 question=question,
@@ -178,7 +209,7 @@ class CompareService:
             generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
             compare_result = self._build_compare_result(
                 question=question,
-                hits=hits,
+                hits=state.hits,
                 left_group=left_group,
                 right_group=right_group,
                 common_points=common_points,
@@ -187,54 +218,206 @@ class CompareService:
             )
             compare_result = refresh_compare_result_freshness(compare_result, collection=self.collection)
             citations = self._collect_citations(compare_result)
+
+            trace_warnings = build_trace_warnings(citations=citations)
+            for warning in state.source_warnings:
+                if warning not in trace_warnings:
+                    trace_warnings.append(warning)
+
             workflow_trace = {
                 **workflow_trace_base,
-                "after_rerank_count": len(reranked_hits),
-                "final_candidate_count": len(compressed_hits),
+                "after_rerank_count": len(state.reranked_hits),
+                "final_candidate_count": len(state.compressed_hits),
                 "final_citation_count": len(citations),
                 "final_evidence_count": len(citations),
                 "applied_rules": [],
                 "final_sources": final_source_summary(citations),
-                "trace_warnings": build_trace_warnings(citations=citations),
+                "trace_warnings": trace_warnings,
             }
             logger.info(
                 "Compare completed: question_preview=%s groups=%d returned=%d",
                 question[:60],
-                len(groups),
-                len(compressed_hits),
+                len(state.groups),
+                len(state.compressed_hits),
             )
+
+            metadata_warnings = list(state.source_warnings)
+            metadata_issues: list[ServiceIssue] = []
+            for warning in state.source_warnings:
+                metadata_issues.append(
+                    ServiceIssue(
+                        code="compare_source_limit",
+                        message=warning,
+                        severity="warning",
+                    )
+                )
+
             return CompareServiceResult(
                 compare_result=compare_result,
                 citations=citations,
                 metadata=UseCaseMetadata(
-                    retrieved_count=len(compressed_hits),
+                    retrieved_count=len(state.compressed_hits),
                     mode="grounded_compare",
                     insufficient_evidence=compare_result.support_status == SupportStatus.INSUFFICIENT_EVIDENCE,
                     support_status=compare_result.support_status.value,
                     refusal_reason=None if compare_result.refusal_reason is None else compare_result.refusal_reason.value,
+                    warnings=tuple(metadata_warnings),
+                    issues=tuple(metadata_issues),
                     timing=UseCaseTiming(
                         total_ms=round((time.perf_counter() - started) * 1000, 2),
-                        retrieval_ms=retrieval_ms,
-                        rerank_ms=rerank_ms,
-                        compress_ms=compress_ms,
+                        retrieval_ms=state.retrieval_ms,
+                        rerank_ms=state.rerank_ms,
+                        compress_ms=state.compress_ms,
                         generation_ms=generation_ms,
                     ),
                     runtime_mode=getattr(self.runtime, "runtime_name", type(self.runtime).__name__),
                     provider_mode=type(self.llm).__name__ if self.llm is not None else getattr(self.runtime, "provider_name", None),
                     filter_applied=filters is not None,
                     retrieval_stats=RetrievalStats(
-                        retrieved_hits=len(hits),
-                        grounded_hits=len(grounded_hits),
-                        reranked_hits=len(reranked_hits),
-                        returned_hits=len(compressed_hits),
+                        retrieved_hits=len(state.hits),
+                        grounded_hits=len(state.grounded_hits),
+                        reranked_hits=len(state.reranked_hits),
+                        returned_hits=len(state.compressed_hits),
                     ),
                     workflow_trace=workflow_trace,
                 ),
-                context=build_context(compressed_hits),
+                context=build_context(state.compressed_hits),
             )
         except Exception as exc:
             logger.exception("Compare failed: question_preview=%s", question[:60])
             raise ChatError(detail=f"Compare generation failed: {exc}") from exc
+    def _prepare_compare_state(
+        self,
+        question: str,
+        top_k: int,
+        filters: RetrievalFilters | None,
+        precomputed_hits: list[RetrievedChunk] | None,
+    ) -> _PreparedCompareState:
+        selected_sources = filters.sources if filters is not None else ()
+
+        if precomputed_hits is not None:
+            hits = precomputed_hits
+            retrieval_ms = 0.0
+            source_warnings: list[str] = []
+            grounded_hits = select_grounded_hits(hits).hits
+            rerank_started = time.perf_counter()
+            reranked_hits = self.reranker.rerank(query=question, hits=grounded_hits)
+            rerank_ms = round((time.perf_counter() - rerank_started) * 1000, 2)
+            compress_started = time.perf_counter()
+            compressed_hits = self.compressor.compress(query=question, hits=reranked_hits)
+            compress_ms = round((time.perf_counter() - compress_started) * 1000, 2)
+            groups = self._group_hits(compressed_hits)
+            return _PreparedCompareState(
+                hits=hits,
+                grounded_hits=grounded_hits,
+                reranked_hits=reranked_hits,
+                compressed_hits=compressed_hits,
+                groups=groups,
+                retrieval_ms=retrieval_ms,
+                rerank_ms=rerank_ms,
+                compress_ms=compress_ms,
+                source_warnings=source_warnings,
+            )
+
+        if len(selected_sources) >= 2:
+            source_warnings = []
+            if len(selected_sources) > 2:
+                source_warnings.append(
+                    "Compare currently supports two sources; additional sources were ignored."
+                )
+            source_a, source_b = selected_sources[0], selected_sources[1]
+            left_state = self._retrieve_process_source(question, top_k, filters, source_a)
+            right_state = self._retrieve_process_source(question, top_k, filters, source_b)
+
+            hits = left_state.hits + right_state.hits
+            grounded_hits = left_state.grounded_hits + right_state.grounded_hits
+            reranked_hits = left_state.reranked_hits + right_state.reranked_hits
+            compressed_hits = left_state.compressed_hits + right_state.compressed_hits
+            retrieval_ms = round(left_state.retrieval_ms + right_state.retrieval_ms, 2)
+            rerank_ms = round(left_state.rerank_ms + right_state.rerank_ms, 2)
+            compress_ms = round(left_state.compress_ms + right_state.compress_ms, 2)
+
+            groups: list[_EvidenceGroup] = []
+            if left_state.compressed_hits:
+                groups.append(
+                    _EvidenceGroup(
+                        key=source_a,
+                        label=self._group_label(left_state.compressed_hits[0]),
+                        hits=tuple(sorted(left_state.compressed_hits, key=self._hit_sort_key)),
+                    )
+                )
+            if right_state.compressed_hits:
+                groups.append(
+                    _EvidenceGroup(
+                        key=source_b,
+                        label=self._group_label(right_state.compressed_hits[0]),
+                        hits=tuple(sorted(right_state.compressed_hits, key=self._hit_sort_key)),
+                    )
+                )
+            return _PreparedCompareState(
+                hits=hits,
+                grounded_hits=grounded_hits,
+                reranked_hits=reranked_hits,
+                compressed_hits=compressed_hits,
+                groups=groups,
+                retrieval_ms=retrieval_ms,
+                rerank_ms=rerank_ms,
+                compress_ms=compress_ms,
+                source_warnings=source_warnings,
+            )
+
+        # Standard single-retrieval path
+        retrieval_started = time.perf_counter()
+        hits = self.search_service.retrieve(query=question, top_k=top_k, filters=filters)
+        retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
+        source_warnings = []
+        grounded_hits = select_grounded_hits(hits).hits
+        rerank_started = time.perf_counter()
+        reranked_hits = self.reranker.rerank(query=question, hits=grounded_hits)
+        rerank_ms = round((time.perf_counter() - rerank_started) * 1000, 2)
+        compress_started = time.perf_counter()
+        compressed_hits = self.compressor.compress(query=question, hits=reranked_hits)
+        compress_ms = round((time.perf_counter() - compress_started) * 1000, 2)
+        groups = self._group_hits(compressed_hits)
+        return _PreparedCompareState(
+            hits=hits,
+            grounded_hits=grounded_hits,
+            reranked_hits=reranked_hits,
+            compressed_hits=compressed_hits,
+            groups=groups,
+            retrieval_ms=retrieval_ms,
+            rerank_ms=rerank_ms,
+            compress_ms=compress_ms,
+            source_warnings=source_warnings,
+        )
+
+    def _retrieve_process_source(
+        self,
+        question: str,
+        top_k: int,
+        filters: RetrievalFilters,
+        source: str,
+    ) -> _SourceRetrievalState:
+        source_filters = replace(filters, sources=(source,))
+        retrieval_started = time.perf_counter()
+        hits = self.search_service.retrieve(query=question, top_k=top_k, filters=source_filters)
+        retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
+        grounded_hits = select_grounded_hits(hits).hits
+        rerank_started = time.perf_counter()
+        reranked_hits = self.reranker.rerank(query=question, hits=grounded_hits)
+        rerank_ms = round((time.perf_counter() - rerank_started) * 1000, 2)
+        compress_started = time.perf_counter()
+        compressed_hits = self.compressor.compress(query=question, hits=reranked_hits)
+        compress_ms = round((time.perf_counter() - compress_started) * 1000, 2)
+        return _SourceRetrievalState(
+            hits=hits,
+            grounded_hits=grounded_hits,
+            reranked_hits=reranked_hits,
+            compressed_hits=compressed_hits,
+            retrieval_ms=retrieval_ms,
+            rerank_ms=rerank_ms,
+            compress_ms=compress_ms,
+        )
 
     def _insufficient_result(
         self,
@@ -250,6 +433,8 @@ class CompareService:
         compress_ms: float | None = None,
         reason: str | None = None,
         workflow_trace: dict[str, object] | None = None,
+        extra_warnings: tuple[str, ...] = (),
+        extra_issues: tuple[ServiceIssue, ...] = (),
     ) -> CompareServiceResult:
         compare_result = GroundedCompareResult(
             query=question,
@@ -277,14 +462,8 @@ class CompareService:
                 support_status=SupportStatus.INSUFFICIENT_EVIDENCE.value,
                 refusal_reason=None if refusal_reason is None else refusal_reason.value,
                 empty_result=not hits,
-                warnings=("Insufficient grounded evidence for compare response.",),
-                issues=(
-                    ServiceIssue(
-                        code="insufficient_evidence",
-                        message="Insufficient grounded evidence for compare response.",
-                        severity="info",
-                    ),
-                ),
+                warnings=self._merge_insufficient_warnings(extra_warnings),
+                issues=self._merge_insufficient_issues(extra_issues),
                 timing=UseCaseTiming(
                     total_ms=round((time.perf_counter() - started) * 1000, 2),
                     retrieval_ms=retrieval_ms,
@@ -301,6 +480,36 @@ class CompareService:
             ),
             context=None if not returned_hits else build_context(returned_hits),
         )
+
+    @staticmethod
+    def _build_source_limit_issues(source_warnings: list[str]) -> list[ServiceIssue]:
+        issues: list[ServiceIssue] = []
+        for warning in source_warnings:
+            issues.append(
+                ServiceIssue(
+                    code="compare_source_limit",
+                    message=warning,
+                    severity="warning",
+                )
+            )
+        return issues
+
+    @staticmethod
+    def _merge_insufficient_warnings(extra_warnings: tuple[str, ...]) -> tuple[str, ...]:
+        merged = list(extra_warnings)
+        base = "Insufficient grounded evidence for compare response."
+        if base not in merged:
+            merged.append(base)
+        return tuple(merged)
+
+    @staticmethod
+    def _merge_insufficient_issues(extra_issues: tuple[ServiceIssue, ...]) -> tuple[ServiceIssue, ...]:
+        base = ServiceIssue(
+            code="insufficient_evidence",
+            message="Insufficient grounded evidence for compare response.",
+            severity="info",
+        )
+        return (base,) + extra_issues
 
     def _finalize_insufficient_trace(
         self,
@@ -415,12 +624,12 @@ class CompareService:
             "",
             f"Question: {question}",
             "",
-            "Left source evidence:",
+            f"Left source evidence ({left_group.label}):",
         ]
         for index, hit in enumerate(left_group.hits, start=1):
             lines.append(f"  L{index}: {hit.text.strip()}")
         lines.append("")
-        lines.append("Right source evidence:")
+        lines.append(f"Right source evidence ({right_group.label}):")
         for index, hit in enumerate(right_group.hits, start=1):
             lines.append(f"  R{index}: {hit.text.strip()}")
         lines.extend([

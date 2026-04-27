@@ -122,6 +122,12 @@ Purpose:
 - preserve `common_points`, `differences`, and `conflicts` with paired evidence
 - keep the compare use-case composable for both direct `/compare` routes and unified execution
 
+Source-scoped planning:
+
+- when `filters.sources` contains exactly 2 sources, `CompareService` performs independent retrieval per source, preserving non-source filters, then builds left/right groups directly from each source's compressed hits
+- the existing `_compare_groups()` LLM/heuristic logic is reused unchanged
+- the compare schema remains strictly left/right; no N-way compare schema is introduced
+
 ### `IntentClassificationResult`
 
 Fields:

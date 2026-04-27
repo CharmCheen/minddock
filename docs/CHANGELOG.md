@@ -18,6 +18,7 @@ Update it before every push.
 - `CompareService` now accepts an optional `runtime` and `llm_override`, matching the pattern used by `ChatService` and `SummarizeService`
 - COMPARE execution plan now sets `requires_runtime=True` so the unified execution pipeline resolves and injects a runtime profile
 - Tests covering LLM JSON parsing, evidence ID mapping, runtime exception fallback, empty-array fallback, and citation preservation for compare
+- Source-scoped two-source compare planning: when `filters.sources` contains exactly 2 sources, `CompareService` retrieves, reranks, and compresses each source independently before building left/right evidence groups; more than 2 sources are limited to the first two with a recorded warning
 - Open-source governance files: `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `SECURITY.md`
 - Project tracking docs: `docs/ROADMAP.md` and `docs/TEST_PLAN.md`
 - Baseline automated tests for API routes, schemas, chat service, and contract definitions

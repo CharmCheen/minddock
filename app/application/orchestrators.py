@@ -1103,6 +1103,7 @@ class FrontendFacade:
                 query=request.user_input,
                 top_k=self._retrieval_top_k_for_task(request),
                 filters=request.retrieval.filters,
+                task_type=request.task_type.value,
                 event_emitter=_emit_pipeline_event,
             )
             precomputed_retrieval_state = pipeline_state
@@ -1145,6 +1146,21 @@ class FrontendFacade:
             response = self._build_compare_response(request=request, result=result)
         else:
             raise UnsupportedExecutionModeError(detail=f"Task type '{request.task_type.value}' is not supported yet.")
+
+        # Surface low-confidence / insufficient-evidence warning from pipeline
+        if precomputed_retrieval_state and (
+            precomputed_retrieval_state.get("low_confidence")
+            or (
+                not precomputed_retrieval_state.get("quality_ok")
+                and precomputed_retrieval_state.get("retry_count", 0) >= precomputed_retrieval_state.get("max_retries", 1)
+            )
+        ):
+            warning_msg = "Retrieval quality is low; answers may be less reliable."
+            existing_warnings = response.metadata.warnings or ()
+            response = replace(
+                response,
+                metadata=replace(response.metadata, warnings=existing_warnings + (warning_msg,)),
+            )
 
         for step in base_steps:
             collector.emit(

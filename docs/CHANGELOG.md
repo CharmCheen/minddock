@@ -7,6 +7,13 @@ Update it before every push.
 
 ### Added
 
+- Rule-based retrieval quality check (`quality_check`) after compress in the unified retrieval pipeline
+- One bounded retry (`max_retries = 1`) with deterministic query expansion: instruction-word stripping, whitespace normalization, and modest `top_k` increase (`min(max(top_k + 3, int(top_k * 1.5)), 20)`)
+- `UnifiedWorkflowState` extended with `quality_ok`, `quality_reasons`, `low_confidence`, `reflection`, `original_query`, `expanded_query`, `retry_count`, `max_retries`, and `task_type`
+- Low-confidence / insufficient-evidence warnings surfaced through `WARNING_EMITTED` events and appended to response metadata
+- Fallback `_SequentialGraph` supports the same conditional retry loop when LangGraph is unavailable
+- Tests covering sufficient evidence, empty-hit retry, query expansion, top_k bounds, filter preservation, retry ceiling, low-confidence flagging, fallback conditional retry, and LangGraph-compatible fallback stream shapes
+- Orchestrator tests verifying `task_type` is passed into the pipeline for CHAT/SUMMARIZE, COMPARE remains unaffected, and warnings are emitted after exhausted retries
 - LLM-backed grounded compare generation in `CompareService` with evidence-aware structured JSON parsing and heuristic fallback for runtime safety
 - `CompareService` now accepts an optional `runtime` and `llm_override`, matching the pattern used by `ChatService` and `SummarizeService`
 - COMPARE execution plan now sets `requires_runtime=True` so the unified execution pipeline resolves and injects a runtime profile

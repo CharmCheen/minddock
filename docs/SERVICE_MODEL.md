@@ -54,6 +54,19 @@ Current fields:
 
 This is intentionally small. It provides a common place for additive metadata without forcing a large envelope into every layer.
 
+### Retrieval pipeline reflection
+
+The unified retrieval pipeline (CHAT/SUMMARIZE) now carries a small reflection record in its final state:
+
+- `quality_ok` — whether the retrieved evidence passed the rule-based quality gate
+- `quality_reasons` — list of human-readable failure reasons (e.g. "No hits retrieved", "Insufficient diversity for summarize")
+- `low_confidence` — set when all retrieval distances are weak (`>= 1.5`)
+- `reflection` — includes `attempt` count and `reasons` for observability
+- `retry_count` / `max_retries` — bounded retry bookkeeping (currently `max_retries = 1`)
+- `original_query` / `expanded_query` — preserved when a retry expansion was applied
+
+These fields are additive and do not break existing service result contracts.
+
 ### `SearchServiceResult`
 
 Wraps:

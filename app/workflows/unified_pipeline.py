@@ -42,6 +42,34 @@ class UnifiedWorkflowState(TypedDict, total=False):
     compressed_hits: list[RetrievedChunk]
 
 
+class _SequentialGraph:
+    """Fallback sequential graph when LangGraph is unavailable.
+
+    Mirrors the linear retrieve → rerank → compress path and exposes the
+    same ``invoke()`` and ``stream()`` interfaces as a compiled LangGraph.
+    """
+
+    def __init__(self, pipeline: RetrievalPipeline) -> None:
+        self._pipeline = pipeline
+
+    def invoke(self, state: UnifiedWorkflowState) -> UnifiedWorkflowState:
+        state = {**state, **self._pipeline.retrieve(state)}
+        state = {**state, **self._pipeline.rerank(state)}
+        state = {**state, **self._pipeline.compress(state)}
+        return state
+
+    def stream(self, state: UnifiedWorkflowState):
+        result = self._pipeline.retrieve(state)
+        state = {**state, **result}
+        yield {"retrieve": result}
+        result = self._pipeline.rerank(state)
+        state = {**state, **result}
+        yield {"rerank": result}
+        result = self._pipeline.compress(state)
+        state = {**state, **result}
+        yield {"compress": result}
+
+
 class RetrievalPipeline:
     """Unified retrieve → rerank → compress pipeline.
 
@@ -103,28 +131,7 @@ class RetrievalPipeline:
         langgraph is not installed.
         """
         if StateGraph is None:
-            # Minimal sequential fallback — same node functions, no graph structure
-            class _SequentialGraph:
-                def invoke(self, state: UnifiedWorkflowState) -> UnifiedWorkflowState:
-                    state = {**state, **self._node("retrieve", state)}
-                    state = {**state, **self._node("rerank", state)}
-                    state = {**state, **self._node("compress", state)}
-                    return state
-
-                def _node(self, name: str, state: UnifiedWorkflowState):
-                    if name == "retrieve":
-                        return RetrievalPipeline._retrieve(self, state)
-                    if name == "rerank":
-                        return RetrievalPipeline._rerank(self, state)
-                    if name == "compress":
-                        return RetrievalPipeline._compress(self, state)
-                    return {}
-
-            instance = _SequentialGraph()
-            instance._retrieve = self.retrieve
-            instance._rerank = self.rerank
-            instance._compress = self.compress
-            return instance
+            return _SequentialGraph(self)
 
         graph = StateGraph(UnifiedWorkflowState)
         graph.add_node("retrieve", self.retrieve)
@@ -146,7 +153,7 @@ class RetrievalPipeline:
         query: str,
         top_k: int = 5,
         filters=None,
-        event_emitter: Callable[["RetrievalPipelineProgressPayload"], None] | None = None,
+        event_emitter: Callable[[RetrievalPipelineProgressPayload], None] | None = None,
     ) -> UnifiedWorkflowState:
         """Run the full pipeline and return the final state dict.
 
@@ -159,7 +166,6 @@ class RetrievalPipeline:
         pipeline_started = time.perf_counter()
 
         if event_emitter is not None:
-            # Emit retrieval_started before the graph runs
             event_emitter(
                 RetrievalPipelineProgressPayload(stage="retrieval_started")
             )
@@ -175,37 +181,45 @@ class RetrievalPipeline:
         }
 
         if event_emitter is not None:
-            # Run with inline stage tracking (no separate graph nodes needed)
-            from app.application.events import RetrievalPipelineProgressPayload as _Payload
-            state = {**state, **self.retrieve(state)}
-            event_emitter(_Payload(stage="retrieval_completed", retrieved_hits=len(state.get("hits", []))))
-            state = {**state, **self.rerank(state)}
-            event_emitter(_Payload(stage="rerank_completed", retrieved_hits=len(state.get("hits", [])), reranked_hits=len(state.get("reranked_hits", []))))
-            state = {**state, **self.compress(state)}
-            event_emitter(_Payload(
-                stage="compress_completed",
-                retrieved_hits=len(state.get("hits", [])),
-                reranked_hits=len(state.get("reranked_hits", [])),
-                compressed_hits=len(state.get("compressed_hits", [])),
-            ))
+            for update in compiled.stream(state):
+                for node_name, node_output in update.items():
+                    state = {**state, **node_output}
+                    if node_name == "retrieve":
+                        event_emitter(
+                            RetrievalPipelineProgressPayload(
+                                stage="retrieval_completed",
+                                retrieved_hits=len(state.get("hits", [])),
+                            )
+                        )
+                    elif node_name == "rerank":
+                        event_emitter(
+                            RetrievalPipelineProgressPayload(
+                                stage="rerank_completed",
+                                retrieved_hits=len(state.get("hits", [])),
+                                reranked_hits=len(state.get("reranked_hits", [])),
+                            )
+                        )
+                    elif node_name == "compress":
+                        event_emitter(
+                            RetrievalPipelineProgressPayload(
+                                stage="compress_completed",
+                                retrieved_hits=len(state.get("hits", [])),
+                                reranked_hits=len(state.get("reranked_hits", [])),
+                                compressed_hits=len(state.get("compressed_hits", [])),
+                            )
+                        )
             total_ms = round((time.perf_counter() - pipeline_started) * 1000, 2)
-            from app.application.events import RetrievalPipelineCompletedPayload
-            event_emitter(RetrievalPipelineCompletedPayload(
-                retrieved_hits=len(state.get("hits", [])),
-                reranked_hits=len(state.get("reranked_hits", [])),
-                compressed_hits=len(state.get("compressed_hits", [])),
-                total_ms=total_ms,
-            ))
+            event_emitter(
+                RetrievalPipelineCompletedPayload(
+                    retrieved_hits=len(state.get("hits", [])),
+                    reranked_hits=len(state.get("reranked_hits", [])),
+                    compressed_hits=len(state.get("compressed_hits", [])),
+                    total_ms=total_ms,
+                )
+            )
             return state
 
-        return compiled.invoke({
-            "query": query,
-            "top_k": top_k,
-            "filters": filters,
-            "hits": [],
-            "reranked_hits": [],
-            "compressed_hits": [],
-        })
+        return compiled.invoke(state)
 
 
 def build_unified_graph(

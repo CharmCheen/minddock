@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 from typing import Any
 
 from app.rag.retrieval_models import RetrievalFilters
 
 SOURCE_PREVIEW_LIMIT = 5
+_QUALITY_TRACE_FIELDS = (
+    "retry_count",
+    "max_retries",
+    "quality_reasons",
+    "low_confidence",
+    "quality_ok",
+    "reflection",
+)
+_REFLECTION_TRACE_FIELDS = ("attempt", "reasons", "low_confidence")
 
 
 def source_scope_trace(filters: RetrievalFilters | None) -> dict[str, object]:
@@ -17,6 +27,24 @@ def source_scope_trace(filters: RetrievalFilters | None) -> dict[str, object]:
         "selected_sources_count": len(sources),
         "selected_sources_preview": list(sources[:SOURCE_PREVIEW_LIMIT]),
     }
+
+
+def merge_quality_trace_fields(
+    workflow_trace: Mapping[str, object] | None,
+    state_or_metadata: Mapping[str, Any] | None,
+) -> dict[str, object]:
+    trace = dict(workflow_trace or {})
+    if state_or_metadata is None:
+        return trace
+
+    for field in _QUALITY_TRACE_FIELDS:
+        if field in trace or field not in state_or_metadata:
+            continue
+        value = state_or_metadata[field]
+        normalized = _normalize_quality_trace_value(field, value)
+        if normalized is not None:
+            trace[field] = normalized
+    return trace
 
 
 def final_source_summary(records) -> list[dict[str, object]]:
@@ -84,6 +112,46 @@ def build_trace_warnings(
     if local_doc_intent_detected and not local_doc_priority_applied:
         warnings.append("local_doc_intent_no_markdown_candidate")
     return warnings
+
+
+def _normalize_quality_trace_value(field: str, value: object) -> object | None:
+    if field in {"retry_count", "max_retries"}:
+        return value if type(value) is int else None
+    if field in {"low_confidence", "quality_ok"}:
+        return value if type(value) is bool else None
+    if field == "quality_reasons":
+        return _string_list_or_none(value)
+    if field == "reflection":
+        return _sanitize_reflection(value)
+    return None
+
+
+def _sanitize_reflection(value: object) -> dict[str, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+
+    reflection: dict[str, object] = {}
+    for field in _REFLECTION_TRACE_FIELDS:
+        if field not in value:
+            continue
+        field_value = value[field]
+        if field == "attempt" and type(field_value) is int:
+            reflection[field] = field_value
+        elif field == "reasons":
+            reasons = _string_list_or_none(field_value)
+            if reasons is not None:
+                reflection[field] = reasons
+        elif field == "low_confidence" and type(field_value) is bool:
+            reflection[field] = field_value
+
+    return reflection or None
+
+
+def _string_list_or_none(value: object) -> list[str] | None:
+    if not isinstance(value, (list, tuple)):
+        return None
+    strings = [item for item in value if isinstance(item, str)]
+    return strings or None
 
 
 def _record_get(record, key: str):

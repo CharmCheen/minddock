@@ -1098,6 +1098,18 @@ def test_more_than_two_selected_sources_uses_first_two_and_warns() -> None:
     assert result.compare_result.support_status.value == "supported"
     assert any("two sources" in w for w in result.metadata.warnings)
     assert any(issue.code == "compare_source_limit" for issue in result.metadata.issues)
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["operation"] == "compare"
+    assert trace["has_explicit_source_filter"] is True
+    assert trace["selected_sources_count"] == 3
+    assert trace["selected_sources_preview"] == ["kb/a.md", "kb/b.md", "kb/c.md"]
+    assert trace["final_citation_count"] >= 0
+    assert any("two sources" in w for w in trace["trace_warnings"])
+    assert "retry_count" not in trace
+    assert "max_retries" not in trace
+    assert "quality_reasons" not in trace
+    assert "low_confidence" not in trace
 
 
 def test_no_selected_sources_keeps_single_retrieval() -> None:

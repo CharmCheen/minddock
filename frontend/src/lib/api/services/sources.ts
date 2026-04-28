@@ -1,5 +1,5 @@
 import { apiClient } from '../client';
-import { SourceDetailResponse, SourceChunkWrapperResponse, SourceItem } from '../../../core/types/api';
+import { SourceDetailResponse, SourceChunkWrapperResponse, SourceItem, IngestResponse } from '../../../core/types/api';
 
 export interface SourceServiceOptions {
   signal?: AbortSignal;
@@ -42,10 +42,11 @@ export const SourceService = {
     return data;
   },
 
-  async ingestUrls(urls: string[], options?: SourceServiceOptions): Promise<void> {
-    await apiClient.post('/ingest', { urls, rebuild: false }, {
+  async ingestUrls(urls: string[], options?: SourceServiceOptions): Promise<IngestResponse> {
+    const { data } = await apiClient.post<IngestResponse>('/ingest', { urls, rebuild: false }, {
       signal: options?.signal,
     });
+    return data;
   },
 
   async reingestSource(docId: string, options?: SourceServiceOptions): Promise<void> {

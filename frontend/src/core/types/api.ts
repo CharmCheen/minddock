@@ -138,6 +138,20 @@ export interface SourceCatalogResponse {
   total: number;
 }
 
+export interface FailedSourceItem {
+  source: string;
+  source_type: string;
+  reason: string;
+}
+
+export interface IngestResponse {
+  documents: number;
+  chunks: number;
+  ingested_sources: string[];
+  failed_sources: FailedSourceItem[];
+  partial_failure: boolean;
+}
+
 export interface SourceDetailResponse {
   found: boolean;
   item: SourceItem | null;

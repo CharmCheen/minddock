@@ -28,6 +28,7 @@ def client(temp_config_file, monkeypatch):
     """Set up isolated config path and clean env for each test."""
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("LLM_RUNTIME_BASE_URL", raising=False)
+    monkeypatch.delenv("LLM_RUNTIME_MODEL", raising=False)
     return TestClient(app)
 
 
@@ -210,6 +211,29 @@ class TestUpdateRuntimeConfig:
         assert data["api_key_masked"] is True
         assert data["base_url"] == "https://api.example.com/v1"
         assert data["model"] == "gpt-4o"
+
+    def test_save_refreshes_effective_runtime_from_active_env_overrides(self, client, temp_config_file):
+        response = client.put(
+            "/frontend/runtime-config",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://runtime.example.com/v1",
+                "api_key": "sk-test-key-123",
+                "model": "demo-model",
+                "enabled": True,
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["effective_runtime"]["base_url"] == "https://runtime.example.com/v1"
+        assert data["effective_runtime"]["model_name"] == "demo-model"
+        assert data["effective_runtime"]["api_key_masked"] is True
+
+        refreshed = client.get("/frontend/runtime-config").json()
+        assert refreshed["effective_runtime"]["base_url"] == "https://runtime.example.com/v1"
+        assert refreshed["effective_runtime"]["model_name"] == "demo-model"
+        assert refreshed["effective_runtime"]["api_key_masked"] is True
 
     def test_api_key_never_persisted_to_disk(self, client, temp_config_file):
         """PHASE 3 SECURITY INVARIANT: api_key is never written to the config file."""

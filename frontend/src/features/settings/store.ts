@@ -115,13 +115,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ saving: true, error: null, successMessage: null });
     try {
       const trimmedApiKey = form.api_key.trim();
-      const updated = await RuntimeConfigService.updateConfig({
+      await RuntimeConfigService.updateConfig({
         provider: form.provider,
         base_url: form.base_url,
         model: form.model,
         enabled: form.enabled,
         ...(trimmedApiKey ? { api_key: trimmedApiKey } : {}),
       }, options);
+      const updated = await RuntimeConfigService.getConfig(options);
       const formValues = formFromConfig(updated);
       set({
         config: updated,
@@ -182,7 +183,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   resetConfig: async (options) => {
     set({ resetting: true, error: null, successMessage: null });
     try {
-      const updated = await RuntimeConfigService.resetConfig(options);
+      await RuntimeConfigService.resetConfig(options);
+      const updated = await RuntimeConfigService.getConfig(options);
       const formValues = formFromConfig(updated);
       set({
         config: updated,

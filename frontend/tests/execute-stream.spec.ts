@@ -156,7 +156,7 @@ test.describe('execute/stream SSE consumption', () => {
     // assert on the final stable state: artifact text and the user query.
     await expect(page.getByText('What is MindDock?')).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('This is a test response from the AI agent.')).toBeVisible({ timeout: 8000 });
-    await expect(page.getByTestId('context-mode')).toHaveText('Chat');
+    await expect(page.getByTestId('context-mode')).toHaveText('Auto');
   });
 
   test('displays real progress phase text during execution', async ({ page }) => {

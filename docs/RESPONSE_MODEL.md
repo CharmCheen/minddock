@@ -88,6 +88,30 @@ Top-level fields:
 
 `structured_output` remains a legacy-compatible string field for now.
 
+### `CompareResponse`
+
+Top-level fields:
+
+- `query`
+- `common_points` — list of `ComparedPointItem`
+- `differences` — list of `ComparedPointItem`
+- `conflicts` — list of `ComparedPointItem`
+- `support_status`
+- `refusal_reason`
+- `citations`
+- `retrieved_count`
+- `mode` — always `grounded_compare`
+
+Each `ComparedPointItem` contains:
+
+- `statement`
+- `left_evidence` — list of `EvidenceItem`
+- `right_evidence` — list of `EvidenceItem`
+- `summary_note`
+- `confidence` — optional float in `[0.0, 1.0]`; may be `null`
+- `taxonomy` — optional string from controlled vocabulary; may be `null`
+- `evidence_coverage` — optional server-computed object with `left_count`, `right_count`, `balanced`, `coverage_label`
+
 ### `IngestResponse`
 
 Top-level fields:

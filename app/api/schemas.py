@@ -284,6 +284,9 @@ class ComparedPointItem(BaseModel):
     left_evidence: list[EvidenceItem] = Field(default_factory=list)
     right_evidence: list[EvidenceItem] = Field(default_factory=list)
     summary_note: str | None = None
+    confidence: float | None = None
+    taxonomy: str | None = None
+    evidence_coverage: dict[str, Any] | None = None
 
     @classmethod
     def from_record(cls, record: ComparedPoint | Mapping[str, object]) -> "ComparedPointItem":
@@ -293,6 +296,9 @@ class ComparedPointItem(BaseModel):
                 left_evidence=[EvidenceItem.from_record(item) for item in record.left_evidence],
                 right_evidence=[EvidenceItem.from_record(item) for item in record.right_evidence],
                 summary_note=record.summary_note,
+                confidence=record.confidence,
+                taxonomy=record.taxonomy,
+                evidence_coverage=record.evidence_coverage,
             )
         data = dict(record)
         return cls(
@@ -300,6 +306,9 @@ class ComparedPointItem(BaseModel):
             left_evidence=[EvidenceItem.from_record(item) for item in data.get("left_evidence", [])],
             right_evidence=[EvidenceItem.from_record(item) for item in data.get("right_evidence", [])],
             summary_note=data.get("summary_note"),
+            confidence=data.get("confidence") if data.get("confidence") is not None else None,
+            taxonomy=data.get("taxonomy") if data.get("taxonomy") is not None else None,
+            evidence_coverage=data.get("evidence_coverage") if data.get("evidence_coverage") is not None else None,
         )
 
 

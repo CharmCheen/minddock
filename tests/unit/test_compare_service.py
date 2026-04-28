@@ -1,6 +1,6 @@
 """Unit tests for CompareService."""
 
-from app.rag.retrieval_models import EvidenceFreshness
+from app.rag.retrieval_models import EvidenceFreshness, EvidenceObject
 from app.rag.source_models import SourceCatalogEntry, SourceDetail, SourceState
 from app.rag.retrieval_models import RetrievalFilters, RetrievedChunk
 from app.runtime.models import RuntimeResponse
@@ -1228,3 +1228,275 @@ def test_more_than_two_selected_sources_insufficient_preserves_source_limit_warn
     trace = result.metadata.workflow_trace
     assert trace is not None
     assert any("two sources" in w for w in trace["trace_warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Compare 2.0 optional metadata tests
+# ---------------------------------------------------------------------------
+
+
+def test_llm_json_with_confidence_parses_correctly() -> None:
+    llm_json = (
+        '{"common_points":['
+        '{"statement":"Both use vector stores.","confidence":0.85,"left_evidence_ids":["L1"],"right_evidence_ids":["R1"]}'
+        '],"differences":[],"conflicts":[]}'
+    )
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A uses Chroma vector store.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Project A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B uses Postgres vector store.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Project B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text=llm_json),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+    result = service.compare(question="Compare storage", top_k=4)
+    point = result.compare_result.common_points[0]
+    assert point.confidence == 0.85
+
+
+def test_llm_json_with_taxonomy_parses_correctly() -> None:
+    llm_json = (
+        '{"common_points":['
+        '{"statement":"Both use vector stores.","taxonomy":"method","left_evidence_ids":["L1"],"right_evidence_ids":["R1"]}'
+        '],"differences":[],"conflicts":[]}'
+    )
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A uses Chroma vector store.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Project A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B uses Postgres vector store.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Project B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text=llm_json),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+    result = service.compare(question="Compare storage", top_k=4)
+    point = result.compare_result.common_points[0]
+    assert point.taxonomy == "method"
+
+
+def test_llm_json_missing_confidence_and_taxonomy_backward_compatible() -> None:
+    llm_json = (
+        '{"common_points":['
+        '{"statement":"Both use vector stores.","left_evidence_ids":["L1"],"right_evidence_ids":["R1"]}'
+        '],"differences":[],"conflicts":[]}'
+    )
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A uses Chroma vector store.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Project A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B uses Postgres vector store.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Project B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text=llm_json),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+    result = service.compare(question="Compare storage", top_k=4)
+    point = result.compare_result.common_points[0]
+    assert point.confidence is None
+    assert point.taxonomy is None
+    assert point.evidence_coverage is not None
+
+
+def test_llm_json_invalid_confidence_becomes_none() -> None:
+    llm_json = (
+        '{"common_points":['
+        '{"statement":"Both use vector stores.","confidence":"not_a_number","left_evidence_ids":["L1"],"right_evidence_ids":["R1"]}'
+        '],"differences":[],"conflicts":[]}'
+    )
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A uses Chroma vector store.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Project A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B uses Postgres vector store.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Project B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text=llm_json),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+    result = service.compare(question="Compare storage", top_k=4)
+    point = result.compare_result.common_points[0]
+    assert point.confidence is None
+
+
+def test_clamp_confidence_below_zero_clamps_to_zero() -> None:
+    service = _make_service(hits=[])
+    assert service._clamp_confidence(-0.5) == 0.0
+
+
+def test_clamp_confidence_above_one_clamps_to_one() -> None:
+    service = _make_service(hits=[])
+    assert service._clamp_confidence(1.5) == 1.0
+
+
+def test_normalize_taxonomy_unknown_becomes_other() -> None:
+    service = _make_service(hits=[])
+    assert service._normalize_taxonomy("unknown_category") == "other"
+
+
+def test_evidence_coverage_balanced_when_counts_match() -> None:
+    service = _make_service(hits=[])
+    left = (EvidenceObject(doc_id="d1", chunk_id="c1", source="a.md", snippet="s1"),)
+    right = (EvidenceObject(doc_id="d2", chunk_id="c2", source="b.md", snippet="s2"),)
+    coverage = service._compute_evidence_coverage(left, right)
+    assert coverage["left_count"] == 1
+    assert coverage["right_count"] == 1
+    assert coverage["balanced"] is True
+    assert coverage["coverage_label"] == "balanced"
+
+
+def test_evidence_coverage_left_heavy_when_left_greater() -> None:
+    service = _make_service(hits=[])
+    left = (
+        EvidenceObject(doc_id="d1", chunk_id="c1", source="a.md", snippet="s1"),
+        EvidenceObject(doc_id="d1", chunk_id="c2", source="a.md", snippet="s2"),
+    )
+    right = (EvidenceObject(doc_id="d2", chunk_id="c3", source="b.md", snippet="s3"),)
+    coverage = service._compute_evidence_coverage(left, right)
+    assert coverage["coverage_label"] == "left_heavy"
+
+
+def test_evidence_coverage_right_heavy_when_right_greater() -> None:
+    service = _make_service(hits=[])
+    left = (EvidenceObject(doc_id="d1", chunk_id="c1", source="a.md", snippet="s1"),)
+    right = (
+        EvidenceObject(doc_id="d2", chunk_id="c2", source="b.md", snippet="s2"),
+        EvidenceObject(doc_id="d2", chunk_id="c3", source="b.md", snippet="s3"),
+    )
+    coverage = service._compute_evidence_coverage(left, right)
+    assert coverage["coverage_label"] == "right_heavy"
+
+
+def test_heuristic_fallback_sets_confidence_none() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A uses Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B uses Postgres.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+    result = service.compare(question="Compare storage", top_k=4)
+    point = result.compare_result.common_points[0]
+    assert point.confidence is None
+    assert point.taxonomy is None
+
+
+def test_heuristic_fallback_computes_evidence_coverage() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A uses Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B uses Postgres.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+    result = service.compare(question="Compare storage", top_k=4)
+    point = result.compare_result.common_points[0]
+    assert point.evidence_coverage is not None
+    assert point.evidence_coverage["left_count"] == 1
+    assert point.evidence_coverage["right_count"] == 1
+    assert point.evidence_coverage["coverage_label"] == "balanced"
+
+
+def test_existing_json_parse_failure_fallback_still_works() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A uses Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B uses Postgres.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text="not valid json"),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+    result = service.compare(question="Compare storage", top_k=4)
+    assert result.compare_result.common_points
+    assert result.compare_result.support_status.value == "supported"
+    point = result.compare_result.common_points[0]
+    assert point.confidence is None
+    assert point.evidence_coverage is not None

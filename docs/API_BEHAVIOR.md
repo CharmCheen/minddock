@@ -165,6 +165,20 @@ Response:
 
 Note: compare results also appear in the unified execution response at `compare_result` and in the `compare.v1` structured artifact. Both `/compare` and `/frontend/execute` return the same core compare contract.
 
+#### Compare 2.0 optional metadata
+
+Each `ComparedPoint` now supports three optional fields:
+
+- `confidence: float | null` — point-level confidence when provided by the LLM; may be `null` when unavailable or uncalibrated
+- `taxonomy: string | null` — semantic category of the point; allowed values: `definition`, `method`, `assumption`, `evidence`, `conclusion`, `scope`, `other`; unknown values normalize to `other`; may be `null` when not provided
+- `evidence_coverage: object | null` — server-computed coverage statistics:
+  - `left_count` — number of left-side evidence items
+  - `right_count` — number of right-side evidence items
+  - `balanced` — `true` when both counts are equal and greater than zero
+  - `coverage_label` — one of `balanced`, `left_heavy`, `right_heavy`, `single_sided`, `unknown`
+
+These fields are additive; existing `CompareResponse` fields are unchanged. Missing optional fields are omitted from JSON or returned as `null`, depending on the serialization path. Heuristic fallback points always set `confidence=null` and `taxonomy=null` because these values are not calibrated.
+
 ### `POST /frontend/execute`
 
 Request (via `UnifiedExecutionRequestBody`):

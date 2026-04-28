@@ -208,6 +208,7 @@ Response:
 - `artifacts` — primary result artifact(s) depending on task type
 - `citations` — evidence citations
 - `metadata.workflow_trace.detected_intent` — intent classification details when auto-detection was used
+- Chat and summarize responses may include normalized `workflow_trace` quality metadata when available, including `retry_count`, `max_retries`, `quality_reasons`, `low_confidence`, `quality_ok`, and `reflection`. These fields are additive, sanitized, and intended for UI explanation; raw prompts, chunks, evidence text, embeddings, and matched keywords are not exposed through the explanation panel.
 
 ### `POST /frontend/execute` with `task_type=compare`
 

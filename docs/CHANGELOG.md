@@ -27,6 +27,7 @@ Update it before every push.
 - Frontend "Auto" mode: omits `task_type` from the request so the backend infers the best task
 - Intent metadata (`detected_intent`) is appended to `workflow_trace` in unified execution responses
 - Compare points now support optional `confidence`, `taxonomy`, and `evidence_coverage` metadata; `confidence` is clamped to `[0.0, 1.0]`, `taxonomy` normalizes to a controlled vocabulary, and `evidence_coverage` is server-computed from resolved evidence counts
+- Frontend now surfaces Compare 2.0 point metadata badges and a collapsed "Why this answer?" workflow-trace explanation panel for task, evidence, retry, source-scope, and quality signals.
 
 ### Changed
 

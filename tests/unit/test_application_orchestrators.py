@@ -1512,6 +1512,7 @@ def test_low_confidence_warning_surfaced_after_retry(monkeypatch) -> None:
                 "retry_count": 1,
                 "max_retries": 1,
                 "quality_reasons": ["No hits retrieved"],
+                "reflection": {"attempt": 2, "reasons": ["No hits retrieved"], "low_confidence": True},
             }
 
     monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
@@ -1549,6 +1550,90 @@ def test_low_confidence_warning_surfaced_after_retry(monkeypatch) -> None:
     warning_events = [e for e in run.events if e.kind == ExecutionEventKind.WARNING_EMITTED]
     assert len(warning_events) >= 1
     assert any("low" in (e.payload.message or "").lower() for e in warning_events)
+    assert run.final_response is not None
+    trace = run.final_response.metadata.workflow_trace
+    assert trace is not None
+    assert trace["retry_count"] == 1
+    assert trace["max_retries"] == 1
+    assert trace["quality_reasons"] == ["No hits retrieved"]
+    assert trace["low_confidence"] is True
+    assert trace["quality_ok"] is False
+    assert trace["reflection"] == {"attempt": 2, "reasons": ["No hits retrieved"], "low_confidence": True}
+
+
+def test_summarize_trace_includes_normalized_quality_fields(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            return {
+                "hits": [],
+                "reranked_hits": [],
+                "compressed_hits": [],
+                "quality_ok": False,
+                "low_confidence": False,
+                "retry_count": 1,
+                "max_retries": 1,
+                "quality_reasons": ["Insufficient diversity for summarize", 123],
+                "reflection": {
+                    "attempt": 2,
+                    "reasons": ["Insufficient diversity for summarize", object()],
+                    "low_confidence": False,
+                    "prompt": "do not copy",
+                },
+            }
+
+    def fake_summarize(*, request, runtime, precomputed_hits=None):
+        assert request.task_type == TaskType.SUMMARIZE
+        return SummarizeServiceResult(
+            summary="summary response",
+            citations=[],
+            grounded_answer=GroundedAnswer(answer="summary response"),
+            metadata=UseCaseMetadata(
+                retrieved_count=0,
+                mode="basic",
+                workflow_trace={"operation": "summarize", "retry_count": 7},
+            ),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(chat_orchestrator, "run_summarize_with_runtime", fake_summarize)
+
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.SUMMARIZE,
+            user_input="Summarize the key points",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    trace = response.metadata.workflow_trace
+    assert trace is not None
+    assert trace["operation"] == "summarize"
+    assert trace["retry_count"] == 7
+    assert trace["max_retries"] == 1
+    assert trace["quality_reasons"] == ["Insufficient diversity for summarize"]
+    assert trace["low_confidence"] is False
+    assert trace["quality_ok"] is False
+    assert trace["reflection"] == {
+        "attempt": 2,
+        "reasons": ["Insufficient diversity for summarize"],
+        "low_confidence": False,
+    }
+    assert "prompt" not in trace["reflection"]
 
 
 # ---------------------------------------------------------------------------

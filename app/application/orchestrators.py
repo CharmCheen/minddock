@@ -66,6 +66,7 @@ from app.services.service_models import (
     UseCaseMetadata,
 )
 from app.services.summarize_service import SummarizeService
+from app.services.workflow_trace import merge_quality_trace_fields
 from app.skills import (
     SkillCatalogDetail,
     SkillCatalogEntry,
@@ -1114,6 +1115,17 @@ class FrontendFacade:
                 runtime=runtime,
                 precomputed_hits=precomputed_retrieval_state["hits"] if precomputed_retrieval_state else None,
             )
+            if precomputed_retrieval_state is not None:
+                result = replace(
+                    result,
+                    metadata=replace(
+                        result.metadata,
+                        workflow_trace=merge_quality_trace_fields(
+                            result.metadata.workflow_trace,
+                            precomputed_retrieval_state,
+                        ),
+                    ),
+                )
             response = self._build_chat_response(request=request, result=result)
         elif request.task_type == TaskType.SUMMARIZE:
             result = self.chat.run_summarize_with_runtime(
@@ -1121,6 +1133,17 @@ class FrontendFacade:
                 runtime=runtime,
                 precomputed_hits=precomputed_retrieval_state["hits"] if precomputed_retrieval_state else None,
             )
+            if precomputed_retrieval_state is not None:
+                result = replace(
+                    result,
+                    metadata=replace(
+                        result.metadata,
+                        workflow_trace=merge_quality_trace_fields(
+                            result.metadata.workflow_trace,
+                            precomputed_retrieval_state,
+                        ),
+                    ),
+                )
             response = self._build_summarize_response(request=request, result=result)
         elif request.task_type == TaskType.SEARCH:
             result = self.chat.search(

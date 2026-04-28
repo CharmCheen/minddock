@@ -511,6 +511,56 @@ class CompareService:
         )
         return (base,) + extra_issues
 
+    @staticmethod
+    def _clamp_confidence(value: object) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return max(0.0, min(1.0, float(value)))
+        if isinstance(value, str):
+            try:
+                parsed = float(value.strip())
+                return max(0.0, min(1.0, parsed))
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    @staticmethod
+    def _normalize_taxonomy(value: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return None
+        lowered = value.strip().lower()
+        allowed = {"definition", "method", "assumption", "evidence", "conclusion", "scope", "other"}
+        if lowered in allowed:
+            return lowered
+        return "other"
+
+    @staticmethod
+    def _compute_evidence_coverage(
+        left_evidence: tuple[EvidenceObject, ...],
+        right_evidence: tuple[EvidenceObject, ...],
+    ) -> dict[str, object]:
+        left_count = len(left_evidence)
+        right_count = len(right_evidence)
+        if left_count == 0 and right_count == 0:
+            coverage_label = "unknown"
+        elif left_count == 0 or right_count == 0:
+            coverage_label = "single_sided"
+        elif left_count == right_count:
+            coverage_label = "balanced"
+        elif left_count > right_count:
+            coverage_label = "left_heavy"
+        else:
+            coverage_label = "right_heavy"
+        return {
+            "left_count": left_count,
+            "right_count": right_count,
+            "balanced": left_count == right_count and left_count > 0,
+            "coverage_label": coverage_label,
+        }
+
     def _finalize_insufficient_trace(
         self,
         trace: dict[str, object],
@@ -784,12 +834,19 @@ class CompareService:
             if not left_evidence or not right_evidence:
                 continue
 
+            confidence = self._clamp_confidence(item.get("confidence"))
+            taxonomy = self._normalize_taxonomy(item.get("taxonomy"))
+            evidence_coverage = self._compute_evidence_coverage(left_evidence, right_evidence)
+
             points.append(
                 ComparedPoint(
                     statement=statement,
                     left_evidence=left_evidence,
                     right_evidence=right_evidence,
                     summary_note=summary_note,
+                    confidence=confidence,
+                    taxonomy=taxonomy,
+                    evidence_coverage=evidence_coverage,
                 )
             )
         return tuple(points)
@@ -825,6 +882,9 @@ class CompareService:
                 left_evidence=left_evidence,
                 right_evidence=right_evidence,
                 summary_note=f"{left_group.label} and {right_group.label} both discuss the requested topic.",
+                confidence=None,
+                taxonomy=None,
+                evidence_coverage=self._compute_evidence_coverage(left_evidence, right_evidence),
             ),
         )
 
@@ -839,6 +899,9 @@ class CompareService:
                         f"Left focus: {self._preview(left_hit.text)} | "
                         f"Right focus: {self._preview(right_hit.text)}"
                     ),
+                    confidence=None,
+                    taxonomy=None,
+                    evidence_coverage=self._compute_evidence_coverage(left_evidence, right_evidence),
                 ),
             )
 
@@ -850,6 +913,9 @@ class CompareService:
                     left_evidence=left_evidence,
                     right_evidence=right_evidence,
                     summary_note="The paired evidence shares topic terms but differs in numbers or polarity.",
+                    confidence=None,
+                    taxonomy=None,
+                    evidence_coverage=self._compute_evidence_coverage(left_evidence, right_evidence),
                 ),
             )
         return common_points, differences, conflicts

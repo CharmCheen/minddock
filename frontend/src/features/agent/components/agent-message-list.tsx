@@ -26,6 +26,187 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asNonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function taskName(value: unknown): string | null {
+  if (value === 'compare') return 'Compare';
+  if (value === 'summarize') return 'Summarize';
+  if (value === 'chat') return 'Chat';
+  return null;
+}
+
+function pluralize(value: number, singular: string, plural: string): string {
+  return value === 1 ? singular : plural;
+}
+
+function formatDetectedIntent(trace: Record<string, unknown>): string | null {
+  const detected = trace.detected_intent;
+  if (!isRecord(detected)) return null;
+
+  const label = taskName(detected.task_type);
+  if (!label) return null;
+
+  const confidence = typeof detected.confidence === 'number' && Number.isFinite(detected.confidence)
+    ? Math.round((detected.confidence <= 1 ? detected.confidence * 100 : detected.confidence))
+    : null;
+
+  return confidence === null ? `Task: ${label}` : `Task: ${label} (${confidence}%)`;
+}
+
+function formatEvidenceSummary(trace: Record<string, unknown>): string | null {
+  const citationCount = asNonNegativeInteger(trace.final_citation_count);
+  const sourceCount = asNonNegativeInteger(trace.selected_sources_count);
+
+  if (citationCount !== null && sourceCount !== null && sourceCount > 0) {
+    return `Evidence: ${citationCount} ${pluralize(citationCount, 'citation', 'citations')} from ${sourceCount} ${pluralize(sourceCount, 'source', 'sources')}`;
+  }
+  if (citationCount !== null) {
+    return `Evidence: ${citationCount} ${pluralize(citationCount, 'citation', 'citations')}`;
+  }
+  if (sourceCount !== null && sourceCount > 0) {
+    return `Scope: ${sourceCount} selected ${pluralize(sourceCount, 'source', 'sources')}`;
+  }
+  return null;
+}
+
+function formatRetrySummary(trace: Record<string, unknown>): string | null {
+  const retryCount = asNonNegativeInteger(trace.retry_count);
+  if (retryCount === null) return null;
+  if (retryCount === 0) return 'Quality: No retry needed';
+  if (retryCount === 1) return 'Quality: Search was expanded once because initial evidence was weak';
+  return `Quality: Search was expanded ${retryCount} times`;
+}
+
+const QUALITY_REASON_LABELS: Record<string, string> = {
+  no_hits: 'No relevant evidence was found initially',
+  'No hits retrieved': 'No relevant evidence was found initially',
+  no_compressed_hits: 'Retrieved evidence was weak after filtering',
+  'No compressed hits': 'Retrieved evidence was weak after filtering',
+  weak_distance: 'Evidence similarity was weak',
+  'All retrieval distances are weak (>= 1.5)': 'Evidence similarity was weak',
+  insufficient_summary_diversity: 'Summary evidence lacked source diversity',
+  'Insufficient diversity for summarize': 'Summary evidence lacked source diversity',
+  no_citations: 'No citations were available for this answer',
+  mixed_sources: 'Evidence came from mixed sources',
+  insufficient_context: 'Available context may be insufficient',
+};
+
+function formatQualityWarnings(trace: Record<string, unknown>): string[] {
+  const values = [
+    ...(Array.isArray(trace.quality_reasons) ? trace.quality_reasons : []),
+    ...(Array.isArray(trace.trace_warnings) ? trace.trace_warnings : []),
+  ];
+  const labels: string[] = [];
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const label = QUALITY_REASON_LABELS[value];
+    if (label && !labels.includes(label)) {
+      labels.push(label);
+    }
+  }
+  return labels.map((label) => `Warning: ${label}`);
+}
+
+function formatSourceScope(trace: Record<string, unknown>): string | null {
+  const operation = trace.operation;
+  const sourceCount = asNonNegativeInteger(trace.selected_sources_count);
+  const explicitScope = trace.has_explicit_source_filter === true;
+  if (operation === 'compare' && explicitScope && sourceCount !== null && sourceCount >= 2) {
+    return 'Scope: Source-scoped comparison was used';
+  }
+  return null;
+}
+
+function buildTraceExplanationItems(trace: unknown): string[] {
+  if (!isRecord(trace)) return [];
+
+  const items = [
+    formatDetectedIntent(trace),
+    formatEvidenceSummary(trace),
+    formatRetrySummary(trace),
+    formatSourceScope(trace),
+    ...formatQualityWarnings(trace),
+  ].filter((item): item is string => Boolean(item));
+
+  return Array.from(new Set(items)).slice(0, 5);
+}
+
+function findWorkflowTrace(turn: ConversationTurn): Record<string, unknown> | null {
+  for (const artifact of turn.artifacts) {
+    const trace = artifact.metadata?.workflow_trace;
+    if (isRecord(trace)) return trace;
+  }
+  return null;
+}
+
+const WorkflowTraceExplanationPanel: React.FC<{ items: string[]; density: 'compact' | 'comfortable' }> = ({ items, density }) => {
+  const [expanded, setExpanded] = useState(false);
+  if (items.length === 0) return null;
+
+  const d = density;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          fontSize: '11px',
+          color: expanded ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          cursor: 'pointer',
+          padding: '4px 10px',
+          borderRadius: 'var(--radius-sm)',
+          fontWeight: 500,
+          transition: 'all var(--transition-fast)',
+        }}
+        onMouseOver={(e) => {
+          e.currentTarget.style.color = 'var(--color-text-secondary)';
+          e.currentTarget.style.borderColor = 'var(--color-border-default)';
+        }}
+        onMouseOut={(e) => {
+          e.currentTarget.style.color = expanded ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)';
+          e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
+        }}
+      >
+        Why this answer?
+      </button>
+      {expanded && (
+        <div style={{
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: '0 0 var(--radius-md) var(--radius-md)',
+          padding: d === 'compact' ? '10px 14px' : '12px 16px',
+          marginTop: '-4px',
+          paddingTop: '14px',
+          boxShadow: 'var(--shadow-sm)',
+        }}>
+          <ul style={{
+            margin: 0,
+            paddingLeft: '18px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: d === 'compact' ? '5px' : '6px',
+            color: 'var(--color-text-secondary)',
+            fontSize: '12px',
+            lineHeight: 1.5,
+          }}>
+            {items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const TurnWorkflowDetails: React.FC<{ turn: ConversationTurn; density: 'compact' | 'comfortable' }> = ({ turn, density }) => {
   const d = density;
   return (
@@ -89,6 +270,10 @@ const TurnWorkflowDetails: React.FC<{ turn: ConversationTurn; density: 'compact'
 const TurnView: React.FC<{ turn: ConversationTurn; isActive: boolean; density: 'compact' | 'comfortable' }> = ({ turn, isActive, density }) => {
   const [showDetails, setShowDetails] = useState(false);
   const d = density;
+  const traceExplanationItems = React.useMemo(
+    () => buildTraceExplanationItems(findWorkflowTrace(turn)),
+    [turn],
+  );
 
   const detectedIntent = React.useMemo(() => {
     if (turn.taskType !== 'auto') return null;
@@ -294,6 +479,8 @@ const TurnView: React.FC<{ turn: ConversationTurn; isActive: boolean; density: '
             {turn.error || 'Cancelled by user'}
           </div>
         )}
+
+        <WorkflowTraceExplanationPanel items={traceExplanationItems} density={density} />
 
         {/* Workflow details toggle per turn */}
         {turn.events.length > 0 && (

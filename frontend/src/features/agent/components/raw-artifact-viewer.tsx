@@ -202,6 +202,79 @@ const typeBadge = (color: string, bg: string, density: 'compact' | 'comfortable'
   alignItems: 'center',
 });
 
+type CompareSectionKey = 'common_points' | 'differences' | 'conflicts';
+
+const compareBadgeStyle = (color: string, bg: string, border: string): React.CSSProperties => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  fontSize: '11px',
+  fontWeight: 600,
+  color,
+  background: bg,
+  border: `1px solid ${border}`,
+  padding: '1px 7px',
+  borderRadius: 'var(--radius-full)',
+  lineHeight: 1.5,
+});
+
+function CompareTaxonomyBadge({ value }: { value: unknown }) {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+
+  return (
+    <span style={compareBadgeStyle('#475569', '#f8fafc', '#e2e8f0')}>
+      {value}
+    </span>
+  );
+}
+
+const COVERAGE_LABELS: Record<string, string> = {
+  balanced: 'balanced evidence',
+  left_heavy: 'left-heavy evidence',
+  right_heavy: 'right-heavy evidence',
+  single_sided: 'single-sided evidence',
+};
+
+function CompareCoverageBadge({ pt, sectionKey }: { pt: any; sectionKey: CompareSectionKey }) {
+  if (sectionKey === 'common_points') return null;
+
+  const coverageLabel = pt?.evidence_coverage?.coverage_label;
+  if (typeof coverageLabel !== 'string' || coverageLabel === 'unknown') return null;
+
+  const label = COVERAGE_LABELS[coverageLabel];
+  if (!label) return null;
+
+  return (
+    <span style={compareBadgeStyle('#0369a1', '#f0f9ff', '#bae6fd')}>
+      {label}
+    </span>
+  );
+}
+
+function CompareConfidenceBadge({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return null;
+
+  const confidence = Number(value);
+  if (!Number.isFinite(confidence)) return null;
+
+  const percent = Math.round((confidence <= 1 ? confidence * 100 : confidence));
+
+  return (
+    <span style={compareBadgeStyle('#6d28d9', '#f5f3ff', '#ddd6fe')}>
+      confidence {percent}%
+    </span>
+  );
+}
+
+function renderComparePointBadges(pt: any, sectionKey: CompareSectionKey) {
+  return (
+    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '5px', marginLeft: '8px', verticalAlign: 'baseline' }}>
+      <CompareTaxonomyBadge value={pt?.taxonomy} />
+      <CompareCoverageBadge pt={pt} sectionKey={sectionKey} />
+      <CompareConfidenceBadge value={pt?.confidence} />
+    </span>
+  );
+}
+
 export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = ({ artifact }) => {
   const { kind, content, metadata, citations: artifactCitations } = artifact;
   const { density } = useWorkspacePreferences();
@@ -296,7 +369,7 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
         return pt?.statement || pt?.summary_note || String(pt) || '';
       };
 
-      const sectionCard = (title: string, count: number, titleColor: string, titleBg: string, borderColor: string, items: any[]) => (
+      const sectionCard = (title: string, count: number, titleColor: string, titleBg: string, borderColor: string, items: any[], sectionKey: CompareSectionKey) => (
         <div style={{ marginBottom: density === 'compact' ? '14px' : '18px' }}>
           <div style={{
             display: 'flex',
@@ -332,7 +405,10 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
           </div>
           <ul style={{ margin: 0, paddingLeft: '24px', color: 'var(--color-text-secondary)', fontSize: '14px', lineHeight: '1.75' }}>
             {items.map((pt: any, i: number) => (
-              <li key={i} style={{ marginBottom: density === 'compact' ? '4px' : '6px' }}>{getStatement(pt)}</li>
+              <li key={i} style={{ marginBottom: density === 'compact' ? '4px' : '6px' }}>
+                {getStatement(pt)}
+                {renderComparePointBadges(pt, sectionKey)}
+              </li>
             ))}
           </ul>
         </div>
@@ -350,15 +426,15 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
           </div>
 
           {dataObj.common_points && dataObj.common_points.length > 0 && sectionCard(
-            'Common Points', dataObj.common_points.length, '#15803d', '#f0fdf4', '#bbf7d0', dataObj.common_points
+            'Common Points', dataObj.common_points.length, '#15803d', '#f0fdf4', '#bbf7d0', dataObj.common_points, 'common_points'
           )}
 
           {dataObj.differences && dataObj.differences.length > 0 && sectionCard(
-            'Differences', dataObj.differences.length, '#b45309', '#fffbeb', '#fde68a', dataObj.differences
+            'Differences', dataObj.differences.length, '#b45309', '#fffbeb', '#fde68a', dataObj.differences, 'differences'
           )}
 
           {dataObj.conflicts && dataObj.conflicts.length > 0 && sectionCard(
-            'Conflicts', dataObj.conflicts.length, '#dc2626', '#fef2f2', '#fecaca', dataObj.conflicts
+            'Conflicts', dataObj.conflicts.length, '#dc2626', '#fef2f2', '#fecaca', dataObj.conflicts, 'conflicts'
           )}
 
           {citations && citations.length > 0 && <div style={{ marginTop: density === 'compact' ? '14px' : '20px' }}><CitationList citations={citations} /></div>}

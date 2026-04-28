@@ -165,6 +165,20 @@ Response:
 
 Note: compare results also appear in the unified execution response at `compare_result` and in the `compare.v1` structured artifact. Both `/compare` and `/frontend/execute` return the same core compare contract.
 
+#### Compare 2.0 optional metadata
+
+Each `ComparedPoint` now supports three optional fields:
+
+- `confidence: float | null` — point-level confidence when provided by the LLM; may be `null` when unavailable or uncalibrated
+- `taxonomy: string | null` — semantic category of the point; allowed values: `definition`, `method`, `assumption`, `evidence`, `conclusion`, `scope`, `other`; unknown values normalize to `other`; may be `null` when not provided
+- `evidence_coverage: object | null` — server-computed coverage statistics:
+  - `left_count` — number of left-side evidence items
+  - `right_count` — number of right-side evidence items
+  - `balanced` — `true` when both counts are equal and greater than zero
+  - `coverage_label` — one of `balanced`, `left_heavy`, `right_heavy`, `single_sided`, `unknown`
+
+These fields are additive; existing `CompareResponse` fields are unchanged. Missing optional fields are omitted from JSON or returned as `null`, depending on the serialization path. Heuristic fallback points always set `confidence=null` and `taxonomy=null` because these values are not calibrated.
+
 ### `POST /frontend/execute`
 
 Request (via `UnifiedExecutionRequestBody`):
@@ -194,6 +208,7 @@ Response:
 - `artifacts` — primary result artifact(s) depending on task type
 - `citations` — evidence citations
 - `metadata.workflow_trace.detected_intent` — intent classification details when auto-detection was used
+- Chat and summarize responses may include normalized `workflow_trace` quality metadata when available, including `retry_count`, `max_retries`, `quality_reasons`, `low_confidence`, `quality_ok`, and `reflection`. These fields are additive, sanitized, and intended for UI explanation; raw prompts, chunks, evidence text, embeddings, and matched keywords are not exposed through the explanation panel.
 
 ### `POST /frontend/execute` with `task_type=compare`
 

@@ -19,52 +19,39 @@ import {
 interface AddUrlDialogProps {
   open: boolean;
   onClose: () => void;
-  onAdded: () => void;
+  onSubmit: (url: string) => void;
 }
 
-const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onAdded }) => {
+const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onSubmit }) => {
   const [url, setUrl] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!open) return null;
 
-  const describeIngestError = (err: unknown): string => {
-    if (axios.isAxiosError(err) && err.code === 'ECONNABORTED') {
-      return 'The request timed out after 15 seconds. The backend may still be fetching or indexing this URL; the source list has been refreshed, and you can refresh again in a moment.';
+  const validateUrl = (value: string): string | null => {
+    if (!value.trim()) return 'Enter a URL to import.';
+    try {
+      const parsed = new URL(value.trim());
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return 'Enter a valid http or https URL.';
+      }
+    } catch {
+      return 'Enter a valid URL.';
     }
-    const message = getErrorMessage(err, 'Failed to ingest URL');
-    if (/timeout of \d+ms exceeded/i.test(message)) {
-      return 'The request timed out. The backend may still be fetching or indexing this URL; the source list has been refreshed, and you can refresh again in a moment.';
-    }
-    return message;
+    return null;
   };
 
-  const handleAdd = async () => {
+  const handleAdd = () => {
     const trimmed = url.trim();
-    if (!trimmed) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await SourceService.ingestUrls([trimmed]);
-      onAdded();
-      const failedSources = result.failed_sources || [];
-      if (failedSources.length > 0) {
-        const firstFailure = failedSources[0];
-        setError(firstFailure?.reason || 'MindDock could not ingest this URL.');
-        return;
-      }
-      setUrl('');
-      onClose();
-    } catch (err: unknown) {
-      setError(describeIngestError(err));
-      onAdded();
-      if (axios.isAxiosError(err) && err.code === 'ECONNABORTED') {
-        window.setTimeout(onAdded, 5000);
-      }
-    } finally {
-      setLoading(false);
+    const validationError = validateUrl(trimmed);
+    if (validationError) {
+      setError(validationError);
+      return;
     }
+    setUrl('');
+    setError(null);
+    onClose();
+    onSubmit(trimmed);
   };
 
   return (
@@ -87,9 +74,11 @@ const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onAdded }) =
           type="url"
           placeholder="https://example.com/article"
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !loading && handleAdd()}
-          disabled={loading}
+          onChange={(e) => {
+            setUrl(e.target.value);
+            if (error) setError(null);
+          }}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           style={{
             width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-md)',
             border: `1px solid ${error ? 'var(--color-error-border)' : 'var(--color-border-subtle)'}`,
@@ -112,7 +101,6 @@ const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onAdded }) =
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
           <button
             onClick={onClose}
-            disabled={loading}
             style={{
               padding: '8px 16px', borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border-subtle)',
@@ -127,15 +115,14 @@ const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onAdded }) =
           </button>
           <button
             onClick={handleAdd}
-            disabled={loading || !url.trim()}
             style={{
               padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none',
-              background: loading ? 'var(--color-brand-200)' : 'var(--color-brand-600)',
-              color: '#fff', fontSize: '13px', cursor: loading || !url.trim() ? 'not-allowed' : 'pointer',
+              background: 'var(--color-brand-600)',
+              color: '#fff', fontSize: '13px', cursor: 'pointer',
               fontWeight: 600, transition: 'all var(--transition-fast)',
             }}
           >
-            {loading ? 'Adding…' : 'Add'}
+            Add
           </button>
         </div>
       </div>
@@ -160,6 +147,39 @@ function inferSourceKind(source: string, sourceType: string): { label: string; c
 
 const FILTER_TABS = ['All', 'File', 'URL', 'Image', 'CSV', 'Audio', 'Video'] as const;
 type FilterTab = typeof FILTER_TABS[number];
+type SourceNoticeTone = 'info' | 'success' | 'warning' | 'error';
+type PendingSourceStatus = 'importing' | 'still_processing' | 'failed';
+
+interface SourceNotice {
+  id: number;
+  tone: SourceNoticeTone;
+  message: string;
+}
+
+interface PendingSourceItem {
+  id: string;
+  url: string;
+  normalizedUrl: string;
+  status: PendingSourceStatus;
+  failureReason?: string;
+}
+
+interface UrlImportPollState {
+  active: boolean;
+  timerId: number | null;
+}
+
+type SourceItemWithOptionalUrlFields = SourceItem & {
+  url?: string | null;
+  uri?: string | null;
+  path?: string | null;
+  source_path?: string | null;
+  metadata?: Record<string, unknown> | null;
+  extra_metadata?: Record<string, unknown> | null;
+};
+
+const URL_IMPORT_POLL_INTERVAL_MS = 5000;
+const URL_IMPORT_MAX_POLL_ATTEMPTS = 60;
 
 function matchesFilterTab(src: SourceItem, tab: FilterTab): boolean {
   if (tab === 'All') return true;
@@ -178,6 +198,8 @@ export const SourceList: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState<FilterTab>('All');
   const [actionError, setActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<SourceNotice | null>(null);
+  const [pendingSources, setPendingSources] = useState<PendingSourceItem[]>([]);
 
   const { selectedDocIds, toggleSelectedDoc, setSelectedDoc, setDrawerOpen, drawerOpen, clearSelectedDocsById } = useWorkspaceStore();
   const { offline } = useSettingsStore();
@@ -186,6 +208,26 @@ export const SourceList: React.FC = () => {
   const abortRef = useRef<AbortController | null>(null);
   const suppressAutoOpenRef = useRef(false);
   const prevDrawerOpenRef = useRef(drawerOpen);
+  const mountedRef = useRef(true);
+  const noticeTimerRef = useRef<number | null>(null);
+  const urlImportPollsRef = useRef<Map<string, UrlImportPollState>>(new Map());
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (noticeTimerRef.current !== null) {
+        window.clearTimeout(noticeTimerRef.current);
+      }
+      urlImportPollsRef.current.forEach((pollState) => {
+        pollState.active = false;
+        if (pollState.timerId !== null) {
+          window.clearTimeout(pollState.timerId);
+        }
+      });
+      urlImportPollsRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (prevDrawerOpenRef.current === true && drawerOpen === false) {
@@ -197,6 +239,36 @@ export const SourceList: React.FC = () => {
   const isBackendOnline = status === 'online' && !offline;
   const isChecking = status === 'checking';
 
+  const showNotice = useCallback((tone: SourceNoticeTone, message: string, durationMs = 7000) => {
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+    }
+    setNotice({ id: Date.now(), tone, message });
+    noticeTimerRef.current = window.setTimeout(() => {
+      if (mountedRef.current) {
+        setNotice(null);
+      }
+      noticeTimerRef.current = null;
+    }, durationMs);
+  }, []);
+
+  const fetchFreshSources = useCallback(async (options?: { signal?: AbortSignal; showLoading?: boolean }): Promise<SourceItem[]> => {
+    if (options?.showLoading) {
+      setLoading(true);
+    }
+    try {
+      const data = await SourceService.getSources({ signal: options?.signal });
+      if (mountedRef.current) {
+        setSources(data);
+      }
+      return data;
+    } finally {
+      if (options?.showLoading && mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
   const loadSources = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
@@ -204,17 +276,210 @@ export const SourceList: React.FC = () => {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    setLoading(true);
-    SourceService.getSources({ signal: controller.signal })
-      .then(data => {
-        setSources(data);
-        setLoading(false);
-      })
+    void fetchFreshSources({ signal: controller.signal, showLoading: true })
       .catch((err: unknown) => {
         if (err instanceof Error && err.name === 'CanceledError') return;
-        setLoading(false);
       });
+  }, [fetchFreshSources]);
+
+  const describeBackgroundIngestError = (err: unknown): string => {
+    if (axios.isAxiosError(err) && err.code === 'ECONNABORTED') {
+      return 'timeout';
+    }
+    const message = getErrorMessage(err, 'Failed to ingest URL');
+    if (/timeout of \d+ms exceeded/i.test(message)) {
+      return 'timeout';
+    }
+    return message;
+  };
+
+  const normalizeUrlForMatch = (value: string | null | undefined): string => {
+    if (!value) return '';
+    try {
+      return new URL(value).href.replace(/\/$/, '').toLowerCase();
+    } catch {
+      return value.replace(/\/$/, '').toLowerCase();
+    }
+  };
+
+  const metadataString = (metadata: Record<string, unknown> | null | undefined, key: string): string | null => {
+    const value = metadata?.[key];
+    return typeof value === 'string' ? value : null;
+  };
+
+  const sourceMatchesSubmittedUrl = (source: SourceItem, submittedUrl: string): boolean => {
+    const normalizedSubmitted = normalizeUrlForMatch(submittedUrl);
+    const expandedSource = source as SourceItemWithOptionalUrlFields;
+    const candidates = [
+      source.requested_url,
+      source.final_url,
+      source.source,
+      source.source_state?.source,
+      expandedSource.url,
+      expandedSource.uri,
+      expandedSource.path,
+      expandedSource.source_path,
+      metadataString(expandedSource.metadata, 'url'),
+      metadataString(expandedSource.metadata, 'requested_url'),
+      metadataString(expandedSource.metadata, 'final_url'),
+      metadataString(expandedSource.metadata, 'source'),
+      metadataString(expandedSource.metadata, 'source_path'),
+      metadataString(expandedSource.extra_metadata, 'url'),
+      metadataString(expandedSource.extra_metadata, 'requested_url'),
+      metadataString(expandedSource.extra_metadata, 'final_url'),
+      metadataString(expandedSource.extra_metadata, 'source'),
+      metadataString(expandedSource.extra_metadata, 'source_path'),
+    ];
+    return candidates.some(
+      (candidate) => normalizeUrlForMatch(candidate) === normalizedSubmitted
+    );
+  };
+
+  const backendHasSubmittedUrl = (items: SourceItem[], submittedUrl: string): boolean =>
+    items.some((source) => sourceMatchesSubmittedUrl(source, submittedUrl));
+
+  const removePendingSource = useCallback((submittedUrl: string) => {
+    const normalizedSubmitted = normalizeUrlForMatch(submittedUrl);
+    setPendingSources((current) => current.filter((item) => item.normalizedUrl !== normalizedSubmitted));
   }, []);
+
+  const markPendingSource = useCallback((submittedUrl: string, status: PendingSourceStatus, failureReason?: string) => {
+    const normalizedSubmitted = normalizeUrlForMatch(submittedUrl);
+    setPendingSources((current) =>
+      current.map((item) =>
+        item.normalizedUrl === normalizedSubmitted ? { ...item, status, failureReason } : item
+      )
+    );
+  }, []);
+
+  const upsertPendingSource = useCallback((submittedUrl: string) => {
+    const normalizedSubmitted = normalizeUrlForMatch(submittedUrl);
+    setPendingSources((current) => {
+      const existing = current.find((item) => item.normalizedUrl === normalizedSubmitted);
+      if (existing) {
+        return current.map((item) =>
+          item.normalizedUrl === normalizedSubmitted
+            ? { ...item, url: submittedUrl, status: 'importing', failureReason: undefined }
+            : item
+        );
+      }
+      return [
+        {
+          id: `pending-url-${Date.now()}`,
+          url: submittedUrl,
+          normalizedUrl: normalizedSubmitted,
+          status: 'importing',
+        },
+        ...current,
+      ];
+    });
+  }, []);
+
+  const refreshSourcesAndCheckUrl = useCallback(async (submittedUrl: string): Promise<boolean> => {
+    try {
+      const data = await fetchFreshSources();
+      return backendHasSubmittedUrl(data, submittedUrl);
+    } catch {
+      return false;
+    }
+  }, [fetchFreshSources]);
+
+  const stopPollingForSubmittedUrl = useCallback((submittedUrl: string) => {
+    const normalizedSubmitted = normalizeUrlForMatch(submittedUrl);
+    const pollState = urlImportPollsRef.current.get(normalizedSubmitted);
+    if (!pollState) return;
+    pollState.active = false;
+    if (pollState.timerId !== null) {
+      window.clearTimeout(pollState.timerId);
+    }
+    urlImportPollsRef.current.delete(normalizedSubmitted);
+  }, []);
+
+  const pollForSubmittedUrl = useCallback((submittedUrl: string) => {
+    const normalizedSubmitted = normalizeUrlForMatch(submittedUrl);
+    const existingPoll = urlImportPollsRef.current.get(normalizedSubmitted);
+    if (existingPoll?.active) {
+      return;
+    }
+
+    let attempts = 0;
+    const pollState: UrlImportPollState = { active: true, timerId: null };
+    urlImportPollsRef.current.set(normalizedSubmitted, pollState);
+
+    const clearPollState = () => {
+      pollState.active = false;
+      if (pollState.timerId !== null) {
+        window.clearTimeout(pollState.timerId);
+      }
+      if (urlImportPollsRef.current.get(normalizedSubmitted) === pollState) {
+        urlImportPollsRef.current.delete(normalizedSubmitted);
+      }
+    };
+
+    const poll = async () => {
+      if (!pollState.active) return;
+      attempts += 1;
+      const found = await refreshSourcesAndCheckUrl(submittedUrl);
+      if (!mountedRef.current || !pollState.active) return;
+      if (found) {
+        clearPollState();
+        removePendingSource(submittedUrl);
+        showNotice('success', 'URL imported into the knowledge base.');
+        return;
+      }
+      if (attempts >= URL_IMPORT_MAX_POLL_ATTEMPTS) {
+        clearPollState();
+        markPendingSource(submittedUrl, 'still_processing');
+        showNotice('warning', 'MindDock is still processing this URL or the import may have failed. Please refresh again later.', 10000);
+        return;
+      }
+      pollState.timerId = window.setTimeout(poll, URL_IMPORT_POLL_INTERVAL_MS);
+    };
+    void poll();
+  }, [markPendingSource, refreshSourcesAndCheckUrl, removePendingSource, showNotice]);
+
+  const handleUrlSubmitted = useCallback((submittedUrl: string) => {
+    upsertPendingSource(submittedUrl);
+    showNotice('info', 'URL submitted. MindDock is importing it in the background.');
+    pollForSubmittedUrl(submittedUrl);
+    void SourceService.ingestUrls([submittedUrl])
+      .then(async (result) => {
+        if (!mountedRef.current) return;
+        const freshSources = await fetchFreshSources().catch(() => []);
+        if (!mountedRef.current) return;
+        const failedSources = result.failed_sources || [];
+        if (failedSources.length > 0) {
+          const firstFailure = failedSources[0];
+          stopPollingForSubmittedUrl(submittedUrl);
+          markPendingSource(submittedUrl, 'failed', firstFailure?.reason || 'MindDock could not ingest this URL.');
+          showNotice('warning', firstFailure?.reason || 'MindDock could not ingest this URL.', 10000);
+          return;
+        }
+        if (backendHasSubmittedUrl(freshSources, submittedUrl)) {
+          stopPollingForSubmittedUrl(submittedUrl);
+          removePendingSource(submittedUrl);
+          showNotice('success', 'URL imported into the knowledge base.');
+        }
+      })
+      .catch(async (err: unknown) => {
+        if (!mountedRef.current) return;
+        const message = describeBackgroundIngestError(err);
+        const freshSources = await fetchFreshSources().catch(() => []);
+        if (!mountedRef.current) return;
+        if (message === 'timeout') {
+          if (backendHasSubmittedUrl(freshSources, submittedUrl)) {
+            stopPollingForSubmittedUrl(submittedUrl);
+            removePendingSource(submittedUrl);
+            showNotice('success', 'URL imported into the knowledge base.');
+            return;
+          }
+          return;
+        }
+        stopPollingForSubmittedUrl(submittedUrl);
+        markPendingSource(submittedUrl, 'failed', message);
+        showNotice('error', message, 10000);
+      });
+  }, [fetchFreshSources, markPendingSource, pollForSubmittedUrl, removePendingSource, showNotice, stopPollingForSubmittedUrl, upsertPendingSource]);
 
   const handleRetry = () => {
     reset();
@@ -280,7 +545,31 @@ export const SourceList: React.FC = () => {
     );
   }, [sources, searchQuery, filterTab]);
 
+  const visiblePendingSources = useMemo(() => {
+    return pendingSources.filter((pending) => {
+      if (sources.some((source) => sourceMatchesSubmittedUrl(source, pending.url))) {
+        return false;
+      }
+      if (filterTab !== 'All' && filterTab !== 'URL') {
+        return false;
+      }
+      if (!searchQuery.trim()) {
+        return true;
+      }
+      const q = searchQuery.toLowerCase();
+      return pending.url.toLowerCase().includes(q) || pending.status.toLowerCase().includes(q);
+    });
+  }, [filterTab, pendingSources, searchQuery, sources]);
+
   const d = density;
+  const totalSourceCount = sources.length + visiblePendingSources.length;
+  const noticeStyles: Record<SourceNoticeTone, { bg: string; border: string; color: string }> = {
+    info: { bg: 'var(--color-info-bg)', border: 'var(--color-info-border)', color: 'var(--color-info-text)' },
+    success: { bg: 'var(--color-success-bg)', border: 'var(--color-success-border)', color: 'var(--color-success-text)' },
+    warning: { bg: 'var(--color-warning-bg)', border: 'var(--color-warning-border)', color: 'var(--color-warning-text)' },
+    error: { bg: 'var(--color-error-bg)', border: 'var(--color-error-border)', color: 'var(--color-error-text)' },
+  };
+  const pendingDetailsMessage = 'MindDock is still fetching, chunking, and indexing this URL. Details will be available after import completes.';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--color-surface)' }}>
@@ -302,7 +591,7 @@ export const SourceList: React.FC = () => {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>Knowledge Base</div>
           <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
-            {sources.length} source{sources.length !== 1 ? 's' : ''}
+            {totalSourceCount} source{totalSourceCount !== 1 ? 's' : ''}
             {selectedDocIds.length > 0 && ` · ${selectedDocIds.length} selected`}
           </div>
         </div>
@@ -328,10 +617,27 @@ export const SourceList: React.FC = () => {
         </button>
       </div>
 
-      <AddUrlDialog open={addUrlOpen} onClose={() => setAddUrlOpen(false)} onAdded={loadSources} />
+      <AddUrlDialog open={addUrlOpen} onClose={() => setAddUrlOpen(false)} onSubmit={handleUrlSubmitted} />
 
       {/* Search */}
       <div style={{ padding: d === 'compact' ? '8px 12px' : '10px 14px', borderBottom: '1px solid var(--color-border-subtle)', background: 'var(--color-canvas-subtle)' }}>
+        {notice && (
+          <div
+            role="status"
+            style={{
+              marginBottom: '8px',
+              padding: '8px 10px',
+              borderRadius: 'var(--radius-md)',
+              background: noticeStyles[notice.tone].bg,
+              border: `1px solid ${noticeStyles[notice.tone].border}`,
+              color: noticeStyles[notice.tone].color,
+              fontSize: '12px',
+              lineHeight: 1.4,
+            }}
+          >
+            {notice.message}
+          </div>
+        )}
         <div style={{ position: 'relative' }}>
           <input
             type="text"
@@ -467,7 +773,7 @@ export const SourceList: React.FC = () => {
           </div>
         )}
 
-        {!loading && !isChecking && !offline && filteredSources.length === 0 && (
+        {!loading && !isChecking && !offline && filteredSources.length === 0 && visiblePendingSources.length === 0 && (
           <div style={{ padding: d === 'compact' ? '24px 12px' : '32px 16px', textAlign: 'center' }}>
             <div style={{ fontSize: '28px', marginBottom: '10px', color: 'var(--color-text-tertiary)' }}>
               <IconFolderOpen size={28} />
@@ -499,6 +805,84 @@ export const SourceList: React.FC = () => {
             )}
           </div>
         )}
+
+        {visiblePendingSources.map(pending => {
+          const isFailed = pending.status === 'failed';
+          const isStillProcessing = pending.status === 'still_processing';
+          const pendingLabel = isFailed ? 'Failed' : isStillProcessing ? 'Still processing' : 'Importing';
+          const pendingBg = isFailed ? 'var(--color-error-bg)' : 'var(--color-warning-bg)';
+          const pendingColor = isFailed ? 'var(--color-error-text)' : 'var(--color-warning-text)';
+          const pendingBorder = isFailed ? 'var(--color-error-border)' : 'var(--color-warning-border)';
+          const pendingMessage = isFailed
+            ? pending.failureReason || 'MindDock could not ingest this URL.'
+            : pendingDetailsMessage;
+          return (
+            <div
+              key={pending.id}
+              onClick={() => showNotice(isFailed ? 'error' : 'info', pendingMessage, 10000)}
+              style={{
+                padding: d === 'compact' ? '8px 10px' : '10px 12px',
+                marginBottom: '4px',
+                borderRadius: 'var(--radius-md)',
+                cursor: 'default',
+                background: 'var(--color-canvas-subtle)',
+                border: `1px dashed ${pendingBorder}`,
+                opacity: isFailed ? 0.9 : 1,
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: '28px', height: '28px', borderRadius: '6px', flexShrink: 0,
+                  background: isFailed ? 'var(--color-error-bg)' : '#fef9c3',
+                  color: pendingColor, fontSize: '10px', fontWeight: 700,
+                  marginTop: '1px',
+                }}>
+                  URL
+                </span>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-primary)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {pending.url}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        showNotice(isFailed ? 'error' : 'info', pendingMessage, 10000);
+                      }}
+                      title="Import in progress"
+                      style={{
+                        background: 'none', border: 'none',
+                        cursor: 'pointer', padding: '2px 6px', borderRadius: '4px',
+                        color: pendingColor,
+                        fontSize: '13px', opacity: 0.8,
+                        flexShrink: 0, transition: 'all var(--transition-fast)',
+                      }}
+                    >
+                      <IconBookOpen size={14} />
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center',
+                        background: pendingBg,
+                        color: pendingColor,
+                        borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
+                        border: `1px solid ${pendingBorder}`,
+                      }}>
+                        {pendingLabel}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
 
         {filteredSources.map(src => {
           const isSelected = selectedDocIds.includes(src.doc_id);

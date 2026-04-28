@@ -192,6 +192,36 @@ Defaults are secure:
 
 If insecure fallback is enabled, a failed SSL request may be retried with certificate verification disabled. This is intended only for constrained local environments and should not be treated as the normal mode.
 
+## Current URL Import UX
+
+URL ingestion is still backend-synchronous: the backend request fetches, extracts,
+chunks, embeds, and writes the URL source before the request is complete. The
+frontend presents this as a non-blocking background import so the user is not
+stuck in the Add URL modal during slower fetch or embedding work.
+
+Current frontend behavior:
+
+- after a valid URL is submitted, the Add URL modal closes immediately
+- the UI adds a local pending row for the submitted URL
+- pending rows mean the URL was submitted locally; they do not guarantee that indexing is complete
+- pending rows cannot be used as retrieval scope and do not expose chunk or embedding details
+- the frontend polls `GET /sources` to detect when the backend source appears
+- when the real source appears in `/sources`, the pending row is replaced by the backend source
+
+Current limitations:
+
+- there is no full backend job/status system for exact fetch, chunk, embedding, or write progress
+- `GET /sources` only lists sources that have made it into indexed chunk metadata
+- JavaScript-rendered pages may not be fully extracted by the current static HTML URL importer
+
+Future work:
+
+- backend ingestion job/status model
+- ready/indexing/failed source status
+- persisted ingestion errors
+- optional SSE or WebSocket progress updates
+- improved JavaScript-rendered page extraction
+
 ## Metadata Rules
 
 Shared chunk metadata:

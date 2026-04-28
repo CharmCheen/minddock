@@ -5,12 +5,14 @@ import { useSettingsStore } from '../../settings/store';
 import { deriveRuntimeStatus } from '../../settings/runtime-status';
 
 const MODE_LABELS: Record<string, string> = {
+  auto: 'Auto',
   chat: 'Chat',
   summarize: 'Summarize',
   compare: 'Compare',
 };
 
 const MODE_COLORS: Record<string, string> = {
+  auto: 'var(--color-brand-600)',
   chat: 'var(--color-brand-600)',
   summarize: '#10b981',
   compare: '#8b5cf6',

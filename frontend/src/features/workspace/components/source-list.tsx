@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import axios from 'axios';
 import { SourceService } from '../../../lib/api/services/sources';
+import { getErrorMessage } from '../../../lib/api/client';
 import { SourceItem } from '../../../core/types/api';
 import { useWorkspaceStore } from '../store';
 import { useSettingsStore } from '../../settings/store';
@@ -27,19 +29,39 @@ const AddUrlDialog: React.FC<AddUrlDialogProps> = ({ open, onClose, onAdded }) =
 
   if (!open) return null;
 
+  const describeIngestError = (err: unknown): string => {
+    if (axios.isAxiosError(err) && err.code === 'ECONNABORTED') {
+      return 'The request timed out after 15 seconds. The backend may still be fetching or indexing this URL; the source list has been refreshed, and you can refresh again in a moment.';
+    }
+    const message = getErrorMessage(err, 'Failed to ingest URL');
+    if (/timeout of \d+ms exceeded/i.test(message)) {
+      return 'The request timed out. The backend may still be fetching or indexing this URL; the source list has been refreshed, and you can refresh again in a moment.';
+    }
+    return message;
+  };
+
   const handleAdd = async () => {
     const trimmed = url.trim();
     if (!trimmed) return;
     setLoading(true);
     setError(null);
     try {
-      await SourceService.ingestUrls([trimmed]);
-      setUrl('');
+      const result = await SourceService.ingestUrls([trimmed]);
       onAdded();
+      const failedSources = result.failed_sources || [];
+      if (failedSources.length > 0) {
+        const firstFailure = failedSources[0];
+        setError(firstFailure?.reason || 'MindDock could not ingest this URL.');
+        return;
+      }
+      setUrl('');
       onClose();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as { message?: string })?.message || 'Failed to ingest URL';
-      setError(msg);
+      setError(describeIngestError(err));
+      onAdded();
+      if (axios.isAxiosError(err) && err.code === 'ECONNABORTED') {
+        window.setTimeout(onAdded, 5000);
+      }
     } finally {
       setLoading(false);
     }

@@ -123,7 +123,7 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 {activeTab === 'sources' && 'Source Skills'}
               </h3>
               <p style={{ margin: 0, color: 'var(--color-text-tertiary)', fontSize: '13px' }}>
-                {activeTab === 'runtime' && 'Configure the OpenAI-compatible endpoint used by agent runs.'}
+                {activeTab === 'runtime' && 'Configure the OpenAI-compatible endpoint used by model-backed runs.'}
                 {activeTab === 'retrieval' && 'Default parameters for source retrieval and citation.'}
                 {activeTab === 'display' && 'UI preferences stored locally in your browser.'}
                 {activeTab === 'sources' && 'Supported source types and their limitations.'}

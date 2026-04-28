@@ -110,13 +110,13 @@ export const AgentInput: React.FC<{
   ];
 
   const PLACEHOLDERS: Record<string, string> = {
-    auto: 'Ask anything — the agent will choose the best mode...',
+    auto: 'Ask anything - Auto mode will choose the task type...',
     chat: 'Ask a question about your knowledge base...',
     summarize: 'What would you like to summarize?',
     compare: 'Compare perspectives across your sources...',
   };
 
-  const getPlaceholder = () => PLACEHOLDERS[taskType] || 'Ask the agent anything...';
+  const getPlaceholder = () => PLACEHOLDERS[taskType] || 'Ask MindDock anything...';
 
   const getButtonLabel = () => {
     if (isCancelling) return 'Cancelling';

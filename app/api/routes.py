@@ -76,6 +76,24 @@ router = APIRouter()
 frontend_facade = get_frontend_facade()
 
 
+def _clear_runtime_caches() -> None:
+    """Refresh runtime singletons after active runtime env overrides change."""
+
+    from app.application import get_extension_registries
+    from app.runtime.factory import get_runtime_factory
+    from app.runtime.profiles import get_runtime_profile_registry
+    from app.runtime.registry import get_runtime_registry
+
+    global frontend_facade
+
+    get_runtime_profile_registry.cache_clear()
+    get_runtime_registry.cache_clear()
+    get_runtime_factory.cache_clear()
+    get_extension_registries.cache_clear()
+    get_frontend_facade.cache_clear()
+    frontend_facade = get_frontend_facade()
+
+
 def _resolve_effective_runtime_response() -> EffectiveRuntimeResponse | None:
     """Project the resolver-selected default execution profile for status displays."""
 
@@ -88,11 +106,13 @@ def _resolve_effective_runtime_response() -> EffectiveRuntimeResponse | None:
         return None
 
     profile = result.profile
+    resolved_base_url = os.environ.get("LLM_RUNTIME_BASE_URL") or profile.base_url
+    resolved_model_name = os.environ.get("LLM_RUNTIME_MODEL") or result.binding.model_name
     return EffectiveRuntimeResponse(
         profile_id=result.binding.selected_profile_id,
         provider_kind=result.binding.provider_kind,
-        model_name=result.binding.model_name,
-        base_url=profile.base_url,
+        model_name=resolved_model_name,
+        base_url=resolved_base_url,
         source=result.binding.selection_reason or "runtime_profile",
         api_key_masked=bool(profile.api_key_env and os.environ.get(profile.api_key_env)),
     )
@@ -401,7 +421,6 @@ def update_runtime_config(body: RuntimeConfigUpdateRequest) -> RuntimeConfigResp
         get_effective_runtime_status,
         save_active_config,
     )
-    from app.runtime.profiles import get_runtime_profile_registry
 
     config = save_active_config(
         provider=body.provider,
@@ -411,8 +430,7 @@ def update_runtime_config(body: RuntimeConfigUpdateRequest) -> RuntimeConfigResp
         enabled=body.enabled,
     )
 
-    # Invalidate the cached profile registry so the next request re-reads env
-    get_runtime_profile_registry.cache_clear()
+    _clear_runtime_caches()
 
     return RuntimeConfigResponse.from_config(config, get_effective_runtime_status(), _resolve_effective_runtime_response())
 
@@ -509,7 +527,6 @@ def reset_runtime_config() -> RuntimeConfigResponse:
         get_effective_runtime_status,
         save_active_config,
     )
-    from app.runtime.profiles import get_runtime_profile_registry
 
     # Write a disabled default config (api_key never written to disk)
     config = save_active_config(
@@ -520,8 +537,7 @@ def reset_runtime_config() -> RuntimeConfigResponse:
         enabled=False,
     )
 
-    # Invalidate cached registry
-    get_runtime_profile_registry.cache_clear()
+    _clear_runtime_caches()
 
     return RuntimeConfigResponse.from_config(config, get_effective_runtime_status(), _resolve_effective_runtime_response())
 

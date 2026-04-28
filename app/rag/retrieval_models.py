@@ -234,14 +234,24 @@ class ComparedPoint:
     left_evidence: tuple[EvidenceObject, ...] = ()
     right_evidence: tuple[EvidenceObject, ...] = ()
     summary_note: str | None = None
+    confidence: float | None = None
+    taxonomy: str | None = None
+    evidence_coverage: dict[str, object] | None = None
 
     def to_api_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "statement": self.statement,
             "left_evidence": [item.to_api_dict() for item in self.left_evidence],
             "right_evidence": [item.to_api_dict() for item in self.right_evidence],
             "summary_note": self.summary_note,
         }
+        if self.confidence is not None:
+            result["confidence"] = self.confidence
+        if self.taxonomy is not None:
+            result["taxonomy"] = self.taxonomy
+        if self.evidence_coverage is not None:
+            result["evidence_coverage"] = self.evidence_coverage
+        return result
 
 
 @dataclass(frozen=True)

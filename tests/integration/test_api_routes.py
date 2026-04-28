@@ -462,6 +462,48 @@ def test_compare_endpoint_returns_grounded_compare_result(monkeypatch) -> None:
     assert body["differences"][0]["right_evidence"][0]["chunk_id"] == "c2"
 
 
+def test_compare_endpoint_response_includes_optional_metadata(monkeypatch) -> None:
+    from app.api import routes
+
+    client = TestClient(app)
+
+    def fake_compare(*, question: str, top_k: int, filters: RetrievalFilters | None = None, include_metadata=True):
+        return CompareServiceResult(
+            compare_result=GroundedCompareResult(
+                query=question,
+                common_points=(
+                    ComparedPoint(
+                        statement="Both documents discuss storage.",
+                        left_evidence=(EvidenceObject(doc_id="d1", chunk_id="c1", source="kb/a.md", snippet="A storage", score=0.1),),
+                        right_evidence=(EvidenceObject(doc_id="d2", chunk_id="c2", source="kb/b.md", snippet="B storage", score=0.2),),
+                        confidence=0.85,
+                        taxonomy="method",
+                        evidence_coverage={"left_count": 1, "right_count": 1, "balanced": True, "coverage_label": "balanced"},
+                    ),
+                ),
+                differences=(),
+                conflicts=(),
+            ),
+            citations=[],
+            metadata=UseCaseMetadata(retrieved_count=2, mode="grounded_compare", support_status="supported"),
+        )
+
+    monkeypatch.setattr(routes.frontend_facade, "execute_compare_request", fake_compare)
+
+    response = client.post(
+        "/compare",
+        json={"question": "Compare storage", "top_k": 4},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    point = body["common_points"][0]
+    assert point["confidence"] == 0.85
+    assert point["taxonomy"] == "method"
+    assert point["evidence_coverage"]["balanced"] is True
+    assert point["evidence_coverage"]["coverage_label"] == "balanced"
+
+
 def test_unified_execute_endpoint_returns_artifacts_and_metadata(monkeypatch) -> None:
     from app.api import routes
 

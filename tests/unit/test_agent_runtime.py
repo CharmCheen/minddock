@@ -3,6 +3,26 @@
 import sys
 
 from app.agent_runtime import AgentRunRequest, AgentRuntime, ToolRegistry, ToolResult, ToolSpec
+from app.agent_runtime.tools import build_stub_tool_registry
+
+FORBIDDEN_STUB_TRACE_KEYS = {
+    "answer",
+    "summary",
+    "statement",
+    "evidence",
+    "chunks",
+    "hits",
+    "snippet",
+    "prompt",
+    "query_preview",
+    "embedding",
+    "distance",
+    "document_body",
+    "raw_text",
+    "workflow_trace",
+    "source_paths",
+    "file_paths",
+}
 
 
 def _registry_with(*tool_names: str, safe: bool = True) -> ToolRegistry:
@@ -159,3 +179,36 @@ def test_importing_agent_runtime_does_not_import_existing_orchestrator_or_servic
     assert "app.services.summarize_service" not in sys.modules
     assert "app.services.compare_service" not in sys.modules
     assert "app.services.search_service" not in sys.modules
+
+
+def test_stub_registry_routes_chat_to_chat_with_evidence() -> None:
+    result = AgentRuntime(build_stub_tool_registry()).run(AgentRunRequest(query="hello", task_type="chat"))
+
+    assert result.agent_trace.executed_tools == ("chat_with_evidence",)
+    assert result.agent_trace.steps[0].result_summary["operation"] == "chat"
+
+
+def test_stub_registry_routes_two_selected_sources_to_compare_sources() -> None:
+    result = AgentRuntime(build_stub_tool_registry()).run(
+        AgentRunRequest(query="compare", selected_sources=("left.pdf", "right.pdf"))
+    )
+
+    assert result.agent_trace.executed_tools == ("compare_sources",)
+    assert result.agent_trace.steps[0].result_summary["operation"] == "compare"
+
+
+def test_stub_registry_planner_does_not_select_inspect_source_chunks() -> None:
+    result = AgentRuntime(build_stub_tool_registry()).run(AgentRunRequest(query="hello", task_type="unknown"))
+
+    assert "inspect_source_chunks" not in result.agent_trace.planned_steps
+    assert result.agent_trace.executed_tools == ("chat_with_evidence",)
+
+
+def test_agent_trace_from_stub_run_contains_safe_counts_without_forbidden_keys() -> None:
+    result = AgentRuntime(build_stub_tool_registry()).run(AgentRunRequest(query="hello", task_type="chat"))
+
+    summary = result.agent_trace.steps[0].result_summary
+    assert summary["operation"] == "chat"
+    assert summary["status"] == "ok"
+    assert summary["citations_count"] == 2
+    assert FORBIDDEN_STUB_TRACE_KEYS.isdisjoint(summary)

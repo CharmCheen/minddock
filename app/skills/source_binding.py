@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from app.rag.source_skill_catalog import SourceSkillInfo, list_builtin_source_skills
 from app.rag.source_models import SourceDescriptor
 from app.skills.handlers import get_trusted_source_handler, is_trusted_source_handler
 from app.skills.source_registry import SourceSkillRegistry, get_source_skill_registry
@@ -82,11 +83,11 @@ def resolve_source_skill_binding_with_reason(
         )
 
     if not matches:
-        builtin_binding = _resolve_builtin_media_binding(source_kind, loader_name)
+        builtin_binding = _resolve_builtin_source_binding(source_kind, loader_name)
         if builtin_binding is not None:
             return SourceSkillBindingResolution(
                 binding=builtin_binding,
-                reason="matched_builtin_media_skill",
+                reason="matched_builtin_source_skill",
                 matches=(builtin_binding.skill_id,),
             )
         return SourceSkillBindingResolution(reason="no_matching_local_skill")
@@ -116,19 +117,17 @@ def _source_input_kind(source: str | Path | SourceDescriptor) -> str:
     return Path(source_text).suffix.lower()
 
 
-def _resolve_builtin_media_binding(source_kind: str, loader_name: str | None) -> SourceSkillBinding | None:
-    handler_id = _builtin_media_handler_id(source_kind, loader_name)
-    if handler_id is None:
+def _resolve_builtin_source_binding(source_kind: str, loader_name: str | None) -> SourceSkillBinding | None:
+    skill = _builtin_source_skill(source_kind, loader_name)
+    if skill is None:
         return None
-    handler = get_trusted_source_handler(handler_id)
+    handler = get_trusted_source_handler(skill.id)
     if handler is None:
         return None
-    if loader_name and handler.loader_name != loader_name:
-        return None
     return SourceSkillBinding(
-        skill_id=handler.id,
-        skill_name=handler.name,
-        skill_version="builtin",
+        skill_id=skill.id,
+        skill_name=skill.name,
+        skill_version=skill.version,
         skill_origin="builtin",
         handler=handler.id,
         input_kinds=handler.input_kinds,
@@ -136,15 +135,22 @@ def _resolve_builtin_media_binding(source_kind: str, loader_name: str | None) ->
     )
 
 
-def _builtin_media_handler_id(source_kind: str, loader_name: str | None) -> str | None:
-    audio_kinds = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
-    video_kinds = {".mp4", ".mov", ".mkv"}
-    if source_kind == ".webm":
-        if loader_name == "audio.transcribe":
-            return "audio.transcribe"
-        return "video.transcribe"
-    if source_kind in video_kinds:
-        return "video.transcribe"
-    if source_kind in audio_kinds:
-        return "audio.transcribe"
+def _builtin_source_skill(source_kind: str, loader_name: str | None) -> SourceSkillInfo | None:
+    if source_kind == ".webm" and loader_name is None:
+        return _find_builtin_skill("video.transcribe")
+    for skill in list_builtin_source_skills():
+        handler = get_trusted_source_handler(skill.id)
+        if handler is None:
+            continue
+        if loader_name and handler.loader_name != loader_name:
+            continue
+        if source_kind in {kind.lower() for kind in handler.input_kinds}:
+            return skill
+    return None
+
+
+def _find_builtin_skill(skill_id: str) -> SourceSkillInfo | None:
+    for skill in list_builtin_source_skills():
+        if skill.id == skill_id:
+            return skill
     return None

@@ -459,6 +459,12 @@ def test_runtime_config(body: RuntimeConfigTestRequest) -> RuntimeConfigTestResp
             message="base_url must start with http:// or https://",
             error_kind="invalid_url",
         )
+    if not body.api_key.strip():
+        return RuntimeConfigTestResponse(
+            success=False,
+            message="API key is required to test this runtime. Enter a key or set LLM_API_KEY in the backend environment.",
+            error_kind="missing_api_key",
+        )
 
     try:
         from langchain_openai import ChatOpenAI

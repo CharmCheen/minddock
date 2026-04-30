@@ -430,6 +430,28 @@ class TestUpdateRuntimeConfig:
 class TestTestRuntimeConfig:
     """Tests for POST /frontend/runtime-config/test."""
 
+    def test_empty_api_key_returns_missing_key_without_network_call(self, client, temp_config_file, monkeypatch):
+        def fail_if_called(*args, **kwargs):
+            raise AssertionError("ChatOpenAI should not be created when api_key is empty")
+
+        monkeypatch.setattr("langchain_openai.ChatOpenAI", fail_if_called)
+
+        response = client.post(
+            "/frontend/runtime-config/test",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "   ",
+                "model": "gpt-4o-mini",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_kind"] == "missing_api_key"
+        assert data["message"] == "API key is required to test this runtime. Enter a key or set LLM_API_KEY in the backend environment."
+
     def test_empty_base_url_returns_error(self, client, temp_config_file):
         response = client.post(
             "/frontend/runtime-config/test",

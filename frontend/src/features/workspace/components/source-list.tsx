@@ -892,6 +892,7 @@ export const SourceList: React.FC = () => {
             <div
               key={src.doc_id}
               onClick={() => {
+                if (src.source_state?.ingest_status !== 'ready') return;
                 const willSelect = !selectedDocIds.includes(src.doc_id);
                 toggleSelectedDoc(src.doc_id, src);
                 if (willSelect && sourceDrawerDefaultOpen && !suppressAutoOpenRef.current) {
@@ -970,14 +971,17 @@ export const SourceList: React.FC = () => {
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center',
-                        background: src.source_state?.ingest_status === 'ready' ? 'var(--color-success-bg)' : 'var(--color-warning-bg)',
-                        color: src.source_state?.ingest_status === 'ready' ? 'var(--color-success-text)' : 'var(--color-warning-text)',
-                        borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
-                        border: `1px solid ${src.source_state?.ingest_status === 'ready' ? 'var(--color-success-border)' : 'var(--color-warning-border)'}`,
-                      }}>
-                        {src.source_state?.ingest_status === 'ready' ? '● ready' : '○ ' + (src.source_state?.ingest_status || 'unknown')}
+                      <span
+                        title={src.source_state?.error_message || undefined}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center',
+                          background: src.source_state?.ingest_status === 'ready' ? 'var(--color-success-bg)' : src.source_state?.ingest_status === 'failed' ? 'var(--color-error-bg)' : 'var(--color-warning-bg)',
+                          color: src.source_state?.ingest_status === 'ready' ? 'var(--color-success-text)' : src.source_state?.ingest_status === 'failed' ? 'var(--color-error-text)' : 'var(--color-warning-text)',
+                          borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
+                          border: `1px solid ${src.source_state?.ingest_status === 'ready' ? 'var(--color-success-border)' : src.source_state?.ingest_status === 'failed' ? 'var(--color-error-border)' : 'var(--color-warning-border)'}`,
+                        }}
+                      >
+                        {src.source_state?.ingest_status === 'ready' ? '● ready' : src.source_state?.ingest_status === 'indexing' ? '◌ indexing...' : src.source_state?.ingest_status === 'failed' ? '✕ failed' : '○ ' + (src.source_state?.ingest_status || 'unknown')}
                       </span>
                     </div>
 

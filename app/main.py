@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 from app.runtime.active_config import bootstrap_env_from_active_config
+from app.stores.ingestion_status_store import cleanup_stale
 
 settings = get_settings()
 setup_logging(settings.log_level, settings.log_dir, settings.app_name)
@@ -23,6 +24,11 @@ async def lifespan(_: FastAPI):
 
     # Bootstrap user-configured runtime credentials into environment
     bootstrap_env_from_active_config()
+
+    # Clean up stale indexing records from any previous crash
+    removed = cleanup_stale(max_age_hours=24)
+    if removed:
+        logger.info("Cleaned up %d stale ingestion status records", removed)
 
     logger.info(
         "Service starting",

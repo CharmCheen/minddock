@@ -22,6 +22,7 @@ from app.rag.source_models import (
 from app.services.service_models import IngestServiceResult, UseCaseMetadata
 from app.services.service_models import ServiceIssue, SourceStats, UseCaseTiming
 from app.rag.vectorstore import clear_vectorstore_cache, get_vectorstore
+from app.stores.ingestion_status_store import write_pending, write_ready, write_failed
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,12 @@ class IngestService:
         return self._ingest_source(collection=collection, descriptor=descriptor)
 
     def _ingest_source(self, *, collection, descriptor: SourceDescriptor) -> IngestSourceResult:
+        doc_id = descriptor.doc_id
+        requested_url = descriptor.source
+        source_type = descriptor.source_type
+
+        write_pending(doc_id=doc_id, requested_url=requested_url, source_type=source_type)
+
         try:
             payload = build_payload_for_source(descriptor=descriptor, registry=self._loader_registry)
             embeddings = self._embedder.embed_texts(payload.documents) if payload.documents else []
@@ -138,6 +145,7 @@ class IngestService:
                 replaced.upserted,
                 replaced.deleted,
             )
+            write_ready(doc_id=doc_id)
             return IngestSourceResult(
                 descriptor=payload.descriptor,
                 ok=True,
@@ -146,6 +154,7 @@ class IngestService:
             )
         except Exception as exc:
             logger.exception("Source ingest failed: source=%s source_type=%s", descriptor.source, descriptor.source_type)
+            write_failed(doc_id=doc_id, error_message=str(exc))
             return IngestSourceResult(
                 descriptor=descriptor,
                 ok=False,

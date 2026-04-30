@@ -354,6 +354,7 @@ class SourceStateItem(BaseModel):
     last_ingested_at: str | None = None
     chunk_count: int = 0
     ingest_status: str | None = None
+    error_message: str | None = None
 
     @classmethod
     def from_state(cls, state: SourceState | None) -> "SourceStateItem | None":
@@ -367,6 +368,7 @@ class SourceStateItem(BaseModel):
             last_ingested_at=state.last_ingested_at,
             chunk_count=state.chunk_count,
             ingest_status=state.ingest_status,
+            error_message=state.error_message,
         )
 
 

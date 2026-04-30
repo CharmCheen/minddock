@@ -8,9 +8,10 @@ from pathlib import Path
 
 from app.core.config import get_settings
 from app.rag.source_loader import build_file_descriptor, build_url_descriptor
-from app.rag.source_models import CatalogQuery, DeleteSourceResult, SourceCatalogEntry, SourceDetail, SourceInspectResult
+from app.rag.source_models import CatalogQuery, DeleteSourceResult, SourceCatalogEntry, SourceDetail, SourceInspectResult, SourceState
 from app.rag.vectorstore import get_vectorstore, inspect_source, list_source_details
 from app.services.ingest_service import IngestService
+from app.stores.ingestion_status_store import get_all
 from app.services.service_models import (
     CatalogServiceResult,
     DeleteSourceServiceResult,
@@ -36,22 +37,60 @@ class CatalogService:
 
     def list_sources(self, source_type: str | None = None) -> CatalogServiceResult:
         started = time.perf_counter()
-        entries = [detail.entry for detail in self._list_details(source_type=source_type)]
+        details = self._list_details(source_type=source_type)
+        chroma_entries = [detail.entry for detail in details]
+        chroma_doc_ids: set[str] = {e.doc_id for e in chroma_entries}
+
+        # Append indexing/failed records not yet in Chroma
+        extra_entries: list[SourceCatalogEntry] = []
+        for rec in get_all():
+            if rec.doc_id in chroma_doc_ids:
+                continue
+            if source_type is not None and rec.source_type != source_type:
+                continue
+            state = SourceState(
+                doc_id=rec.doc_id,
+                source=rec.requested_url,
+                current_version=None,
+                content_hash=None,
+                last_ingested_at=None,
+                chunk_count=0,
+                ingest_status=rec.status,
+                error_message=rec.error_message,
+            )
+            extra_entries.append(
+                SourceCatalogEntry(
+                    doc_id=rec.doc_id,
+                    source=rec.requested_url,
+                    source_type=rec.source_type,
+                    title=rec.requested_url,
+                    chunk_count=0,
+                    sections=(),
+                    pages=(),
+                    requested_url=rec.requested_url,
+                    final_url=None,
+                    state=state,
+                    domain=None,
+                    description=rec.error_message,
+                ),
+            )
+
+        all_entries = [*chroma_entries, *extra_entries]
         return CatalogServiceResult(
-            entries=entries,
+            entries=all_entries,
             metadata=UseCaseMetadata(
-                empty_result=not entries,
-                warnings=("No indexed sources found.",) if not entries else (),
+                empty_result=not all_entries,
+                warnings=("No indexed sources found.",) if not all_entries else (),
                 issues=(
                     ServiceIssue(code="empty_result", message="No indexed sources found.", severity="info"),
                 )
-                if not entries
+                if not all_entries
                 else (),
                 filter_applied=source_type is not None,
                 source_stats=SourceStats(
-                    requested_sources=len(entries),
-                    succeeded_sources=len(entries),
-                    failed_sources=0,
+                    requested_sources=len(all_entries),
+                    succeeded_sources=len(chroma_entries),
+                    failed_sources=len(extra_entries),
                 ),
                 timing=UseCaseTiming(total_ms=round((time.perf_counter() - started) * 1000, 2)),
             ),

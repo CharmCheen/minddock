@@ -203,3 +203,107 @@ def test_catalog_service_normalizes_invalid_paging_for_inspect(tmp_path: Path) -
     assert result.inspect.chunk_page.limit == 1
     assert result.inspect.chunk_page.offset == 0
     assert "normalized" in result.metadata.warnings[0]
+
+
+def test_list_sources_merges_pending_status_records(monkeypatch, tmp_path: Path) -> None:
+    """Extra entries from the status store must appear alongside Chroma entries."""
+    from unittest.mock import patch
+    from app.stores.ingestion_status_store import IngestionStatusRecord
+
+    pending_records = [
+        IngestionStatusRecord(doc_id="pending-url", requested_url="https://pending.com", source_type="url", status="indexing"),
+        IngestionStatusRecord(doc_id="failed-url", requested_url="https://failed.com", source_type="url", status="failed", error_message="DNS error"),
+    ]
+
+    def fake_get_all():
+        return pending_records
+
+    service = CatalogService(
+        settings=SimpleNamespace(kb_dir=str(tmp_path / "kb")),
+        collection=FakeCollection(),
+        ingest_service=FakeIngestService(),
+    )
+    with patch("app.services.catalog_service.get_all", fake_get_all):
+        result = service.list_sources()
+
+    doc_ids = {e.doc_id for e in result.entries}
+    # Both Chroma entries and status-store entries are present
+    assert "d-file" in doc_ids
+    assert "d-url" in doc_ids
+    assert "pending-url" in doc_ids
+    assert "failed-url" in doc_ids
+
+    # Check failed entry carries error_message and correct status
+    failed_entry = next(e for e in result.entries if e.doc_id == "failed-url")
+    assert failed_entry.state is not None
+    assert failed_entry.state.ingest_status == "failed"
+    assert failed_entry.state.error_message == "DNS error"
+    assert failed_entry.chunk_count == 0
+
+    # pending entry
+    pending_entry = next(e for e in result.entries if e.doc_id == "pending-url")
+    assert pending_entry.state is not None
+    assert pending_entry.state.ingest_status == "indexing"
+    assert pending_entry.chunk_count == 0
+
+
+def test_list_sources_respects_source_type_filter_for_pending(monkeypatch, tmp_path: Path) -> None:
+    """Pending entries must be filtered by source_type just like Chroma entries."""
+    from unittest.mock import patch
+    from app.stores.ingestion_status_store import IngestionStatusRecord
+
+    pending_records = [
+        IngestionStatusRecord(doc_id="pending-url", requested_url="https://pending.com", source_type="url", status="indexing"),
+        IngestionStatusRecord(doc_id="pending-file", requested_url="notes.txt", source_type="file", status="indexing"),
+    ]
+
+    def fake_get_all():
+        return pending_records
+
+    service = CatalogService(
+        settings=SimpleNamespace(kb_dir=str(tmp_path / "kb")),
+        collection=FakeCollection(),
+        ingest_service=FakeIngestService(),
+    )
+    with patch("app.services.catalog_service.get_all", fake_get_all):
+        url_result = service.list_sources(source_type="url")
+        file_result = service.list_sources(source_type="file")
+
+    assert all(e.source_type == "url" for e in url_result.entries)
+    assert all(e.source_type == "file" for e in file_result.entries)
+    # pending-url only in url result, pending-file only in file result
+    url_doc_ids = {e.doc_id for e in url_result.entries}
+    file_doc_ids = {e.doc_id for e in file_result.entries}
+    assert "pending-url" in url_doc_ids
+    assert "pending-url" not in file_doc_ids
+    assert "pending-file" in file_doc_ids
+    assert "pending-file" not in url_doc_ids
+
+
+def test_list_sources_deduplicates_chroma_over_status(monkeypatch, tmp_path: Path) -> None:
+    """When the same doc_id is in both Chroma and status store, Chroma wins."""
+    from unittest.mock import patch
+    from app.stores.ingestion_status_store import IngestionStatusRecord
+
+    # d-url is already in FakeCollection (chroma) with ingest_status=ready
+    # A status-store record for the same doc_id should be ignored
+    pending_records = [
+        IngestionStatusRecord(doc_id="d-url", requested_url="https://stale.com", source_type="url", status="indexing"),
+    ]
+
+    def fake_get_all():
+        return pending_records
+
+    service = CatalogService(
+        settings=SimpleNamespace(kb_dir=str(tmp_path / "kb")),
+        collection=FakeCollection(),
+        ingest_service=FakeIngestService(),
+    )
+    with patch("app.services.catalog_service.get_all", fake_get_all):
+        result = service.list_sources()
+
+    # Should have exactly 2 entries (d-file + d-url from Chroma)
+    assert len(result.entries) == 2
+    d_url_entry = next(e for e in result.entries if e.doc_id == "d-url")
+    # Chroma's real entry wins, not the indexing placeholder
+    assert d_url_entry.state is not None and d_url_entry.state.ingest_status == "ready"

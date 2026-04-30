@@ -75,6 +75,7 @@ class SourceState:
     last_ingested_at: str | None = None
     chunk_count: int = 0
     ingest_status: str | None = None
+    error_message: str | None = None
 
 
 @dataclass(frozen=True)

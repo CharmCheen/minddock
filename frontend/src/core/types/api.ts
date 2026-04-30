@@ -116,6 +116,7 @@ export interface SourceStateItem {
   last_ingested_at: string | null;
   chunk_count: number;
   ingest_status: string | null;
+  error_message?: string | null;
 }
 
 export interface SourceItem {

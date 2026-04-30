@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +18,16 @@ from app.services.ingest_service import IngestService
 from app.services.search_service import SearchService
 from app.services.service_models import RetrievalPreparationResult
 from app.services.summarize_service import SummarizeService
+from app.stores.ingestion_status_store import cleanup_stale
+
+
+@pytest.fixture(autouse=True)
+def _clean_ingestion_status_store(monkeypatch):
+    """Ensure no residual status-store entries leak between integration tests."""
+    # Block all reads from the file-backed store so tests see an empty catalog
+    # for pending/failed entries (each test uses an isolated InMemoryVectorStore).
+    # The real file is preserved so cleanup_stale() can still be called elsewhere.
+    monkeypatch.setattr("app.services.catalog_service.get_all", lambda: [])
 
 
 class FakeEmbedder:

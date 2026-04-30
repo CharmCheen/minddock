@@ -1,10 +1,22 @@
 """Unit tests for source catalog and lifecycle services."""
 
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 
 from app.rag.source_models import CatalogQuery, SourceCatalogEntry, SourceChunkPage, SourceChunkPreview, SourceDetail, SourceDescriptor, SourceInspectResult, SourceState
 from app.services.catalog_service import CatalogService
+
+
+@pytest.fixture(autouse=True)
+def _isolate_status_store(monkeypatch):
+    """Prevent status-store file entries from leaking into unit tests.
+
+    Integration tests write failed/pending records to the real JSON store.
+    Unit tests use FakeCollection and don't need those entries; this patch
+    ensures they always see an empty status store.
+    """
+    monkeypatch.setattr("app.services.catalog_service.get_all", lambda: [])
 
 
 class FakeCollection:

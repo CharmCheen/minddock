@@ -11,7 +11,7 @@ from app.rag.source_loader import build_file_descriptor, build_url_descriptor
 from app.rag.source_models import CatalogQuery, DeleteSourceResult, SourceCatalogEntry, SourceDetail, SourceInspectResult, SourceState
 from app.rag.vectorstore import get_vectorstore, inspect_source, list_source_details
 from app.services.ingest_service import IngestService
-from app.stores.ingestion_status_store import get_all
+from app.stores.ingestion_status_store import get_all, write_ready
 from app.services.service_models import (
     CatalogServiceResult,
     DeleteSourceServiceResult,
@@ -206,6 +206,9 @@ class CatalogService:
                     timing=UseCaseTiming(total_ms=round((time.perf_counter() - started) * 1000, 2)),
                 ),
             )
+
+        # Clean up any status store record so the source doesn't linger as "indexing"/"failed"
+        write_ready(doc_id=detail.entry.doc_id)
 
         deleted = self._collection.delete_document(detail.entry.doc_id)
         logger.info(

@@ -506,6 +506,91 @@ test.describe('source list with new contract', () => {
     await expect(page.getByTestId('source-extraction-warning')).toHaveCount(0);
   });
 
+  test('source drawer shows video sidecar transcript metadata', async ({ page }) => {
+    await page.route('**/sources', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              doc_id: 'doc-video',
+              source: 'demo_video.mp4',
+              source_type: 'file',
+              title: 'demo_video',
+              chunk_count: 1,
+              sections: [],
+              pages: [],
+              requested_url: null,
+              final_url: null,
+              source_state: { doc_id: 'doc-video', source: 'demo_video.mp4', current_version: 'v1', content_hash: 'v', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 1, ingest_status: 'ready' },
+              domain: null,
+              description: null,
+            },
+          ],
+          total: 1,
+        }),
+      });
+    });
+    await page.route('**/sources/doc-video', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      if (route.request().url().includes('/chunks')) return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          found: true,
+          item: {
+            doc_id: 'doc-video',
+            source: 'demo_video.mp4',
+            source_type: 'file',
+            title: 'demo_video',
+            chunk_count: 1,
+            sections: [],
+            pages: [],
+            requested_url: null,
+            final_url: null,
+            source_state: { doc_id: 'doc-video', source: 'demo_video.mp4', current_version: 'v1', content_hash: 'v', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 1, ingest_status: 'ready' },
+            domain: null,
+            description: null,
+          },
+          representative_metadata: {
+            source_media: 'video',
+            transcript_provider: 'sidecar',
+            media_filename: 'demo_video.mp4',
+            transcript_sidecar_filename: 'demo_video.txt',
+          },
+          admin_metadata: {},
+        }),
+      });
+    });
+    await page.route('**/sources/doc-video/chunks**', (route) => {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          found: true,
+          chunks: [],
+          total_chunks: 0,
+          returned_chunks: 0,
+          limit: 100,
+          offset: 0,
+        }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.locator('text=demo_video')).toBeVisible();
+    await page.getByTitle('View details').first().click();
+
+    const mediaMetadata = page.getByTestId('source-media-metadata');
+    await expect(mediaMetadata).toContainText('Video source');
+    await expect(mediaMetadata).toContainText('Transcript: sidecar');
+    await expect(mediaMetadata).toContainText('Media: demo_video.mp4');
+    await expect(mediaMetadata).toContainText('Sidecar: demo_video.txt');
+  });
+
   test('delete source triggers confirmation and refreshes list', async ({ page }) => {
     let deleteCalled = false;
     let deleted = false;

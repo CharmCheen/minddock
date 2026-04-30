@@ -63,6 +63,30 @@ def test_non_local_builtin_skill_is_not_a_local_binding(tmp_path: Path, monkeypa
     assert binding is None
 
 
+def test_video_source_resolves_to_builtin_transcribe_without_local_manifest(tmp_path: Path, monkeypatch) -> None:
+    registry = _registry(tmp_path, monkeypatch)
+
+    result = resolve_source_skill_binding_with_reason("demo_video.mp4", registry=registry)
+
+    assert result.binding is not None
+    assert result.reason == "matched_builtin_media_skill"
+    assert result.binding.skill_id == "video.transcribe"
+    assert result.binding.skill_origin == "builtin"
+    assert result.binding.handler == "video.transcribe"
+
+
+def test_audio_source_resolves_to_builtin_transcribe_without_local_manifest(tmp_path: Path, monkeypatch) -> None:
+    registry = _registry(tmp_path, monkeypatch)
+
+    result = resolve_source_skill_binding_with_reason("meeting.mp3", registry=registry)
+
+    assert result.binding is not None
+    assert result.reason == "matched_builtin_media_skill"
+    assert result.binding.skill_id == "audio.transcribe"
+    assert result.binding.skill_origin == "builtin"
+    assert result.binding.handler == "audio.transcribe"
+
+
 def test_multiple_matching_local_skills_are_ambiguous(tmp_path: Path, monkeypatch) -> None:
     registry = _registry(tmp_path, monkeypatch)
     assert registry.register_manifest(_manifest("local.project_csv")).ok is True
@@ -183,6 +207,32 @@ def test_enabled_local_audio_skill_matches_audio_source(tmp_path: Path, monkeypa
     assert documents[0].metadata["skill_origin"] == "local"
 
 
+def test_local_media_manifest_takes_precedence_over_builtin(tmp_path: Path, monkeypatch) -> None:
+    registry = _registry(tmp_path, monkeypatch)
+    manifest = {
+        "id": "local.audio_notes",
+        "name": "Audio Notes Skill",
+        "kind": "source",
+        "version": "0.1.0",
+        "handler": "audio.transcribe",
+        "input_kinds": [".mp3"],
+        "output_type": "SourceLoadResult",
+        "source_media": "audio",
+        "source_kind": "audio_file",
+        "loader_name": "audio.transcribe",
+        "permissions": ["read_file", "use_llm_api", "write_index"],
+        "enabled": True,
+    }
+    assert registry.register_manifest(manifest).ok is True
+
+    result = resolve_source_skill_binding_with_reason("meeting.mp3", registry=registry)
+
+    assert result.binding is not None
+    assert result.reason == "matched"
+    assert result.binding.skill_id == "local.audio_notes"
+    assert result.binding.skill_origin == "local"
+
+
 def test_enabled_local_video_skill_matches_video_source(tmp_path: Path, monkeypatch) -> None:
     from app.rag.media_loader import MockMediaTranscriptionClient, MediaSourceLoader
     from app.rag.source_loader import SourceLoaderRegistry
@@ -219,7 +269,7 @@ def test_enabled_local_video_skill_matches_video_source(tmp_path: Path, monkeypa
     assert documents[0].metadata["skill_origin"] == "local"
 
 
-def test_disabled_local_audio_skill_does_not_match(tmp_path: Path, monkeypatch) -> None:
+def test_disabled_local_audio_skill_falls_back_to_builtin(tmp_path: Path, monkeypatch) -> None:
     registry = _registry(tmp_path, monkeypatch)
     manifest = {
         "id": "local.audio_notes",
@@ -233,4 +283,6 @@ def test_disabled_local_audio_skill_does_not_match(tmp_path: Path, monkeypatch) 
     }
     assert registry.register_manifest(manifest).ok is True
     binding = resolve_source_skill_binding("lecture.mp3", registry=registry)
-    assert binding is None
+    assert binding is not None
+    assert binding.skill_id == "audio.transcribe"
+    assert binding.skill_origin == "builtin"

@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from app.rag.image_loader import IMAGE_EXTENSIONS, ImageSourceLoader
-from app.rag.media_loader import AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, MediaSourceLoader
+from app.rag.media_loader import AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, MediaSourceLoader, is_media_sidecar_transcript
 from app.rag.pdf_parser import extract_page_blocks, PageBlocks
 from app.rag.source_skills.csv_skill import CSV_EXTENSIONS, CsvSourceLoader
 
@@ -182,6 +182,8 @@ def iter_file_descriptors(kb_dir: Path) -> list[SourceDescriptor]:
     descriptors: list[SourceDescriptor] = []
     for path in kb_dir.rglob("*"):
         if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
+            if is_media_sidecar_transcript(path):
+                continue
             descriptors.append(build_file_descriptor(path, kb_dir))
     return descriptors
 

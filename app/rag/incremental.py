@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from app.core.config import get_settings
 from app.rag.embeddings import EmbeddingBackend, get_embedding_backend
 from app.rag.ingest import SUPPORTED_EXTENSIONS, build_payload_for_source
+from app.rag.media_loader import is_media_sidecar_transcript
 from app.rag.source_loader import SourceLoaderRegistry, build_file_descriptor
 from app.rag.source_models import IncrementalUpdateResult
 from app.rag.vectorstore import count_document_chunks, get_vectorstore
@@ -374,7 +375,7 @@ class IncrementalIngestService:
         )
 
     def _is_supported(self, path: Path) -> bool:
-        return path.suffix.lower() in SUPPORTED_EXTENSIONS
+        return path.suffix.lower() in SUPPORTED_EXTENSIONS and not is_media_sidecar_transcript(path)
 
     def _is_under_kb_dir(self, path: Path) -> bool:
         try:

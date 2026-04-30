@@ -82,6 +82,13 @@ def resolve_source_skill_binding_with_reason(
         )
 
     if not matches:
+        builtin_binding = _resolve_builtin_media_binding(source_kind, loader_name)
+        if builtin_binding is not None:
+            return SourceSkillBindingResolution(
+                binding=builtin_binding,
+                reason="matched_builtin_media_skill",
+                matches=(builtin_binding.skill_id,),
+            )
         return SourceSkillBindingResolution(reason="no_matching_local_skill")
     match_ids = tuple(match.skill_id for match in matches)
     if len(matches) > 1:
@@ -107,3 +114,37 @@ def _source_input_kind(source: str | Path | SourceDescriptor) -> str:
     if parsed.scheme in {"http", "https"} and parsed.netloc:
         return "url"
     return Path(source_text).suffix.lower()
+
+
+def _resolve_builtin_media_binding(source_kind: str, loader_name: str | None) -> SourceSkillBinding | None:
+    handler_id = _builtin_media_handler_id(source_kind, loader_name)
+    if handler_id is None:
+        return None
+    handler = get_trusted_source_handler(handler_id)
+    if handler is None:
+        return None
+    if loader_name and handler.loader_name != loader_name:
+        return None
+    return SourceSkillBinding(
+        skill_id=handler.id,
+        skill_name=handler.name,
+        skill_version="builtin",
+        skill_origin="builtin",
+        handler=handler.id,
+        input_kinds=handler.input_kinds,
+        config={},
+    )
+
+
+def _builtin_media_handler_id(source_kind: str, loader_name: str | None) -> str | None:
+    audio_kinds = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
+    video_kinds = {".mp4", ".mov", ".mkv"}
+    if source_kind == ".webm":
+        if loader_name == "audio.transcribe":
+            return "audio.transcribe"
+        return "video.transcribe"
+    if source_kind in video_kinds:
+        return "video.transcribe"
+    if source_kind in audio_kinds:
+        return "audio.transcribe"
+    return None

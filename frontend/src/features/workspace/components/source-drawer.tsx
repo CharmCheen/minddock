@@ -3,6 +3,37 @@ import { useWorkspaceStore } from '../store';
 import { SourceService } from '../../../lib/api/services/sources';
 import { useAvailabilityStore } from '../../app/store/availability';
 import { IconLink, IconFileText, IconPlug, IconX } from '../../../components/ui/icons';
+import { SourceItem } from '../../../core/types/api';
+
+const EXTRACTION_WARNING_TEXT = 'Extraction may be incomplete. This page may require JavaScript rendering or contain little readable text.';
+const LOW_TEXT_CHAR_THRESHOLD = 300;
+const QUALITY_IMPACTING_EXTRACTION_WARNINGS = new Set(['empty_main_text', 'non_html_content_type']);
+
+function metadataString(metadata: Record<string, unknown> | undefined, key: string): string {
+  const value = metadata?.[key];
+  return typeof value === 'string' ? value : value == null ? '' : String(value);
+}
+
+function hasUrlExtractionWarning(source: SourceItem | null): boolean {
+  if (!source || source.source_type !== 'url' || source.source_state?.ingest_status !== 'ready') {
+    return false;
+  }
+  const metadata = source.representative_metadata || {};
+  const warnings = metadataString(metadata, 'extraction_warnings') || metadataString(metadata, 'loader_warnings');
+  const warningCodes = warnings
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (warningCodes.some((code) => QUALITY_IMPACTING_EXTRACTION_WARNINGS.has(code))) {
+    return true;
+  }
+  const quality = metadataString(metadata, 'extraction_quality');
+  if (quality && !['ok', 'good'].includes(quality)) {
+    return true;
+  }
+  const charCount = Number(metadataString(metadata, 'extracted_char_count'));
+  return Number.isFinite(charCount) && charCount > 0 && charCount < LOW_TEXT_CHAR_THRESHOLD;
+}
 
 export const SourceDrawer: React.FC = () => {
   const {
@@ -29,10 +60,15 @@ export const SourceDrawer: React.FC = () => {
   const unavailableChunksMessage = selectedStatus === 'failed'
     ? selectedDocDetail?.source_state?.error_message || 'Import failed. Chunks are unavailable for this source.'
     : 'MindDock is still importing this source. Chunks will be available after import completes.';
+  const showExtractionWarning = hasUrlExtractionWarning(selectedDocDetail);
 
   useEffect(() => {
     if (!drawerOpen || !selectedDocId) return;
-    if (selectedDocDetail?.doc_id === selectedDocId && selectedDocDetail?.source_state !== null) return;
+    if (
+      selectedDocDetail?.doc_id === selectedDocId
+      && selectedDocDetail?.source_state !== null
+      && selectedDocDetail?.representative_metadata
+    ) return;
 
     let mounted = true;
     const controller = new AbortController();
@@ -228,6 +264,23 @@ export const SourceDrawer: React.FC = () => {
             }}>
               {selectedStatus === 'ready' ? '● ready' : selectedStatus === 'failed' ? '✕ failed' : '○ ' + selectedStatus}
             </span>
+          </div>
+        )}
+
+        {showExtractionWarning && (
+          <div
+            data-testid="source-extraction-warning"
+            style={{
+              padding: '10px 20px',
+              borderBottom: '1px solid var(--color-warning-border)',
+              background: 'var(--color-warning-bg)',
+              color: 'var(--color-warning-text)',
+              fontSize: '12px',
+              lineHeight: 1.45,
+              flexShrink: 0,
+            }}
+          >
+            {EXTRACTION_WARNING_TEXT}
           </div>
         )}
 

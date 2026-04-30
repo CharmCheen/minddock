@@ -298,6 +298,214 @@ test.describe('source list with new contract', () => {
     await expect(page.getByTestId('source-drawer')).not.toBeVisible();
   });
 
+  test('source drawer shows extraction warning for ready URL with low text metadata', async ({ page }) => {
+    await page.route('**/sources', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              doc_id: 'doc-warn',
+              source: 'https://example.com/js-docs',
+              source_type: 'url',
+              title: 'JS Docs',
+              chunk_count: 1,
+              sections: [],
+              pages: [],
+              requested_url: 'https://example.com/js-docs',
+              final_url: 'https://example.com/js-docs',
+              source_state: { doc_id: 'doc-warn', source: 'https://example.com/js-docs', current_version: 'v1', content_hash: 'a', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 1, ingest_status: 'ready' },
+              domain: 'example.com',
+              description: null,
+            },
+          ],
+          total: 1,
+        }),
+      });
+    });
+    await page.route('**/sources/doc-warn', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      if (route.request().url().includes('/chunks')) return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          found: true,
+          item: {
+            doc_id: 'doc-warn',
+            source: 'https://example.com/js-docs',
+            source_type: 'url',
+            title: 'JS Docs',
+            chunk_count: 1,
+            sections: [],
+            pages: [],
+            requested_url: 'https://example.com/js-docs',
+            final_url: 'https://example.com/js-docs',
+            source_state: { doc_id: 'doc-warn', source: 'https://example.com/js-docs', current_version: 'v1', content_hash: 'a', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 1, ingest_status: 'ready' },
+            domain: 'example.com',
+            description: null,
+          },
+          representative_metadata: {
+            extraction_warnings: 'canonical_missing,empty_main_text',
+            extracted_char_count: '84',
+            extraction_quality: 'low_text',
+          },
+          admin_metadata: {},
+        }),
+      });
+    });
+    await page.route('**/sources/doc-warn/chunks**', (route) => {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          found: true,
+          chunks: [],
+          total_chunks: 0,
+          returned_chunks: 0,
+          limit: 100,
+          offset: 0,
+        }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.locator('text=JS Docs')).toBeVisible();
+    await page.locator('text=JS Docs').click();
+    await expect(page.getByText(/1 selected/)).toBeVisible();
+    await page.getByTitle('View details').first().click();
+
+    await expect(page.getByTestId('source-drawer')).toBeVisible();
+    await expect(page.getByTestId('source-extraction-warning')).toContainText('Extraction may be incomplete. This page may require JavaScript rendering or contain little readable text.');
+  });
+
+  test('source drawer does not warn for healthy URL canonical metadata or file source', async ({ page }) => {
+    await page.route('**/sources', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              doc_id: 'doc-healthy',
+              source: 'https://example.com/healthy',
+              source_type: 'url',
+              title: 'Healthy URL',
+              chunk_count: 2,
+              sections: [],
+              pages: [],
+              requested_url: 'https://example.com/healthy',
+              final_url: 'https://example.com/healthy',
+              source_state: { doc_id: 'doc-healthy', source: 'https://example.com/healthy', current_version: 'v1', content_hash: 'h', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 2, ingest_status: 'ready' },
+              domain: 'example.com',
+              description: null,
+            },
+            {
+              doc_id: 'doc-file',
+              source: '/docs/report.pdf',
+              source_type: 'file',
+              title: 'Report File',
+              chunk_count: 2,
+              sections: [],
+              pages: [1],
+              requested_url: null,
+              final_url: null,
+              source_state: { doc_id: 'doc-file', source: '/docs/report.pdf', current_version: 'v1', content_hash: 'f', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 2, ingest_status: 'ready' },
+              domain: null,
+              description: null,
+            },
+          ],
+          total: 2,
+        }),
+      });
+    });
+    await page.route('**/sources/doc-healthy', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      if (route.request().url().includes('/chunks')) return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          found: true,
+          item: {
+            doc_id: 'doc-healthy',
+            source: 'https://example.com/healthy',
+            source_type: 'url',
+            title: 'Healthy URL',
+            chunk_count: 2,
+            sections: [],
+            pages: [],
+            requested_url: 'https://example.com/healthy',
+            final_url: 'https://example.com/healthy',
+            source_state: { doc_id: 'doc-healthy', source: 'https://example.com/healthy', current_version: 'v1', content_hash: 'h', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 2, ingest_status: 'ready' },
+            domain: 'example.com',
+            description: null,
+          },
+          representative_metadata: {
+            extraction_warnings: 'canonical_missing',
+            extracted_char_count: '1200',
+            extraction_quality: 'ok',
+          },
+          admin_metadata: {},
+        }),
+      });
+    });
+    await page.route('**/sources/doc-file', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      if (route.request().url().includes('/chunks')) return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          found: true,
+          item: {
+            doc_id: 'doc-file',
+            source: '/docs/report.pdf',
+            source_type: 'file',
+            title: 'Report File',
+            chunk_count: 2,
+            sections: [],
+            pages: [1],
+            requested_url: null,
+            final_url: null,
+            source_state: { doc_id: 'doc-file', source: '/docs/report.pdf', current_version: 'v1', content_hash: 'f', last_ingested_at: '2026-01-01T00:00:00Z', chunk_count: 2, ingest_status: 'ready' },
+            domain: null,
+            description: null,
+          },
+          representative_metadata: {
+            extraction_warnings: 'empty_main_text',
+            extracted_char_count: '0',
+            extraction_quality: 'warning',
+          },
+          admin_metadata: {},
+        }),
+      });
+    });
+    await page.route('**/sources/**/chunks**', (route) => {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ found: true, chunks: [], total_chunks: 0, returned_chunks: 0, limit: 100, offset: 0 }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.locator('text=Healthy URL')).toBeVisible();
+    await page.getByTitle('View details').first().click();
+
+    await expect(page.getByTestId('source-drawer')).toBeVisible();
+    await expect(page.getByTestId('source-extraction-warning')).toHaveCount(0);
+
+    await page.getByTestId('source-drawer').locator('button').first().click();
+    await expect(page.getByTestId('source-drawer')).not.toBeVisible();
+    await page.getByTitle('View details').nth(1).click();
+    await expect(page.getByTestId('source-drawer').getByText('Report File')).toBeVisible();
+    await expect(page.getByTestId('source-extraction-warning')).toHaveCount(0);
+  });
+
   test('delete source triggers confirmation and refreshes list', async ({ page }) => {
     let deleteCalled = false;
     let deleted = false;

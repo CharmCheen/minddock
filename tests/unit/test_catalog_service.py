@@ -444,3 +444,29 @@ def test_catalog_service_reingests_status_only_pending_url_without_noop(monkeypa
     assert reingest.source_result.descriptor.source == "https://pending.example/article"
     assert ingest_service.last_descriptor is not None
     assert ingest_service.last_descriptor.source == "https://pending.example/article"
+
+
+def test_catalog_service_detail_exposes_url_extraction_quality_metadata(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    collection.details[1] = SourceDetail(
+        entry=collection.details[1].entry,
+        representative_metadata={
+            "requested_url": "https://example.com/requested",
+            "extraction_warnings": "canonical_missing",
+            "extracted_char_count": "42",
+            "extraction_quality": "warning",
+        },
+    )
+    service = CatalogService(
+        settings=SimpleNamespace(kb_dir=str(tmp_path / "kb")),
+        collection=collection,
+        ingest_service=FakeIngestService(),
+    )
+
+    detail = service.get_source_detail(doc_id="d-url")
+
+    assert detail.found is True
+    assert detail.detail is not None
+    assert detail.detail.representative_metadata["extraction_warnings"] == "canonical_missing"
+    assert detail.detail.representative_metadata["extracted_char_count"] == "42"
+    assert detail.detail.representative_metadata["extraction_quality"] == "warning"

@@ -22,7 +22,7 @@ URL_FETCH_VERIFY_SSL = True
 URL_FETCH_ALLOW_INSECURE_FALLBACK = False
 URL_FETCH_USER_AGENT = "MindDock/0.1 (+https://example.invalid/minddock)"
 IMAGE_OCR_ENABLED = True
-IMAGE_OCR_PROVIDER = "mock"
+IMAGE_OCR_PROVIDER = "rapidocr"
 IMAGE_OCR_MAX_CHARS = 20000
 MEDIA_TRANSCRIPT_ENABLED = True
 MEDIA_TRANSCRIPT_PROVIDER = "mock"
@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     run_control_heartbeat_interval_seconds: int = RUN_CONTROL_HEARTBEAT_INTERVAL_SECONDS
 
     model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
         env_prefix="",
         case_sensitive=False,
         extra="ignore",

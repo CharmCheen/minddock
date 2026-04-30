@@ -63,6 +63,93 @@ class FakeHybridService:
         return self.hits[:top_k]
 
 
+class StarvingMultiSourceVectorStore:
+    def __init__(self) -> None:
+        self.calls: list[RetrievalFilters | None] = []
+
+    def search_by_text(
+        self,
+        query: str,
+        top_k: int,
+        filters: RetrievalFilters | None = None,
+    ) -> list[RetrievedChunk]:
+        self.calls.append(filters)
+        if filters == RetrievalFilters(
+            sources=("kb/a.md",),
+            source_types=("file",),
+            section="Storage",
+            title_contains="design",
+            requested_url_contains="example",
+            page_from=1,
+            page_to=3,
+        ):
+            return [
+                RetrievedChunk(
+                    text="A selected-source evidence",
+                    doc_id="a",
+                    chunk_id="a:1",
+                    source="kb/a.md",
+                    source_type="file",
+                    section="Storage",
+                    title="A design",
+                    requested_url="https://example.com/a",
+                    page=2,
+                    distance=0.2,
+                )
+            ]
+        if filters == RetrievalFilters(
+            sources=("kb/b.md",),
+            source_types=("file",),
+            section="Storage",
+            title_contains="design",
+            requested_url_contains="example",
+            page_from=1,
+            page_to=3,
+        ):
+            return [
+                RetrievedChunk(
+                    text="B selected-source evidence",
+                    doc_id="b",
+                    chunk_id="b:1",
+                    source="kb/b.md",
+                    source_type="file",
+                    section="Storage",
+                    title="B design",
+                    requested_url="https://example.com/b",
+                    page=2,
+                    distance=0.1,
+                )
+            ]
+
+        # Simulates the old all-source candidate query being dominated by an
+        # unrelated source, leaving selected sources out of the returned pool.
+        return []
+
+
+class AllSourceFallbackTrapVectorStore:
+    def __init__(self) -> None:
+        self.calls: list[RetrievalFilters | None] = []
+
+    def search_by_text(
+        self,
+        query: str,
+        top_k: int,
+        filters: RetrievalFilters | None = None,
+    ) -> list[RetrievedChunk]:
+        self.calls.append(filters)
+        if filters is not None and filters.sources in {("kb/a.md",), ("kb/b.md",)}:
+            return []
+        return [
+            RetrievedChunk(
+                text="Unselected all-source result",
+                doc_id="c",
+                chunk_id="c:1",
+                source="kb/c.md",
+                distance=0.01,
+            )
+        ]
+
+
 def test_search_service_uses_vectorstore_path() -> None:
     vectorstore = FakeVectorStore()
     service = SearchService(vectorstore=vectorstore)
@@ -143,3 +230,57 @@ def test_search_service_structured_reference_candidates_fallback_on_bm25_error()
     )
 
     assert service.retrieve_structured_reference_candidates("Table 1", top_k=5) == []
+
+
+def test_multi_source_retrieval_queries_each_selected_source_independently() -> None:
+    vectorstore = StarvingMultiSourceVectorStore()
+    service = SearchService(vectorstore=vectorstore)
+    filters = RetrievalFilters(
+        sources=("kb/a.md", "kb/b.md"),
+        source_types=("file",),
+        section="Storage",
+        title_contains="design",
+        requested_url_contains="example",
+        page_from=1,
+        page_to=3,
+    )
+
+    hits = service.retrieve(query="storage design", top_k=2, filters=filters)
+
+    assert [hit.source for hit in hits] == ["kb/b.md", "kb/a.md"]
+    assert {hit.source for hit in hits} == {"kb/a.md", "kb/b.md"}
+    assert "kb/c.md" not in {hit.source for hit in hits}
+    assert vectorstore.calls == [
+        RetrievalFilters(
+            sources=("kb/a.md",),
+            source_types=("file",),
+            section="Storage",
+            title_contains="design",
+            requested_url_contains="example",
+            page_from=1,
+            page_to=3,
+        ),
+        RetrievalFilters(
+            sources=("kb/b.md",),
+            source_types=("file",),
+            section="Storage",
+            title_contains="design",
+            requested_url_contains="example",
+            page_from=1,
+            page_to=3,
+        ),
+    ]
+
+
+def test_multi_source_retrieval_does_not_fallback_to_all_sources_when_selected_sources_are_empty() -> None:
+    vectorstore = AllSourceFallbackTrapVectorStore()
+    service = SearchService(vectorstore=vectorstore)
+    filters = RetrievalFilters(sources=("kb/a.md", "kb/b.md"))
+
+    hits = service.retrieve(query="storage design", top_k=2, filters=filters)
+
+    assert hits == []
+    assert vectorstore.calls == [
+        RetrievalFilters(sources=("kb/a.md",)),
+        RetrievalFilters(sources=("kb/b.md",)),
+    ]

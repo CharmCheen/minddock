@@ -342,6 +342,7 @@ class RetrievalPipeline:
         compiled = self.build_graph()
         state: UnifiedWorkflowState = {
             "query": query,
+            "original_query": query,
             "top_k": top_k,
             "filters": filters,
             "task_type": task_type,

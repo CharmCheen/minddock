@@ -23,6 +23,12 @@ export const SourceDrawer: React.FC = () => {
   } = useWorkspaceStore();
   const { status: backendStatus } = useAvailabilityStore();
   const citationMode = Boolean(activeCitation && activeCitation.doc_id === selectedDocId);
+  const selectedStatus = selectedDocDetail?.source_state?.ingest_status || 'ready';
+  const selectedSourceReady = selectedStatus === 'ready';
+  const selectedSourceChunksUnavailable = Boolean(selectedDocDetail && !selectedSourceReady);
+  const unavailableChunksMessage = selectedStatus === 'failed'
+    ? selectedDocDetail?.source_state?.error_message || 'Import failed. Chunks are unavailable for this source.'
+    : 'MindDock is still importing this source. Chunks will be available after import completes.';
 
   useEffect(() => {
     if (!drawerOpen || !selectedDocId) return;
@@ -50,6 +56,11 @@ export const SourceDrawer: React.FC = () => {
   useEffect(() => {
     if (!drawerOpen || !selectedDocId) return;
     if (backendStatus !== 'online') return;
+    if (selectedDocDetail?.doc_id === selectedDocId && selectedDocDetail.source_state?.ingest_status !== 'ready') {
+      setDocChunks([], 0);
+      setLoadingChunks(false);
+      return;
+    }
 
     let mounted = true;
     const controller = new AbortController();
@@ -81,7 +92,7 @@ export const SourceDrawer: React.FC = () => {
       mounted = false;
       controller.abort();
     };
-  }, [drawerOpen, selectedDocId, backendStatus]);
+  }, [drawerOpen, selectedDocId, backendStatus, selectedDocDetail, setDocChunks, setLoadingChunks]);
 
   useEffect(() => {
     if (highlightedChunkId && !loadingChunks) {
@@ -210,12 +221,12 @@ export const SourceDrawer: React.FC = () => {
             )}
             <span style={{
               display: 'inline-flex', alignItems: 'center',
-              background: selectedDocDetail.source_state?.ingest_status === 'ready' ? 'var(--color-success-bg)' : 'var(--color-warning-bg)',
-              color: selectedDocDetail.source_state?.ingest_status === 'ready' ? 'var(--color-success-text)' : 'var(--color-warning-text)',
+              background: selectedStatus === 'ready' ? 'var(--color-success-bg)' : selectedStatus === 'failed' ? 'var(--color-error-bg)' : 'var(--color-warning-bg)',
+              color: selectedStatus === 'ready' ? 'var(--color-success-text)' : selectedStatus === 'failed' ? 'var(--color-error-text)' : 'var(--color-warning-text)',
               borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '11px', fontWeight: 600,
-              border: `1px solid ${selectedDocDetail.source_state?.ingest_status === 'ready' ? 'var(--color-success-border)' : 'var(--color-warning-border)'}`,
+              border: `1px solid ${selectedStatus === 'ready' ? 'var(--color-success-border)' : selectedStatus === 'failed' ? 'var(--color-error-border)' : 'var(--color-warning-border)'}`,
             }}>
-              {selectedDocDetail.source_state?.ingest_status === 'ready' ? '● ready' : '○ ' + (selectedDocDetail.source_state?.ingest_status || 'unknown')}
+              {selectedStatus === 'ready' ? '● ready' : selectedStatus === 'failed' ? '✕ failed' : '○ ' + selectedStatus}
             </span>
           </div>
         )}
@@ -335,7 +346,14 @@ export const SourceDrawer: React.FC = () => {
               boxShadow: 'var(--shadow-sm)',
             }}>
               <div style={{ color: 'var(--color-text-tertiary)', fontSize: '24px', marginBottom: '8px' }}>📭</div>
-              <div style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>No chunks available</div>
+              <div style={{ color: 'var(--color-text-secondary)', fontSize: '14px', fontWeight: selectedSourceChunksUnavailable ? 700 : 400 }}>
+                {selectedSourceChunksUnavailable ? 'Chunks unavailable' : 'No chunks available'}
+              </div>
+              {selectedSourceChunksUnavailable && (
+                <div style={{ color: selectedStatus === 'failed' ? 'var(--color-error-text)' : 'var(--color-text-tertiary)', fontSize: '12px', lineHeight: 1.5, marginTop: '8px' }}>
+                  {unavailableChunksMessage}
+                </div>
+              )}
             </div>
           )}
 

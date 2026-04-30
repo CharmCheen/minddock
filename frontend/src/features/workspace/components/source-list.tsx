@@ -570,6 +570,15 @@ export const SourceList: React.FC = () => {
     error: { bg: 'var(--color-error-bg)', border: 'var(--color-error-border)', color: 'var(--color-error-text)' },
   };
   const pendingDetailsMessage = 'MindDock is still fetching, chunking, and indexing this URL. Details will be available after import completes.';
+  const getSourceStatus = (src: SourceItem): string => src.source_state?.ingest_status || 'ready';
+  const isReadySource = (src: SourceItem): boolean => getSourceStatus(src) === 'ready';
+  const getUnavailableSourceMessage = (src: SourceItem): string => {
+    const statusValue = getSourceStatus(src);
+    if (statusValue === 'failed') {
+      return src.source_state?.error_message || 'MindDock could not ingest this source. Chunks are unavailable.';
+    }
+    return 'MindDock is still importing this source. Chunks and retrieval selection will be available after import completes.';
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--color-surface)' }}>
@@ -888,11 +897,19 @@ export const SourceList: React.FC = () => {
           const isSelected = selectedDocIds.includes(src.doc_id);
           const kind = inferSourceKind(src.source, src.source_type);
           const isBusy = refreshingId === src.doc_id || deletingId === src.doc_id;
+          const statusValue = getSourceStatus(src);
+          const isReady = isReadySource(src);
+          const isFailed = statusValue === 'failed';
+          const canReingest = !isBusy && (isReady || isFailed);
+          const unavailableMessage = getUnavailableSourceMessage(src);
           return (
             <div
               key={src.doc_id}
               onClick={() => {
-                if (src.source_state?.ingest_status !== 'ready') return;
+                if (!isReady) {
+                  showNotice(isFailed ? 'error' : 'info', unavailableMessage, 10000);
+                  return;
+                }
                 const willSelect = !selectedDocIds.includes(src.doc_id);
                 toggleSelectedDoc(src.doc_id, src);
                 if (willSelect && sourceDrawerDefaultOpen && !suppressAutoOpenRef.current) {
@@ -904,7 +921,7 @@ export const SourceList: React.FC = () => {
                 padding: d === 'compact' ? '8px 10px' : '10px 12px',
                 marginBottom: '4px',
                 borderRadius: 'var(--radius-md)',
-                cursor: 'pointer',
+                cursor: isReady ? 'pointer' : 'default',
                 background: isSelected ? 'var(--color-brand-50)' : 'var(--color-surface)',
                 border: `1px solid ${isSelected ? 'var(--color-brand-200)' : 'transparent'}`,
                 boxShadow: isSelected ? '0 0 0 1px var(--color-brand-200)' : 'none',
@@ -943,13 +960,17 @@ export const SourceList: React.FC = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (!isReady) {
+                          showNotice(isFailed ? 'error' : 'info', unavailableMessage, 10000);
+                          return;
+                        }
                         setSelectedDoc(src.doc_id, src);
                         setDrawerOpen(true);
                       }}
-                      title="View details"
+                      title={isReady ? 'View details' : 'Chunks unavailable until import succeeds'}
                       style={{
                         background: 'none', border: 'none',
-                        cursor: 'pointer', padding: '2px 6px', borderRadius: '4px',
+                        cursor: isReady ? 'pointer' : 'help', padding: '2px 6px', borderRadius: '4px',
                         color: isSelected ? 'var(--color-brand-600)' : 'var(--color-text-tertiary)',
                         fontSize: '13px', opacity: isSelected ? 1 : 0.6,
                         flexShrink: 0, transition: 'all var(--transition-fast)',
@@ -975,30 +996,30 @@ export const SourceList: React.FC = () => {
                         title={src.source_state?.error_message || undefined}
                         style={{
                           display: 'inline-flex', alignItems: 'center',
-                          background: src.source_state?.ingest_status === 'ready' ? 'var(--color-success-bg)' : src.source_state?.ingest_status === 'failed' ? 'var(--color-error-bg)' : 'var(--color-warning-bg)',
-                          color: src.source_state?.ingest_status === 'ready' ? 'var(--color-success-text)' : src.source_state?.ingest_status === 'failed' ? 'var(--color-error-text)' : 'var(--color-warning-text)',
+                          background: statusValue === 'ready' ? 'var(--color-success-bg)' : statusValue === 'failed' ? 'var(--color-error-bg)' : 'var(--color-warning-bg)',
+                          color: statusValue === 'ready' ? 'var(--color-success-text)' : statusValue === 'failed' ? 'var(--color-error-text)' : 'var(--color-warning-text)',
                           borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
-                          border: `1px solid ${src.source_state?.ingest_status === 'ready' ? 'var(--color-success-border)' : src.source_state?.ingest_status === 'failed' ? 'var(--color-error-border)' : 'var(--color-warning-border)'}`,
+                          border: `1px solid ${statusValue === 'ready' ? 'var(--color-success-border)' : statusValue === 'failed' ? 'var(--color-error-border)' : 'var(--color-warning-border)'}`,
                         }}
                       >
-                        {src.source_state?.ingest_status === 'ready' ? '● ready' : src.source_state?.ingest_status === 'indexing' ? '◌ indexing...' : src.source_state?.ingest_status === 'failed' ? '✕ failed' : '○ ' + (src.source_state?.ingest_status || 'unknown')}
+                        {statusValue === 'ready' ? '● ready' : statusValue === 'indexing' ? '◌ indexing...' : statusValue === 'failed' ? '✕ failed' : '○ ' + statusValue}
                       </span>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
                       <button
                         onClick={(e) => handleReingest(src.doc_id, e)}
-                        disabled={isBusy}
+                        disabled={!canReingest}
                         title="Reingest"
                         style={{
-                          background: 'none', border: 'none', cursor: isBusy ? 'not-allowed' : 'pointer',
-                          padding: '6px', borderRadius: '4px', color: isBusy ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
+                          background: 'none', border: 'none', cursor: canReingest ? 'pointer' : 'not-allowed',
+                          padding: '6px', borderRadius: '4px', color: canReingest ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)',
                           fontSize: '12px', transition: 'color var(--transition-fast), background var(--transition-fast)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           minWidth: '24px', minHeight: '24px',
                         }}
-                        onMouseOver={(e) => { if (!isBusy) { e.currentTarget.style.color = 'var(--color-brand-600)'; e.currentTarget.style.background = 'var(--color-brand-50)'; } }}
-                        onMouseOut={(e) => { e.currentTarget.style.color = isBusy ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)'; e.currentTarget.style.background = 'transparent'; }}
+                        onMouseOver={(e) => { if (canReingest) { e.currentTarget.style.color = 'var(--color-brand-600)'; e.currentTarget.style.background = 'var(--color-brand-50)'; } }}
+                        onMouseOut={(e) => { e.currentTarget.style.color = canReingest ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)'; e.currentTarget.style.background = 'transparent'; }}
                       >
                         {refreshingId === src.doc_id ? (
                           <svg viewBox="0 0 24 24" width="12" height="12" style={{ animation: 'spin 1s linear infinite', color: 'var(--color-brand-500)' }}>
@@ -1034,6 +1055,18 @@ export const SourceList: React.FC = () => {
                       </button>
                     </div>
                   </div>
+                  {isFailed && src.source_state?.error_message && (
+                    <div style={{
+                      marginTop: '6px',
+                      color: 'var(--color-error-text)',
+                      fontSize: '11px',
+                      lineHeight: 1.4,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}>
+                      {src.source_state.error_message}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

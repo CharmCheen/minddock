@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from app.core.config import get_settings
 from app.rag.source_loader import build_file_descriptor, build_url_descriptor
 from app.rag.source_models import CatalogQuery, DeleteSourceResult, SourceCatalogEntry, SourceDetail, SourceInspectResult, SourceState
 from app.rag.vectorstore import get_vectorstore, inspect_source, list_source_details
 from app.services.ingest_service import IngestService
-from app.stores.ingestion_status_store import get_all, write_ready
+from app.stores.ingestion_status_store import IngestionStatusRecord, get_all, write_ready
 from app.services.service_models import (
     CatalogServiceResult,
     DeleteSourceServiceResult,
@@ -39,41 +40,18 @@ class CatalogService:
         started = time.perf_counter()
         details = self._list_details(source_type=source_type)
         chroma_entries = [detail.entry for detail in details]
-        chroma_doc_ids: set[str] = {e.doc_id for e in chroma_entries}
+        chroma_identity_keys: set[str] = set()
+        for entry in chroma_entries:
+            chroma_identity_keys.update(self._entry_identity_keys(entry))
 
         # Append indexing/failed records not yet in Chroma
         extra_entries: list[SourceCatalogEntry] = []
         for rec in get_all():
-            if rec.doc_id in chroma_doc_ids:
+            if self._status_record_identity_keys(rec) & chroma_identity_keys:
                 continue
             if source_type is not None and rec.source_type != source_type:
                 continue
-            state = SourceState(
-                doc_id=rec.doc_id,
-                source=rec.requested_url,
-                current_version=None,
-                content_hash=None,
-                last_ingested_at=None,
-                chunk_count=0,
-                ingest_status=rec.status,
-                error_message=rec.error_message,
-            )
-            extra_entries.append(
-                SourceCatalogEntry(
-                    doc_id=rec.doc_id,
-                    source=rec.requested_url,
-                    source_type=rec.source_type,
-                    title=rec.requested_url,
-                    chunk_count=0,
-                    sections=(),
-                    pages=(),
-                    requested_url=rec.requested_url,
-                    final_url=None,
-                    state=state,
-                    domain=None,
-                    description=rec.error_message,
-                ),
-            )
+            extra_entries.append(self._entry_from_status_record(rec).entry)
 
         all_entries = [*chroma_entries, *extra_entries]
         return CatalogServiceResult(
@@ -104,7 +82,7 @@ class CatalogService:
         include_admin_metadata: bool = False,
     ) -> SourceDetailServiceResult:
         started = time.perf_counter()
-        detail = self._resolve_detail(doc_id=doc_id, source=source)
+        detail = self._resolve_detail(doc_id=doc_id, source=source) or self._resolve_status_detail(doc_id=doc_id, source=source)
         found = detail is not None
         admin_metadata = self._build_source_admin_metadata(detail) if include_admin_metadata and detail is not None else {}
         return SourceDetailServiceResult(
@@ -196,7 +174,7 @@ class CatalogService:
 
     def delete_source(self, *, doc_id: str | None = None, source: str | None = None) -> DeleteSourceServiceResult:
         started = time.perf_counter()
-        detail = self._resolve_detail(doc_id=doc_id, source=source)
+        detail = self._resolve_detail(doc_id=doc_id, source=source) or self._resolve_status_detail(doc_id=doc_id, source=source)
         if detail is None:
             return DeleteSourceServiceResult(
                 result=DeleteSourceResult(found=False),
@@ -233,7 +211,7 @@ class CatalogService:
 
     def reingest_source(self, *, doc_id: str | None = None, source: str | None = None) -> ReingestSourceServiceResult:
         started = time.perf_counter()
-        detail = self._resolve_detail(doc_id=doc_id, source=source)
+        detail = self._resolve_detail(doc_id=doc_id, source=source) or self._resolve_status_detail(doc_id=doc_id, source=source)
         if detail is None and not source:
             return ReingestSourceServiceResult(
                 found=False,
@@ -290,6 +268,78 @@ class CatalogService:
             if normalized_source and detail.entry.source == normalized_source:
                 return detail
         return None
+
+    def _resolve_status_detail(self, *, doc_id: str | None = None, source: str | None = None) -> SourceDetail | None:
+        lookup_keys = self._identity_keys_for_values((doc_id, source))
+        if not lookup_keys:
+            return None
+        for rec in get_all():
+            if lookup_keys & self._status_record_identity_keys(rec):
+                return self._entry_from_status_record(rec)
+        return None
+
+    def _entry_from_status_record(self, rec: IngestionStatusRecord) -> SourceDetail:
+        state = SourceState(
+            doc_id=rec.doc_id,
+            source=rec.requested_url,
+            current_version=None,
+            content_hash=None,
+            last_ingested_at=None,
+            chunk_count=0,
+            ingest_status=rec.status,
+            error_message=rec.error_message,
+        )
+        entry = SourceCatalogEntry(
+            doc_id=rec.doc_id,
+            source=rec.requested_url,
+            source_type=rec.source_type,
+            title=rec.requested_url,
+            chunk_count=0,
+            sections=(),
+            pages=(),
+            requested_url=rec.requested_url if rec.source_type == "url" else None,
+            final_url=None,
+            state=state,
+            domain=None,
+            description=rec.error_message,
+        )
+        return SourceDetail(entry=entry, representative_metadata={"source": rec.requested_url, "status": rec.status})
+
+    def _entry_identity_keys(self, entry: SourceCatalogEntry) -> set[str]:
+        values: list[str | None] = [
+            entry.doc_id,
+            entry.source,
+            entry.requested_url,
+            entry.final_url,
+        ]
+        if entry.state is not None:
+            values.extend([entry.state.doc_id, entry.state.source])
+        return self._identity_keys_for_values(values)
+
+    def _status_record_identity_keys(self, rec: IngestionStatusRecord) -> set[str]:
+        return self._identity_keys_for_values((rec.doc_id, rec.requested_url))
+
+    def _identity_keys_for_values(self, values: tuple[str | None, ...] | list[str | None]) -> set[str]:
+        keys: set[str] = set()
+        for value in values:
+            if not value:
+                continue
+            stripped = value.strip()
+            if not stripped:
+                continue
+            keys.add(stripped)
+            keys.add(self._normalize_url_key(stripped))
+        return {key for key in keys if key}
+
+    def _normalize_url_key(self, value: str) -> str:
+        try:
+            parsed = urlsplit(value)
+        except ValueError:
+            return value.rstrip("/")
+        if not parsed.scheme or not parsed.netloc:
+            return value.rstrip("/")
+        path = parsed.path.rstrip("/")
+        return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, parsed.query, ""))
 
     def _inspect_doc_id(
         self,

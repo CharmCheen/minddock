@@ -222,6 +222,82 @@ test.describe('source list with new contract', () => {
     await expect(page.locator('text=PDF Report')).toBeVisible();
   });
 
+  test('renders durable pending and failed URL rows without allowing retrieval selection', async ({ page }) => {
+    await page.route('**/sources', (route) => {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              doc_id: 'pending-url-doc',
+              source: 'https://example.com/pending',
+              source_type: 'url',
+              title: 'Pending Article',
+              chunk_count: 0,
+              sections: [],
+              pages: [],
+              requested_url: 'https://example.com/pending',
+              final_url: null,
+              source_state: {
+                doc_id: 'pending-url-doc',
+                source: 'https://example.com/pending',
+                current_version: null,
+                content_hash: null,
+                last_ingested_at: null,
+                chunk_count: 0,
+                ingest_status: 'indexing',
+                error_message: null,
+              },
+              domain: null,
+              description: null,
+            },
+            {
+              doc_id: 'failed-url-doc',
+              source: 'https://example.com/failed',
+              source_type: 'url',
+              title: 'Failed Article',
+              chunk_count: 0,
+              sections: [],
+              pages: [],
+              requested_url: 'https://example.com/failed',
+              final_url: null,
+              source_state: {
+                doc_id: 'failed-url-doc',
+                source: 'https://example.com/failed',
+                current_version: null,
+                content_hash: null,
+                last_ingested_at: null,
+                chunk_count: 0,
+                ingest_status: 'failed',
+                error_message: 'Import failed due to 404',
+              },
+              domain: null,
+              description: 'Import failed due to 404',
+            },
+          ],
+          total: 2,
+        }),
+      });
+    });
+
+    await page.goto('/');
+
+    await expect(page.locator('text=Pending Article')).toBeVisible();
+    await expect(page.locator('text=Failed Article')).toBeVisible();
+    await expect(page.locator('text=Import failed due to 404')).toBeVisible();
+
+    await page.locator('text=Pending Article').click();
+    await expect(page.getByRole('status')).toContainText('still importing');
+    await expect(page.getByText(/1 selected/)).not.toBeVisible();
+    await expect(page.getByTestId('source-drawer')).not.toBeVisible();
+
+    await page.locator('text=Failed Article').click();
+    await expect(page.getByRole('status')).toContainText('Import failed due to 404');
+    await expect(page.getByText(/1 selected/)).not.toBeVisible();
+    await expect(page.getByTestId('source-drawer')).not.toBeVisible();
+  });
+
   test('delete source triggers confirmation and refreshes list', async ({ page }) => {
     let deleteCalled = false;
     let deleted = false;

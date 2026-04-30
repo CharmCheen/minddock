@@ -46,21 +46,27 @@ def test_enabled_local_csv_skill_matches_csv_source(tmp_path: Path, monkeypatch)
     assert binding.config == {"max_rows": 500}
 
 
-def test_disabled_local_skill_does_not_match(tmp_path: Path, monkeypatch) -> None:
+def test_disabled_local_skill_falls_back_to_builtin_csv(tmp_path: Path, monkeypatch) -> None:
     registry = _registry(tmp_path, monkeypatch)
     assert registry.register_manifest(_manifest(enabled=False)).ok is True
 
     binding = resolve_source_skill_binding("data.csv", registry=registry)
 
-    assert binding is None
+    assert binding is not None
+    assert binding.skill_id == "csv.extract"
+    assert binding.skill_origin == "builtin"
 
 
-def test_non_local_builtin_skill_is_not_a_local_binding(tmp_path: Path, monkeypatch) -> None:
+def test_csv_source_resolves_to_builtin_extract_without_local_manifest(tmp_path: Path, monkeypatch) -> None:
     registry = _registry(tmp_path, monkeypatch)
 
-    binding = resolve_source_skill_binding("data.csv", registry=registry)
+    result = resolve_source_skill_binding_with_reason("data.csv", registry=registry)
 
-    assert binding is None
+    assert result.binding is not None
+    assert result.reason == "matched_builtin_source_skill"
+    assert result.binding.skill_id == "csv.extract"
+    assert result.binding.skill_origin == "builtin"
+    assert result.binding.handler == "csv.extract"
 
 
 def test_video_source_resolves_to_builtin_transcribe_without_local_manifest(tmp_path: Path, monkeypatch) -> None:
@@ -69,7 +75,7 @@ def test_video_source_resolves_to_builtin_transcribe_without_local_manifest(tmp_
     result = resolve_source_skill_binding_with_reason("demo_video.mp4", registry=registry)
 
     assert result.binding is not None
-    assert result.reason == "matched_builtin_media_skill"
+    assert result.reason == "matched_builtin_source_skill"
     assert result.binding.skill_id == "video.transcribe"
     assert result.binding.skill_origin == "builtin"
     assert result.binding.handler == "video.transcribe"
@@ -81,10 +87,68 @@ def test_audio_source_resolves_to_builtin_transcribe_without_local_manifest(tmp_
     result = resolve_source_skill_binding_with_reason("meeting.mp3", registry=registry)
 
     assert result.binding is not None
-    assert result.reason == "matched_builtin_media_skill"
+    assert result.reason == "matched_builtin_source_skill"
     assert result.binding.skill_id == "audio.transcribe"
     assert result.binding.skill_origin == "builtin"
     assert result.binding.handler == "audio.transcribe"
+
+
+def test_image_source_resolves_to_builtin_ocr_without_local_manifest(tmp_path: Path, monkeypatch) -> None:
+    registry = _registry(tmp_path, monkeypatch)
+
+    result = resolve_source_skill_binding_with_reason("screenshot.jpg", registry=registry)
+
+    assert result.binding is not None
+    assert result.reason == "matched_builtin_source_skill"
+    assert result.binding.skill_id == "image.ocr"
+    assert result.binding.skill_origin == "builtin"
+    assert result.binding.handler == "image.ocr"
+
+
+def test_url_source_resolves_to_builtin_extract_without_local_manifest(tmp_path: Path, monkeypatch) -> None:
+    registry = _registry(tmp_path, monkeypatch)
+
+    result = resolve_source_skill_binding_with_reason("https://example.com/docs", registry=registry)
+
+    assert result.binding is not None
+    assert result.reason == "matched_builtin_source_skill"
+    assert result.binding.skill_id == "url.extract"
+    assert result.binding.skill_origin == "builtin"
+    assert result.binding.handler == "url.extract"
+
+
+def test_document_sources_resolve_to_builtin_extractors_without_local_manifest(tmp_path: Path, monkeypatch) -> None:
+    registry = _registry(tmp_path, monkeypatch)
+
+    cases = {
+        "paper.pdf": "file.pdf",
+        "notes.txt": "file.text",
+        "readme.md": "file.markdown",
+    }
+    for source, skill_id in cases.items():
+        result = resolve_source_skill_binding_with_reason(source, registry=registry)
+        assert result.binding is not None
+        assert result.reason == "matched_builtin_source_skill"
+        assert result.binding.skill_id == skill_id
+        assert result.binding.skill_origin == "builtin"
+
+
+def test_unsupported_extension_does_not_resolve_to_builtin(tmp_path: Path, monkeypatch) -> None:
+    registry = _registry(tmp_path, monkeypatch)
+
+    result = resolve_source_skill_binding_with_reason("archive.zip", registry=registry)
+
+    assert result.binding is None
+    assert result.reason == "no_matching_local_skill"
+
+
+def test_non_media_files_do_not_map_to_audio_or_video_builtin(tmp_path: Path, monkeypatch) -> None:
+    registry = _registry(tmp_path, monkeypatch)
+
+    for source in ("table.csv", "image.png", "paper.pdf", "notes.md"):
+        result = resolve_source_skill_binding_with_reason(source, registry=registry)
+        assert result.binding is not None
+        assert result.binding.skill_id not in {"audio.transcribe", "video.transcribe"}
 
 
 def test_multiple_matching_local_skills_are_ambiguous(tmp_path: Path, monkeypatch) -> None:
@@ -141,7 +205,7 @@ def test_ingest_csv_chunk_metadata_includes_enabled_local_skill(tmp_path: Path, 
     assert "local.project_csv" not in documents[0].page_content
 
 
-def test_disabled_local_skill_does_not_write_ingest_metadata(tmp_path: Path, monkeypatch) -> None:
+def test_disabled_local_skill_writes_builtin_ingest_metadata(tmp_path: Path, monkeypatch) -> None:
     registry = _registry(tmp_path, monkeypatch)
     assert registry.register_manifest(_manifest(enabled=False)).ok is True
     kb_dir = tmp_path / "knowledge_base"
@@ -152,7 +216,9 @@ def test_disabled_local_skill_does_not_write_ingest_metadata(tmp_path: Path, mon
     documents = build_documents_for_source(build_file_descriptor(csv_path, kb_dir))
 
     assert documents
-    assert "skill_id" not in documents[0].metadata
+    assert documents[0].metadata["skill_id"] == "csv.extract"
+    assert documents[0].metadata["skill_handler"] == "csv.extract"
+    assert documents[0].metadata["skill_origin"] == "builtin"
 
 
 def test_ambiguous_local_skills_do_not_write_skill_identity(tmp_path: Path, monkeypatch) -> None:
@@ -286,3 +352,24 @@ def test_disabled_local_audio_skill_falls_back_to_builtin(tmp_path: Path, monkey
     assert binding is not None
     assert binding.skill_id == "audio.transcribe"
     assert binding.skill_origin == "builtin"
+
+
+def test_builtin_image_ingest_metadata_is_written_without_local_manifest(tmp_path: Path, monkeypatch) -> None:
+    from app.rag.image_loader import ImageSourceLoader, MockOcrClient
+    from app.rag.source_loader import SourceLoaderRegistry
+
+    _registry(tmp_path, monkeypatch)
+    kb_dir = tmp_path / "knowledge_base"
+    kb_dir.mkdir()
+    image_path = kb_dir / "screenshot.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    documents = build_documents_for_source(
+        build_file_descriptor(image_path, kb_dir),
+        registry=SourceLoaderRegistry(loaders=[ImageSourceLoader(ocr_client=MockOcrClient(text="Image text"))]),
+    )
+
+    assert documents
+    assert documents[0].metadata["skill_id"] == "image.ocr"
+    assert documents[0].metadata["skill_handler"] == "image.ocr"
+    assert documents[0].metadata["skill_origin"] == "builtin"

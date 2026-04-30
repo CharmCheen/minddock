@@ -211,7 +211,7 @@ function RuntimeTab() {
   const effectiveProviderLabel = PROVIDER_LABELS[effectiveRuntime?.provider_kind || ''] || effectiveRuntime?.provider_kind || 'Not configured';
   const hasUsableKey = status.hasUsableKey;
   const canSave = isDirty && !saving;
-  const canTest = Boolean(form.base_url.trim() && form.model.trim() && form.api_key.trim()) && !testing;
+  const canTest = Boolean(form.base_url.trim() && form.model.trim()) && !testing;
 
   const handleSave = () => {
     void saveConfig(form);
@@ -348,6 +348,9 @@ function RuntimeTab() {
                 e.target.style.boxShadow = 'none';
               }}
             />
+            <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.45 }}>
+              API key is kept only for the current backend session. After restarting the backend, re-enter it or set LLM_API_KEY in your environment.
+            </span>
           </label>
 
           <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>

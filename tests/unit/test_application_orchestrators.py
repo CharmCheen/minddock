@@ -1889,6 +1889,59 @@ def test_intent_classification_auto_defaults_to_chat(monkeypatch) -> None:
     assert response.metadata.workflow_trace["detected_intent"]["confidence"] == 0.5
 
 
+def test_intent_classification_auto_preserves_selected_source_filters(monkeypatch) -> None:
+    """Auto mode must keep explicit selected-source filters through retrieval and execution."""
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+    filters = RetrievalFilters(sources=("kb/a.md", "kb/b.md"), section="Storage")
+    observed_pipeline_filters: list[RetrievalFilters | None] = []
+    observed_request_filters: list[RetrievalFilters | None] = []
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            observed_pipeline_filters.append(kwargs["filters"])
+            return {"hits": []}
+
+    def fake_chat(*, request, runtime, precomputed_hits=None):
+        assert request.task_type == TaskType.CHAT
+        observed_request_filters.append(request.retrieval.filters)
+        return ChatServiceResult(
+            answer="chat response",
+            citations=[],
+            grounded_answer=GroundedAnswer(answer="chat response"),
+            metadata=UseCaseMetadata(retrieved_count=0, mode="grounded"),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "_retrieval_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_chat)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=None,
+            user_input="Explain storage details",
+            retrieval=RetrievalOptions(top_k=4, filters=filters),
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            include_metadata=True,
+        )
+    )
+
+    assert response.task_type == TaskType.CHAT
+    assert observed_pipeline_filters == [filters]
+    assert observed_request_filters == [filters]
+    assert response.metadata.workflow_trace["detected_intent"]["task_type"] == "chat"
+    assert response.metadata.workflow_trace["detected_intent"]["user_override"] is False
+
+
 def test_intent_classification_explicit_task_type_preserves_override(monkeypatch) -> None:
     """When task_type is explicitly provided, user_override=True and task is preserved."""
     chat_orchestrator = ChatOrchestrator()

@@ -3,6 +3,37 @@ import { useWorkspaceStore } from '../store';
 import { SourceService } from '../../../lib/api/services/sources';
 import { useAvailabilityStore } from '../../app/store/availability';
 import { IconLink, IconFileText, IconPlug, IconX } from '../../../components/ui/icons';
+import { SourceItem } from '../../../core/types/api';
+
+const EXTRACTION_WARNING_TEXT = 'Extraction may be incomplete. This page may require JavaScript rendering or contain little readable text.';
+const LOW_TEXT_CHAR_THRESHOLD = 300;
+const QUALITY_IMPACTING_EXTRACTION_WARNINGS = new Set(['empty_main_text', 'non_html_content_type']);
+
+function metadataString(metadata: Record<string, unknown> | undefined, key: string): string {
+  const value = metadata?.[key];
+  return typeof value === 'string' ? value : value == null ? '' : String(value);
+}
+
+function hasUrlExtractionWarning(source: SourceItem | null): boolean {
+  if (!source || source.source_type !== 'url' || source.source_state?.ingest_status !== 'ready') {
+    return false;
+  }
+  const metadata = source.representative_metadata || {};
+  const warnings = metadataString(metadata, 'extraction_warnings') || metadataString(metadata, 'loader_warnings');
+  const warningCodes = warnings
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (warningCodes.some((code) => QUALITY_IMPACTING_EXTRACTION_WARNINGS.has(code))) {
+    return true;
+  }
+  const quality = metadataString(metadata, 'extraction_quality');
+  if (quality && !['ok', 'good'].includes(quality)) {
+    return true;
+  }
+  const charCount = Number(metadataString(metadata, 'extracted_char_count'));
+  return Number.isFinite(charCount) && charCount > 0 && charCount < LOW_TEXT_CHAR_THRESHOLD;
+}
 
 export const SourceDrawer: React.FC = () => {
   const {
@@ -23,10 +54,21 @@ export const SourceDrawer: React.FC = () => {
   } = useWorkspaceStore();
   const { status: backendStatus } = useAvailabilityStore();
   const citationMode = Boolean(activeCitation && activeCitation.doc_id === selectedDocId);
+  const selectedStatus = selectedDocDetail?.source_state?.ingest_status || 'ready';
+  const selectedSourceReady = selectedStatus === 'ready';
+  const selectedSourceChunksUnavailable = Boolean(selectedDocDetail && !selectedSourceReady);
+  const unavailableChunksMessage = selectedStatus === 'failed'
+    ? selectedDocDetail?.source_state?.error_message || 'Import failed. Chunks are unavailable for this source.'
+    : 'MindDock is still importing this source. Chunks will be available after import completes.';
+  const showExtractionWarning = hasUrlExtractionWarning(selectedDocDetail);
 
   useEffect(() => {
     if (!drawerOpen || !selectedDocId) return;
-    if (selectedDocDetail?.doc_id === selectedDocId && selectedDocDetail?.source_state !== null) return;
+    if (
+      selectedDocDetail?.doc_id === selectedDocId
+      && selectedDocDetail?.source_state !== null
+      && selectedDocDetail?.representative_metadata
+    ) return;
 
     let mounted = true;
     const controller = new AbortController();
@@ -50,6 +92,11 @@ export const SourceDrawer: React.FC = () => {
   useEffect(() => {
     if (!drawerOpen || !selectedDocId) return;
     if (backendStatus !== 'online') return;
+    if (selectedDocDetail?.doc_id === selectedDocId && selectedDocDetail.source_state?.ingest_status !== 'ready') {
+      setDocChunks([], 0);
+      setLoadingChunks(false);
+      return;
+    }
 
     let mounted = true;
     const controller = new AbortController();
@@ -81,7 +128,7 @@ export const SourceDrawer: React.FC = () => {
       mounted = false;
       controller.abort();
     };
-  }, [drawerOpen, selectedDocId, backendStatus]);
+  }, [drawerOpen, selectedDocId, backendStatus, selectedDocDetail, setDocChunks, setLoadingChunks]);
 
   useEffect(() => {
     if (highlightedChunkId && !loadingChunks) {
@@ -210,13 +257,30 @@ export const SourceDrawer: React.FC = () => {
             )}
             <span style={{
               display: 'inline-flex', alignItems: 'center',
-              background: selectedDocDetail.source_state?.ingest_status === 'ready' ? 'var(--color-success-bg)' : 'var(--color-warning-bg)',
-              color: selectedDocDetail.source_state?.ingest_status === 'ready' ? 'var(--color-success-text)' : 'var(--color-warning-text)',
+              background: selectedStatus === 'ready' ? 'var(--color-success-bg)' : selectedStatus === 'failed' ? 'var(--color-error-bg)' : 'var(--color-warning-bg)',
+              color: selectedStatus === 'ready' ? 'var(--color-success-text)' : selectedStatus === 'failed' ? 'var(--color-error-text)' : 'var(--color-warning-text)',
               borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '11px', fontWeight: 600,
-              border: `1px solid ${selectedDocDetail.source_state?.ingest_status === 'ready' ? 'var(--color-success-border)' : 'var(--color-warning-border)'}`,
+              border: `1px solid ${selectedStatus === 'ready' ? 'var(--color-success-border)' : selectedStatus === 'failed' ? 'var(--color-error-border)' : 'var(--color-warning-border)'}`,
             }}>
-              {selectedDocDetail.source_state?.ingest_status === 'ready' ? '● ready' : '○ ' + (selectedDocDetail.source_state?.ingest_status || 'unknown')}
+              {selectedStatus === 'ready' ? '● ready' : selectedStatus === 'failed' ? '✕ failed' : '○ ' + selectedStatus}
             </span>
+          </div>
+        )}
+
+        {showExtractionWarning && (
+          <div
+            data-testid="source-extraction-warning"
+            style={{
+              padding: '10px 20px',
+              borderBottom: '1px solid var(--color-warning-border)',
+              background: 'var(--color-warning-bg)',
+              color: 'var(--color-warning-text)',
+              fontSize: '12px',
+              lineHeight: 1.45,
+              flexShrink: 0,
+            }}
+          >
+            {EXTRACTION_WARNING_TEXT}
           </div>
         )}
 
@@ -335,7 +399,14 @@ export const SourceDrawer: React.FC = () => {
               boxShadow: 'var(--shadow-sm)',
             }}>
               <div style={{ color: 'var(--color-text-tertiary)', fontSize: '24px', marginBottom: '8px' }}>📭</div>
-              <div style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>No chunks available</div>
+              <div style={{ color: 'var(--color-text-secondary)', fontSize: '14px', fontWeight: selectedSourceChunksUnavailable ? 700 : 400 }}>
+                {selectedSourceChunksUnavailable ? 'Chunks unavailable' : 'No chunks available'}
+              </div>
+              {selectedSourceChunksUnavailable && (
+                <div style={{ color: selectedStatus === 'failed' ? 'var(--color-error-text)' : 'var(--color-text-tertiary)', fontSize: '12px', lineHeight: 1.5, marginTop: '8px' }}>
+                  {unavailableChunksMessage}
+                </div>
+              )}
             </div>
           )}
 

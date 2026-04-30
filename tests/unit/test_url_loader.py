@@ -47,6 +47,10 @@ def _mock_get(monkeypatch, response: FakeResponse) -> None:
     monkeypatch.setattr("app.rag.url_loader.httpx.get", lambda *args, **kwargs: response)
 
 
+def _long_body() -> str:
+    return " ".join(["This article has enough extracted main text for a normal quality URL source."] * 8)
+
+
 def test_html_parser_extracts_title_and_main_text() -> None:
     parser = _MainTextHTMLParser()
     parser.feed(
@@ -346,7 +350,7 @@ def test_url_source_loader_metadata_contract(monkeypatch) -> None:
                 "<html><head><title>Contract</title>"
                 "<meta name='description' content='Contract description.' />"
                 "<link rel='canonical' href='https://example.com/canonical' />"
-                "</head><body><main><p>Contract body content for chunking and metadata tests.</p></main></body></html>"
+                f"</head><body><main><p>{_long_body()}</p></main></body></html>"
             ),
             url="https://example.com/final",
         ),
@@ -362,9 +366,48 @@ def test_url_source_loader_metadata_contract(monkeypatch) -> None:
     assert load_result.metadata["domain"] == "example.com"
     assert load_result.metadata["canonical_url"] == "https://example.com/canonical"
     assert load_result.metadata["meta_description"] == "Contract description."
+    assert load_result.metadata["extracted_char_count"] == str(len(load_result.text.strip()))
+    assert load_result.metadata["extraction_quality"] == "ok"
+    assert "extraction_warnings" not in load_result.metadata
 
 
-def test_url_loader_warnings_flow_to_chunk_metadata(monkeypatch) -> None:
+def test_url_source_loader_canonical_missing_with_healthy_text_is_not_quality_warning(monkeypatch) -> None:
+    _mock_url_settings(monkeypatch)
+    _mock_get(
+        monkeypatch,
+        FakeResponse(
+            text=f"<html><head><title>Healthy</title></head><body><main><p>{_long_body()}</p></main></body></html>",
+            url="https://example.com/healthy",
+        ),
+    )
+
+    load_result = URLSourceLoader().load(build_url_descriptor("https://example.com/healthy"))
+
+    assert load_result.warnings == ("canonical_missing",)
+    assert load_result.metadata["extraction_warnings"] == "canonical_missing"
+    assert load_result.metadata["extraction_quality"] == "ok"
+    assert int(load_result.metadata["extracted_char_count"]) == len(load_result.text.strip())
+
+
+def test_url_source_loader_empty_text_is_quality_warning(monkeypatch) -> None:
+    _mock_url_settings(monkeypatch)
+    _mock_get(
+        monkeypatch,
+        FakeResponse(
+            text="<html><head><title>Empty</title></head><body></body></html>",
+            url="https://example.com/empty",
+        ),
+    )
+
+    load_result = URLSourceLoader().load(build_url_descriptor("https://example.com/empty"))
+
+    assert "empty_main_text" in load_result.warnings
+    assert load_result.metadata["extraction_warnings"] == "canonical_missing,empty_main_text"
+    assert load_result.metadata["extracted_char_count"] == "0"
+    assert load_result.metadata["extraction_quality"] == "warning"
+
+
+def test_url_loader_quality_metadata_flows_to_chunk_metadata(monkeypatch) -> None:
     _mock_url_settings(monkeypatch)
     _mock_get(
         monkeypatch,
@@ -382,4 +425,7 @@ def test_url_loader_warnings_flow_to_chunk_metadata(monkeypatch) -> None:
     assert documents
     assert documents[0].page_content == "Warning metadata body content."
     assert documents[0].metadata["loader_warnings"] == "canonical_missing"
+    assert documents[0].metadata["extraction_warnings"] == "canonical_missing"
+    assert documents[0].metadata["extracted_char_count"] == str(len("Warning metadata body content."))
+    assert documents[0].metadata["extraction_quality"] == "low_text"
     assert "canonical_missing" not in documents[0].page_content

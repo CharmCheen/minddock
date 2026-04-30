@@ -132,6 +132,7 @@ export interface SourceItem {
   source_state: SourceStateItem | null;
   domain: string | null;
   description: string | null;
+  representative_metadata?: Record<string, unknown>;
 }
 
 export interface SourceCatalogResponse {

@@ -17,6 +17,7 @@ def _isolate_status_store(monkeypatch):
     ensures they always see an empty status store.
     """
     monkeypatch.setattr("app.services.catalog_service.get_all", lambda: [])
+    monkeypatch.setattr("app.services.catalog_service.write_ready", lambda doc_id: None)
 
 
 class FakeCollection:
@@ -319,3 +320,153 @@ def test_list_sources_deduplicates_chroma_over_status(monkeypatch, tmp_path: Pat
     d_url_entry = next(e for e in result.entries if e.doc_id == "d-url")
     # Chroma's real entry wins, not the indexing placeholder
     assert d_url_entry.state is not None and d_url_entry.state.ingest_status == "ready"
+
+
+def test_list_sources_deduplicates_status_records_by_url_identity(monkeypatch, tmp_path: Path) -> None:
+    """Ready Chroma URL entries should suppress stale requested/final URL status rows."""
+    from unittest.mock import patch
+    from app.stores.ingestion_status_store import IngestionStatusRecord
+
+    pending_records = [
+        IngestionStatusRecord(
+            doc_id="stale-requested-doc",
+            requested_url="https://example.com/requested/",
+            source_type="url",
+            status="indexing",
+        ),
+        IngestionStatusRecord(
+            doc_id="stale-final-doc",
+            requested_url="https://example.com/final/",
+            source_type="url",
+            status="failed",
+            error_message="old redirect failure",
+        ),
+    ]
+
+    service = CatalogService(
+        settings=SimpleNamespace(kb_dir=str(tmp_path / "kb")),
+        collection=FakeCollection(),
+        ingest_service=FakeIngestService(),
+    )
+    with patch("app.services.catalog_service.get_all", lambda: pending_records):
+        result = service.list_sources()
+
+    doc_ids = {e.doc_id for e in result.entries}
+    assert doc_ids == {"d-file", "d-url"}
+    assert next(e for e in result.entries if e.doc_id == "d-url").source == "https://example.com/final"
+
+
+def test_list_sources_does_not_dedupe_distinct_urls_on_same_domain(monkeypatch, tmp_path: Path) -> None:
+    from unittest.mock import patch
+    from app.stores.ingestion_status_store import IngestionStatusRecord
+
+    pending_records = [
+        IngestionStatusRecord(
+            doc_id="different-url-doc",
+            requested_url="https://example.com/different",
+            source_type="url",
+            status="indexing",
+        ),
+    ]
+    service = CatalogService(
+        settings=SimpleNamespace(kb_dir=str(tmp_path / "kb")),
+        collection=FakeCollection(),
+        ingest_service=FakeIngestService(),
+    )
+
+    with patch("app.services.catalog_service.get_all", lambda: pending_records):
+        result = service.list_sources()
+
+    doc_ids = {e.doc_id for e in result.entries}
+    assert "d-url" in doc_ids
+    assert "different-url-doc" in doc_ids
+
+
+def test_catalog_service_resolves_status_only_failed_source(monkeypatch, tmp_path: Path) -> None:
+    from app.stores.ingestion_status_store import IngestionStatusRecord
+
+    failed_record = IngestionStatusRecord(
+        doc_id="failed-doc",
+        requested_url="https://failed.example/article",
+        source_type="url",
+        status="failed",
+        error_message="HTTP 500",
+    )
+    cleared_doc_ids: list[str] = []
+    service = CatalogService(
+        settings=SimpleNamespace(kb_dir=str(tmp_path / "kb")),
+        collection=FakeCollection(),
+        ingest_service=FakeIngestService(),
+    )
+
+    monkeypatch.setattr("app.services.catalog_service.get_all", lambda: [failed_record])
+    monkeypatch.setattr("app.services.catalog_service.write_ready", lambda doc_id: cleared_doc_ids.append(doc_id))
+
+    detail = service.get_source_detail(doc_id="failed-doc")
+    delete = service.delete_source(source="https://failed.example/article")
+    reingest = service.reingest_source(doc_id="failed-doc")
+
+    assert detail.found is True
+    assert detail.detail is not None
+    assert detail.detail.entry.chunk_count == 0
+    assert detail.detail.entry.state is not None
+    assert detail.detail.entry.state.ingest_status == "failed"
+    assert detail.detail.entry.state.error_message == "HTTP 500"
+    assert delete.result.found is True
+    assert delete.result.deleted_chunks == 0
+    assert cleared_doc_ids == ["failed-doc"]
+    assert reingest.found is True
+    assert reingest.source_result is not None
+    assert reingest.source_result.descriptor.source == "https://failed.example/article"
+
+
+def test_catalog_service_reingests_status_only_pending_url_without_noop(monkeypatch, tmp_path: Path) -> None:
+    from app.stores.ingestion_status_store import IngestionStatusRecord
+
+    pending_record = IngestionStatusRecord(
+        doc_id="pending-doc",
+        requested_url="https://pending.example/article",
+        source_type="url",
+        status="indexing",
+    )
+    ingest_service = FakeIngestService()
+    service = CatalogService(
+        settings=SimpleNamespace(kb_dir=str(tmp_path / "kb")),
+        collection=FakeCollection(),
+        ingest_service=ingest_service,
+    )
+    monkeypatch.setattr("app.services.catalog_service.get_all", lambda: [pending_record])
+
+    reingest = service.reingest_source(doc_id="pending-doc")
+
+    assert reingest.found is True
+    assert reingest.source_result is not None
+    assert reingest.source_result.descriptor.source == "https://pending.example/article"
+    assert ingest_service.last_descriptor is not None
+    assert ingest_service.last_descriptor.source == "https://pending.example/article"
+
+
+def test_catalog_service_detail_exposes_url_extraction_quality_metadata(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    collection.details[1] = SourceDetail(
+        entry=collection.details[1].entry,
+        representative_metadata={
+            "requested_url": "https://example.com/requested",
+            "extraction_warnings": "canonical_missing",
+            "extracted_char_count": "42",
+            "extraction_quality": "warning",
+        },
+    )
+    service = CatalogService(
+        settings=SimpleNamespace(kb_dir=str(tmp_path / "kb")),
+        collection=collection,
+        ingest_service=FakeIngestService(),
+    )
+
+    detail = service.get_source_detail(doc_id="d-url")
+
+    assert detail.found is True
+    assert detail.detail is not None
+    assert detail.detail.representative_metadata["extraction_warnings"] == "canonical_missing"
+    assert detail.detail.representative_metadata["extracted_char_count"] == "42"
+    assert detail.detail.representative_metadata["extraction_quality"] == "warning"

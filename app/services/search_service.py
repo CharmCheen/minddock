@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from app.core.config import get_settings
 from app.core.exceptions import SearchError
@@ -35,6 +35,20 @@ class SearchService:
     def retrieve(self, query: str, top_k: int, filters: RetrievalFilters | None = None) -> list[RetrievedChunk]:
         """Retrieve normalized hits from the vector store."""
 
+        if filters is not None and len(filters.sources) > 1:
+            return self._retrieve_multi_source(query=query, top_k=top_k, filters=filters)
+
+        return self._retrieve_single(query=query, top_k=top_k, filters=filters)
+
+    def _retrieve_single(
+        self,
+        *,
+        query: str,
+        top_k: int,
+        filters: RetrievalFilters | None = None,
+    ) -> list[RetrievedChunk]:
+        """Retrieve hits for an already-normalized source scope."""
+
         settings = get_settings()
         if settings.hybrid_retrieval_enabled:
             return self._get_hybrid_service().retrieve(query=query, top_k=top_k, filters=filters)
@@ -46,6 +60,47 @@ class SearchService:
             top_k,
             len(hits),
             filters,
+        )
+        return hits
+
+    def _retrieve_multi_source(
+        self,
+        *,
+        query: str,
+        top_k: int,
+        filters: RetrievalFilters,
+    ) -> list[RetrievedChunk]:
+        """Retrieve independently from each selected source, then merge.
+
+        Chroma pushdown in this project only supports a single source equality
+        filter. Fan-out avoids all-source candidate starvation when the UI has
+        scoped retrieval to multiple selected sources.
+        """
+
+        merged: list[tuple[int, RetrievedChunk]] = []
+        for source in filters.sources:
+            source_filters = replace(filters, sources=(source,))
+            source_hits = self._retrieve_single(query=query, top_k=top_k, filters=source_filters)
+            base_index = len(merged)
+            merged.extend((base_index + index, hit) for index, hit in enumerate(source_hits))
+
+        seen_chunk_ids: set[str] = set()
+        deduped: list[tuple[int, RetrievedChunk]] = []
+        for original_index, hit in merged:
+            if hit.chunk_id:
+                if hit.chunk_id in seen_chunk_ids:
+                    continue
+                seen_chunk_ids.add(hit.chunk_id)
+            deduped.append((original_index, hit))
+
+        deduped.sort(key=_retrieval_merge_sort_key)
+        hits = [hit for _index, hit in deduped[:top_k]]
+        logger.debug(
+            "Multi-source retrieval completed: query_preview=%s top_k=%d sources=%d hits=%d",
+            query[:60],
+            top_k,
+            len(filters.sources),
+            len(hits),
         )
         return hits
 
@@ -124,3 +179,14 @@ class SearchService:
         except Exception as exc:
             logger.exception("Search failed: query_preview=%s", query[:60])
             raise SearchError(detail=f"Search failed: {exc}") from exc
+
+
+def _retrieval_merge_sort_key(item: tuple[int, RetrievedChunk]) -> tuple[int, float, int]:
+    original_index, hit = item
+    if hit.rerank_score is not None:
+        return (0, -float(hit.rerank_score), original_index)
+    if hit.distance is not None:
+        return (1, float(hit.distance), original_index)
+    if hit.retrieval_rank is not None:
+        return (2, float(hit.retrieval_rank), original_index)
+    return (3, 0.0, original_index)

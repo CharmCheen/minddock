@@ -25,7 +25,10 @@ export const SourceService = {
     if (!data.found || !data.item) {
       throw new Error(`Source not found: ${docId}`);
     }
-    return data.item;
+    return {
+      ...data.item,
+      representative_metadata: data.representative_metadata || {},
+    };
   },
 
   async deleteSource(docId: string, options?: SourceServiceOptions): Promise<void> {

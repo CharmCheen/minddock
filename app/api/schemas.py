@@ -1925,7 +1925,7 @@ class RuntimeConfigTestResponse(BaseModel):
     message: str = Field(description="Human-readable result message")
     error_kind: str | None = Field(
         default=None,
-        description="Structured error kind if failed: 'invalid_url', 'auth_failure', 'model_not_found', 'timeout', 'network_error', 'unknown'",
+        description="Structured error kind if failed: 'invalid_url', 'missing_api_key', 'auth_failure', 'model_not_found', 'timeout', 'network_error', 'unknown'",
     )
 
 

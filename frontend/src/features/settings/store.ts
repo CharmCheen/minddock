@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { RuntimeConfigResponse } from '../../core/types/api';
 import { RuntimeConfigService, RuntimeServiceOptions } from '../../lib/api/services/runtime-config';
 import { isNetworkError, getErrorMessage } from '../../lib/api/client';
+import { deriveRuntimeStatus } from './runtime-status';
+
+export const MISSING_RUNTIME_API_KEY_MESSAGE = 'API key is required to test this runtime. Enter a key or set LLM_API_KEY in the backend environment.';
 
 export interface RuntimeFormValues {
   provider: string;
@@ -70,6 +73,16 @@ function computeIsDirty(current: RuntimeFormValues, saved: RuntimeFormValues): b
   );
 }
 
+function saveMessageFromConfig(config: RuntimeConfigResponse): string {
+  if (!config.enabled) {
+    return 'Saved. Custom runtime is disabled; MindDock will use the default runtime.';
+  }
+  if (deriveRuntimeStatus(config).hasUsableKey) {
+    return 'Saved. Runtime changes are active for new runs.';
+  }
+  return 'Saved, but the API key is not active in this backend session. Re-enter the key or set LLM_API_KEY, then save again.';
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   config: null,
   loading: false,
@@ -130,7 +143,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         isDirty: false,
         saving: false,
         offline: false,
-        successMessage: 'Saved. Runtime changes are active for new runs.',
+        successMessage: saveMessageFromConfig(updated),
       });
     } catch (err: unknown) {
       if (isNetworkError(err)) {
@@ -143,6 +156,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   testConnection: async (form, options) => {
     set({ testing: true, error: null, testResult: null });
+    if (!form.api_key.trim()) {
+      set({
+        testing: false,
+        testResult: { success: false, message: MISSING_RUNTIME_API_KEY_MESSAGE, errorKind: 'missing_api_key' },
+        testTimestamp: Date.now(),
+      });
+      return;
+    }
     try {
       const result = await RuntimeConfigService.testConnection({
         ...form,

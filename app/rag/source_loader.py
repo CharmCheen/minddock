@@ -14,6 +14,8 @@ from app.rag.source_skills.csv_skill import CSV_EXTENSIONS, CsvSourceLoader
 
 # Minimum characters on a page to consider it "has text"
 _MIN_PAGE_TEXT_LENGTH = 20
+_LOW_URL_TEXT_LENGTH = 300
+_QUALITY_IMPACTING_URL_WARNINGS = {"empty_main_text", "non_html_content_type"}
 from app.rag.source_models import SourceDescriptor, SourceLoadResult, utc_now_iso
 from app.rag.url_loader import URLContent, fetch_url_content
 
@@ -112,7 +114,20 @@ class URLSourceLoader(SourceLoader):
             "status_code": str(content.status_code),
             "fetched_at": content.fetched_at,
             "ssl_verified": "true" if content.ssl_verified else "false",
+            "extracted_char_count": str(len(content.text.strip())),
         }
+        extracted_char_count = len(content.text.strip())
+        quality_warnings = set(content.warnings) & _QUALITY_IMPACTING_URL_WARNINGS
+        if not extracted_char_count or quality_warnings:
+            extraction_quality = "warning"
+        elif extracted_char_count < _LOW_URL_TEXT_LENGTH:
+            extraction_quality = "low_text"
+        else:
+            extraction_quality = "ok"
+
+        if content.warnings:
+            metadata["extraction_warnings"] = ",".join(content.warnings)
+        metadata["extraction_quality"] = extraction_quality
         if content.og_description:
             metadata["og_description"] = content.og_description
         if content.og_image:

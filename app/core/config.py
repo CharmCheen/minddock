@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     run_control_heartbeat_interval_seconds: int = RUN_CONTROL_HEARTBEAT_INTERVAL_SECONDS
 
     model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
         env_prefix="",
         case_sensitive=False,
         extra="ignore",

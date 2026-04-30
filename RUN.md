@@ -105,13 +105,19 @@ Image 支持 `knowledge_base/` 下的 `.png`、`.jpg`、`.jpeg`、`.webp`。
 
 图像通过 OCR 转为文本后，复用现有文本 RAG 路径：`SourceLoadResult -> chunking -> Chroma -> retrieval -> citation`。
 
-默认使用 mock OCR fallback，仅验证 pipeline 通路，不代表真实图像理解。配置 `IMAGE_OCR_PROVIDER=rapidocr` 且已安装 RapidOCR 时，可使用真实 OCR。RapidOCR 不是硬依赖，缺失时安全回退 mock。
+默认使用 RapidOCR 作为图片 OCR provider。`.env` 会由 pydantic-settings 自动加载，也可以通过 `IMAGE_OCR_PROVIDER` 覆盖默认值，例如改为 `mock` 做 pipeline 通路验证。RapidOCR 不是图像理解模型，对密集表格、小字或复杂版面仍可能识别不完整。
+
+在 `.env` 中设置（`.env` 已被 gitignore）：
+```
+IMAGE_OCR_ENABLED=true
+IMAGE_OCR_PROVIDER=rapidocr
+```
 
 Image chunks 携带 `source_media=image`、`source_kind=image_file`、`loader_name=image.ocr`、`ocr_provider`、`retrieval_basis=ocr_text`、`image_filename`。
 
 不支持：image caption、PDF figure extraction、multimodal embedding、OCR table reconstruction、layout blocks、frontend image preview。
 
-Audio/video 使用 transcript-only trusted handler，默认 mock provider，不依赖真实 ASR。
+Audio/video 使用 transcript-only trusted handler。演示推荐放置同名 sidecar transcript，例如 `demo_video.mp4` + `demo_video.transcript.md`；导入后展示的是 media source，sidecar transcript 不作为独立 source 展示。若没有 sidecar，则回退到配置的 transcript provider（如 mock/disabled）。当前不包含真实 ASR、Whisper、ffmpeg 或视频多模态理解。
 
 ### CSV source skill 说明
 

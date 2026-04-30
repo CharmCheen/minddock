@@ -35,6 +35,28 @@ function hasUrlExtractionWarning(source: SourceItem | null): boolean {
   return Number.isFinite(charCount) && charCount > 0 && charCount < LOW_TEXT_CHAR_THRESHOLD;
 }
 
+function mediaMetadata(source: SourceItem | null): {
+  label: string;
+  transcriptProvider: string;
+  mediaFilename: string;
+  sidecarFilename: string;
+} | null {
+  if (!source || source.source_state?.ingest_status !== 'ready') {
+    return null;
+  }
+  const metadata = source.representative_metadata || {};
+  const sourceMedia = metadataString(metadata, 'source_media').toLowerCase();
+  if (sourceMedia !== 'video' && sourceMedia !== 'audio') {
+    return null;
+  }
+  return {
+    label: sourceMedia === 'video' ? 'Video source' : 'Audio source',
+    transcriptProvider: metadataString(metadata, 'transcript_provider'),
+    mediaFilename: metadataString(metadata, 'media_filename'),
+    sidecarFilename: metadataString(metadata, 'transcript_sidecar_filename'),
+  };
+}
+
 export const SourceDrawer: React.FC = () => {
   const {
     selectedDocId,
@@ -61,6 +83,7 @@ export const SourceDrawer: React.FC = () => {
     ? selectedDocDetail?.source_state?.error_message || 'Import failed. Chunks are unavailable for this source.'
     : 'MindDock is still importing this source. Chunks will be available after import completes.';
   const showExtractionWarning = hasUrlExtractionWarning(selectedDocDetail);
+  const selectedMediaMetadata = mediaMetadata(selectedDocDetail);
 
   useEffect(() => {
     if (!drawerOpen || !selectedDocId) return;
@@ -281,6 +304,43 @@ export const SourceDrawer: React.FC = () => {
             }}
           >
             {EXTRACTION_WARNING_TEXT}
+          </div>
+        )}
+
+        {selectedMediaMetadata && (
+          <div
+            data-testid="source-media-metadata"
+            style={{
+              padding: '10px 20px',
+              borderBottom: '1px solid var(--color-border-subtle)',
+              background: 'var(--color-surface)',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '8px',
+              fontSize: '12px',
+              color: 'var(--color-text-secondary)',
+              flexShrink: 0,
+            }}
+          >
+            <span style={{
+              background: 'var(--color-info-bg)',
+              color: 'var(--color-info-text)',
+              border: '1px solid var(--color-info-border)',
+              borderRadius: 'var(--radius-full)',
+              padding: '2px 8px',
+              fontWeight: 700,
+            }}>
+              {selectedMediaMetadata.label}
+            </span>
+            {selectedMediaMetadata.transcriptProvider && (
+              <span>Transcript: {selectedMediaMetadata.transcriptProvider}</span>
+            )}
+            {selectedMediaMetadata.mediaFilename && (
+              <span>Media: {selectedMediaMetadata.mediaFilename}</span>
+            )}
+            {selectedMediaMetadata.sidecarFilename && (
+              <span>Sidecar: {selectedMediaMetadata.sidecarFilename}</span>
+            )}
           </div>
         )}
 

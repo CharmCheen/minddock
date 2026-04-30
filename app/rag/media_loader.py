@@ -12,6 +12,7 @@ Design constraints:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
@@ -25,6 +26,13 @@ AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".webm"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
 MEDIA_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
 _DEFAULT_MAX_CHARS = 30000
+SIDECAR_TRANSCRIPT_SUFFIXES = (
+    ".transcript.md",
+    ".transcript.txt",
+    ".txt",
+    ".vtt",
+    ".srt",
+)
 
 
 @dataclass(frozen=True)
@@ -46,6 +54,8 @@ class MediaTranscriptResult:
     duration_seconds: float | None = None
     segments: tuple[TranscriptSegment, ...] = ()
     warnings: tuple[str, ...] = ()
+    sidecar_filename: str | None = None
+    sidecar_format: str | None = None
 
 
 class MediaTranscriptionClient(Protocol):
@@ -179,8 +189,10 @@ class MediaSourceLoader:
         else:
             media_type = "video"
 
-        client = self.transcription_client or build_media_transcription_client()
-        result = client.transcribe(path, media_type)
+        result = _load_sidecar_transcript(path)
+        if result is None:
+            client = self.transcription_client or build_media_transcription_client()
+            result = client.transcribe(path, media_type)
         max_chars = self.max_chars if self.max_chars is not None else _settings_max_chars()
         text = result.text.strip()
         warnings = list(result.warnings)
@@ -198,6 +210,8 @@ class MediaSourceLoader:
             "retrieval_basis": "transcript_text",
             "media_filename": path.name,
         }
+        sidecar_metadata = _sidecar_metadata(result)
+        metadata.update(sidecar_metadata)
         if result.duration_seconds is not None:
             metadata["transcript_duration_seconds"] = f"{result.duration_seconds:.2f}"
         if result.segments:
@@ -225,6 +239,101 @@ def build_media_transcription_client() -> MediaTranscriptionClient:
     if provider == "disabled":
         return DisabledMediaTranscriptionClient()
     return MockMediaTranscriptionClient()
+
+
+def _load_sidecar_transcript(path: Path) -> MediaTranscriptResult | None:
+    sidecar_path = _find_sidecar_transcript(path)
+    if sidecar_path is None:
+        return None
+
+    raw_text = sidecar_path.read_text(encoding="utf-8", errors="ignore")
+    sidecar_format = _sidecar_format(sidecar_path)
+    text = _normalize_sidecar_transcript(raw_text, sidecar_format)
+    segments = tuple(TranscriptSegment(line) for line in text.splitlines() if line.strip())
+    warnings: tuple[str, ...] = () if text else ("transcript_sidecar_empty",)
+    return MediaTranscriptResult(
+        text=text,
+        provider="sidecar",
+        segments=segments,
+        warnings=warnings,
+        sidecar_filename=sidecar_path.name,
+        sidecar_format=sidecar_format,
+    )
+
+
+def _find_sidecar_transcript(path: Path) -> Path | None:
+    for suffix in SIDECAR_TRANSCRIPT_SUFFIXES:
+        candidate = path.with_name(f"{path.stem}{suffix}")
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def is_media_sidecar_transcript(path: Path) -> bool:
+    """Return whether path is a transcript sidecar for a sibling media file."""
+
+    sidecar_stem = _sidecar_media_stem(path)
+    if sidecar_stem is None:
+        return False
+    return any(path.with_name(f"{sidecar_stem}{extension}").is_file() for extension in MEDIA_EXTENSIONS)
+
+
+def _sidecar_media_stem(path: Path) -> str | None:
+    name = path.name.lower()
+    if name.endswith(".transcript.md"):
+        return path.name[: -len(".transcript.md")]
+    if name.endswith(".transcript.txt"):
+        return path.name[: -len(".transcript.txt")]
+    if path.suffix.lower() in {".txt", ".vtt", ".srt"}:
+        return path.stem
+    return None
+
+
+def _sidecar_format(path: Path) -> str:
+    name = path.name.lower()
+    if name.endswith(".transcript.md"):
+        return "md"
+    if name.endswith(".transcript.txt"):
+        return "txt"
+    suffix = path.suffix.lower().lstrip(".")
+    return suffix or "txt"
+
+
+def _sidecar_metadata(result: MediaTranscriptResult) -> dict[str, str]:
+    if result.provider != "sidecar":
+        return {}
+    metadata: dict[str, str] = {}
+    if result.sidecar_filename:
+        metadata["transcript_sidecar_filename"] = result.sidecar_filename
+    if result.sidecar_format:
+        metadata["transcript_sidecar_format"] = result.sidecar_format
+    return metadata
+
+
+def _normalize_sidecar_transcript(raw_text: str, sidecar_format: str) -> str:
+    if sidecar_format == "srt":
+        return _strip_timed_transcript(raw_text, skip_webvtt_header=False)
+    if sidecar_format == "vtt":
+        return _strip_timed_transcript(raw_text, skip_webvtt_header=True)
+    return "\n".join(line.strip() for line in raw_text.splitlines() if line.strip()).strip()
+
+
+def _strip_timed_transcript(raw_text: str, *, skip_webvtt_header: bool) -> str:
+    lines: list[str] = []
+    for raw_line in raw_text.splitlines():
+        line = raw_line.strip().lstrip("\ufeff")
+        if not line:
+            continue
+        if skip_webvtt_header and line.upper() == "WEBVTT":
+            continue
+        if line.isdigit():
+            continue
+        if "-->" in line:
+            continue
+        if re.match(r"^(NOTE|STYLE|REGION)(\s|$)", line, flags=re.IGNORECASE):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
 
 
 def _settings_max_chars() -> int:

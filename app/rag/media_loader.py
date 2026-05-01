@@ -3,7 +3,7 @@
 Design constraints:
 - Mock provider is default and always works without external dependencies.
 - Disabled provider returns empty text + warning.
-- API provider is stubbed for future use; missing config falls back to mock.
+- API provider calls an OpenAI-style audio transcription endpoint; missing config or errors fall back to mock.
 - No ffmpeg dependency.
 - No local large-model dependency.
 - No raw media bytes or absolute paths in metadata.
@@ -11,11 +11,15 @@ Design constraints:
 
 from __future__ import annotations
 
+import json as _json
 import logging
+import mimetypes
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
+
+import httpx
 
 from app.core.config import get_settings
 from app.rag.source_models import SourceDescriptor, SourceLoadResult
@@ -123,7 +127,12 @@ class DisabledMediaTranscriptionClient:
 
 @dataclass(frozen=True)
 class OptionalApiMediaTranscriptionClient:
-    """Optional API provider with lazy imports and mock fallback when unconfigured."""
+    """Optional API provider that calls an OpenAI-style audio transcription endpoint.
+
+    When configuration is missing, HTTP/network errors occur, or the API returns
+    empty text, this client falls back to mock and records appropriate warnings
+    without exposing the API key.
+    """
 
     fallback: MediaTranscriptionClient = MockMediaTranscriptionClient()
 
@@ -133,8 +142,8 @@ class OptionalApiMediaTranscriptionClient:
         media_type: Literal["audio", "video"],
     ) -> MediaTranscriptResult:
         settings = get_settings()
-        api_key = getattr(settings, "media_transcript_api_key", "") or ""
-        api_base_url = getattr(settings, "media_transcript_api_base_url", "") or ""
+        api_key = (getattr(settings, "media_transcript_api_key", "") or "").strip()
+        api_base_url = (getattr(settings, "media_transcript_api_base_url", "") or "").strip()
         if not api_key or not api_base_url:
             logger.warning(
                 "Media API provider selected but not configured (missing api_key or base_url). "
@@ -145,15 +154,73 @@ class OptionalApiMediaTranscriptionClient:
             return MediaTranscriptResult(
                 text=fallback_result.text,
                 provider="mock",
-                warnings=_dedupe(("transcript_api_unconfigured", *fallback_result.warnings)),
+                warnings=_dedupe(("transcript_api_unconfigured", "transcript_mock_fallback", *fallback_result.warnings)),
             )
-        # Future: real API call goes here. For P0, stub with fallback.
-        fallback_result = self.fallback.transcribe(path, media_type)
+
+        model = getattr(settings, "media_transcript_model", "whisper-1") or "whisper-1"
+        timeout = float(getattr(settings, "media_transcript_timeout_seconds", 60.0) or 60.0)
+        endpoint = _build_transcription_endpoint(api_base_url)
+
+        try:
+            content_type, _ = mimetypes.guess_type(str(path))
+            content_type = content_type or "application/octet-stream"
+
+            with path.open("rb") as file_obj:
+                files = {"file": (path.name, file_obj, content_type)}
+                data = {"model": model}
+                response = httpx.post(
+                    endpoint,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    data=data,
+                    files=files,
+                    timeout=timeout,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                text = (payload.get("text", "") or "").strip()
+        except httpx.HTTPStatusError:
+            logger.warning("ASR API returned HTTP error for %s", path.name)
+            return _api_fallback(self.fallback, path, media_type, "transcript_api_http_error")
+        except httpx.TimeoutException:
+            logger.warning("ASR API request timed out for %s", path.name)
+            return _api_fallback(self.fallback, path, media_type, "transcript_api_timeout")
+        except (httpx.NetworkError, httpx.ConnectError):
+            logger.warning("ASR API network error for %s", path.name)
+            return _api_fallback(self.fallback, path, media_type, "transcript_api_network_error")
+        except (_json.JSONDecodeError, AttributeError):
+            logger.warning("ASR API returned unparseable response for %s", path.name)
+            return _api_fallback(self.fallback, path, media_type, "transcript_api_parse_error")
+
+        if not text:
+            logger.warning("ASR API returned empty transcript for %s", path.name)
+            return _api_fallback(self.fallback, path, media_type, "transcript_api_empty")
+
         return MediaTranscriptResult(
-            text=fallback_result.text,
-            provider="mock",
-            warnings=_dedupe(("transcript_api_stub_p0", *fallback_result.warnings)),
+            text=text,
+            provider="api",
+            segments=tuple(TranscriptSegment(line) for line in text.splitlines() if line.strip()),
         )
+
+
+def _api_fallback(
+    fallback: MediaTranscriptionClient,
+    path: Path,
+    media_type: Literal["audio", "video"],
+    reason: str,
+) -> MediaTranscriptResult:
+    fb = fallback.transcribe(path, media_type)
+    return MediaTranscriptResult(
+        text=fb.text,
+        provider="mock",
+        warnings=_dedupe((reason, "transcript_mock_fallback", *fb.warnings)),
+    )
+
+
+def _build_transcription_endpoint(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    if base.endswith("/audio/transcriptions"):
+        return base
+    return f"{base}/audio/transcriptions"
 
 
 @dataclass(frozen=True)

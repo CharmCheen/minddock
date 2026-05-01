@@ -374,3 +374,505 @@ def test_no_api_key_in_metadata(tmp_path: Path) -> None:
     assert "api_key" not in raw.lower()
     assert "secret" not in raw.lower()
     assert "token" not in raw.lower()
+
+
+# ── _build_transcription_endpoint ──────────────────────────────
+
+
+def test_build_endpoint_appends_path() -> None:
+    from app.rag.media_loader import _build_transcription_endpoint
+
+    assert _build_transcription_endpoint("https://api.openai.com/v1") == "https://api.openai.com/v1/audio/transcriptions"
+
+
+def test_build_endpoint_strips_trailing_slash() -> None:
+    from app.rag.media_loader import _build_transcription_endpoint
+
+    assert _build_transcription_endpoint("https://api.openai.com/v1/") == "https://api.openai.com/v1/audio/transcriptions"
+
+
+def test_build_endpoint_no_double_append() -> None:
+    from app.rag.media_loader import _build_transcription_endpoint
+
+    url = "https://api.openai.com/v1/audio/transcriptions"
+    assert _build_transcription_endpoint(url) == url
+
+
+# ── API provider success ───────────────────────────────────────
+
+
+def _fake_httpx_post_success(url, headers=None, data=None, files=None, timeout=None, **kwargs):
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"text": "Hello world from ASR"}
+
+    r = FakeResponse()
+    r._call_url = url
+    r._call_headers = headers or {}
+    r._call_data = data or {}
+    r._call_files = files or {}
+    r._call_timeout = timeout
+    return r
+
+
+def test_api_client_success_calls_correct_endpoint(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    calls: dict = {}
+
+    def _fake_post(url, headers=None, data=None, files=None, timeout=None, **kwargs):
+        calls["url"] = url
+        calls["headers"] = headers or {}
+        calls["data"] = data or {}
+        calls["files"] = files or {}
+        calls["timeout"] = timeout
+        return _fake_httpx_post_success(url, headers, data, files, timeout)
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="https://api.example.com/v1",
+            media_transcript_model="whisper-1",
+            media_transcript_timeout_seconds=30.0,
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    client = OptionalApiMediaTranscriptionClient()
+    result = client.transcribe(media_path, "audio")
+
+    assert result.provider == "api"
+    assert result.text == "Hello world from ASR"
+    assert calls["url"] == "https://api.example.com/v1/audio/transcriptions"
+    assert calls["headers"]["Authorization"] == "Bearer sk-test-fake-key"
+    assert calls["data"]["model"] == "whisper-1"
+    assert calls["timeout"] == 30.0
+
+
+def test_api_client_success_no_double_endpoint(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    call_url: str | None = None
+
+    def _fake_post(url, headers=None, data=None, files=None, timeout=None, **kwargs):
+        nonlocal call_url
+        call_url = url
+        return _fake_httpx_post_success(url, headers, data, files, timeout)
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="https://api.example.com/v1/audio/transcriptions",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    client = OptionalApiMediaTranscriptionClient()
+    client.transcribe(media_path, "audio")
+    assert call_url == "https://api.example.com/v1/audio/transcriptions"
+
+
+# ── API provider fallback scenarios ────────────────────────────
+
+
+def test_api_client_missing_config_fallback(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    httpx_called = False
+
+    def _fake_post(*args, **kwargs):
+        nonlocal httpx_called
+        httpx_called = True
+        return _fake_httpx_post_success(*args, **kwargs)
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="",
+            media_transcript_api_base_url="",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    client = OptionalApiMediaTranscriptionClient()
+    result = client.transcribe(media_path, "audio")
+
+    assert result.provider == "mock"
+    assert "transcript_api_unconfigured" in result.warnings
+    assert "transcript_mock_fallback" in result.warnings
+    assert not httpx_called
+
+
+def test_api_client_missing_key_only_fallback(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    httpx_called = False
+
+    def _fake_post(*args, **kwargs):
+        nonlocal httpx_called
+        httpx_called = True
+        return _fake_httpx_post_success(*args, **kwargs)
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "audio")
+
+    assert result.provider == "mock"
+    assert "transcript_api_unconfigured" in result.warnings
+    assert not httpx_called
+
+
+def test_api_client_missing_base_url_only_fallback(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    httpx_called = False
+
+    def _fake_post(*args, **kwargs):
+        nonlocal httpx_called
+        httpx_called = True
+        return _fake_httpx_post_success(*args, **kwargs)
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "audio")
+
+    assert result.provider == "mock"
+    assert "transcript_api_unconfigured" in result.warnings
+    assert not httpx_called
+
+
+def test_api_client_http_4xx_fallback(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+    import httpx
+
+    def _fake_post(*args, **kwargs):
+        raise httpx.HTTPStatusError(
+            "401 Unauthorized",
+            request=object(),
+            response=object(),
+        )
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp4")
+    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "video")
+
+    assert result.provider == "mock"
+    assert "transcript_api_http_error" in result.warnings
+    assert "transcript_mock_fallback" in result.warnings
+
+
+def test_api_client_timeout_fallback(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+    import httpx
+
+    def _fake_post(*args, **kwargs):
+        raise httpx.TimeoutException("Request timed out")
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp4")
+    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "video")
+
+    assert result.provider == "mock"
+    assert "transcript_api_timeout" in result.warnings
+
+
+def test_api_client_network_error_fallback(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+    import httpx
+
+    def _fake_post(*args, **kwargs):
+        raise httpx.ConnectError("Connection refused")
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp4")
+    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "video")
+
+    assert result.provider == "mock"
+    assert "transcript_api_network_error" in result.warnings
+
+
+def test_api_client_empty_text_fallback(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    def _fake_post(*args, **kwargs):
+        class FakeResponse:
+            status_code = 200
+            text = ""
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"text": "   "}
+
+        return FakeResponse()
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp4")
+    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "video")
+
+    assert result.provider == "mock"
+    assert "transcript_api_empty" in result.warnings
+    assert "transcript_mock_fallback" in result.warnings
+
+
+# ── Sidecar priority over API ──────────────────────────────────
+
+
+def test_sidecar_priority_over_api_provider(monkeypatch, tmp_path: Path) -> None:
+    httpx_called = False
+
+    def _fake_post(*args, **kwargs):
+        nonlocal httpx_called
+        httpx_called = True
+        return _fake_httpx_post_success(*args, **kwargs)
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "demo_video.mp4")
+    (kb_dir / "demo_video.txt").write_text("Sidecar beats API", encoding="utf-8")
+    descriptor = build_file_descriptor(media_path, kb_dir)
+
+    result = MediaSourceLoader().load(descriptor)
+
+    assert result.text == "Sidecar beats API"
+    assert result.metadata["transcript_provider"] == "sidecar"
+    assert not httpx_called
+
+
+# ── API key not leaked ─────────────────────────────────────────
+
+
+def test_api_key_not_in_metadata_when_api_success(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    monkeypatch.setattr("httpx.post", _fake_httpx_post_success)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-secret-do-not-leak",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    descriptor = build_file_descriptor(media_path, kb_dir)
+    loader = MediaSourceLoader(transcription_client=OptionalApiMediaTranscriptionClient())
+    result = loader.load(descriptor)
+
+    raw = " ".join(result.metadata.values())
+    assert "sk-secret-do-not-leak" not in raw
+    assert "sk-secret" not in raw
+    assert "Bearer" not in raw.lower()
+
+
+def test_api_key_not_in_warnings_when_api_success(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    monkeypatch.setattr("httpx.post", _fake_httpx_post_success)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-secret-do-not-leak",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "audio")
+
+    for warning in result.warnings:
+        assert "sk-secret" not in warning
+        assert "Bearer" not in warning
+
+
+def test_api_key_not_in_warnings_when_api_fallback(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-secret-do-not-leak",
+            media_transcript_api_base_url="",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "audio")
+
+    for warning in result.warnings:
+        assert "sk-secret" not in warning
+
+
+def test_api_client_fallback_uses_correct_warning_code(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "audio")
+
+    assert result.provider == "mock"
+    assert "transcript_api_unconfigured" in result.warnings
+    assert "transcript_mock_fallback" in result.warnings
+
+
+# ── Mock / disabled original behavior preserved ────────────────
+
+
+def test_mock_provider_still_works_with_new_settings(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="mock",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    client = build_media_transcription_client()
+    assert isinstance(client, MockMediaTranscriptionClient)
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    result = client.transcribe(media_path, "audio")
+    assert result.provider == "mock"
+    assert "[Audio Transcript - Mock Provider]" in result.text
+
+
+def test_disabled_provider_still_works_with_new_settings(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="disabled",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    client = build_media_transcription_client()
+    assert isinstance(client, DisabledMediaTranscriptionClient)
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
+    result = client.transcribe(media_path, "audio")
+    assert result.text == ""
+    assert result.provider == "disabled"
+    assert "transcript_disabled" in result.warnings
+
+
+def test_api_client_json_parse_error_fallback(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.media_loader import OptionalApiMediaTranscriptionClient
+
+    def _fake_post(*args, **kwargs):
+        class FakeResponse:
+            status_code = 200
+            text = ""
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return "not a dict"
+
+        return FakeResponse()
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="api",
+            media_transcript_api_key="sk-test-fake-key",
+            media_transcript_api_base_url="https://api.example.com/v1",
+        ),
+    )
+
+    kb_dir, media_path = _write_media(tmp_path, "sample.mp4")
+    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "video")
+
+    assert result.provider == "mock"
+    assert "transcript_api_parse_error" in result.warnings

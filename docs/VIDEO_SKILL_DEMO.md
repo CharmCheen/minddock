@@ -1,6 +1,17 @@
 # Video Skill Demo
 
-MindDock supports a lightweight video demo path by indexing transcript sidecar files next to local media. This does not add real ASR, browser rendering, ffmpeg, Whisper, cloud transcription, or a video player.
+MindDock supports media transcript ingestion (ASR) by indexing transcript sidecar files or calling an OpenAI-style audio transcription API. This is **video transcript / audio transcription**, not video frame understanding. No browser rendering, ffmpeg, Whisper local model, or video player is included.
+
+## Provider Modes
+
+Set via `MEDIA_TRANSCRIPT_PROVIDER` (default: `mock`):
+
+| Provider   | Behavior |
+|------------|----------|
+| `sidecar`  | Always takes priority when a matching transcript sidecar exists next to the media file |
+| `mock`     | Returns deterministic placeholder transcripts; no external dependency |
+| `api`      | Calls an OpenAI-style audio transcription endpoint (`/audio/transcriptions`) |
+| `disabled` | Returns empty text with warning; no media ingestion |
 
 ## Supported Media
 
@@ -21,7 +32,7 @@ Audio files:
 - `.ogg`
 - `.webm`
 
-## Sidecar Transcript Names
+## Sidecar Transcript Names (Highest Priority)
 
 Place the media file and transcript in `knowledge_base` with the same stem.
 
@@ -35,9 +46,47 @@ knowledge_base/demo_video.vtt
 knowledge_base/demo_video.srt
 ```
 
-`.srt` and `.vtt` timing, index, header, and cue metadata are stripped before indexing. Meaningful transcript lines are kept. A sidecar transcript is required for a meaningful demo; without one, MindDock falls back to the configured mock/api/disabled media transcription behavior.
+When a recognized sidecar exists next to a matching media file, it **always takes priority** over mock, API, or disabled providers. MindDock skips indexing that sidecar as a separate standalone text source. Ordinary `.txt` and `.md` files that are not sidecars are still indexed normally.
 
-When a recognized sidecar is next to a matching media file, MindDock uses it for the media source and skips indexing that sidecar as a separate standalone text source. Ordinary `.txt` and `.md` files that are not sidecars are still indexed normally.
+`.srt` and `.vtt` timing, index, header, and cue metadata are stripped before indexing.
+
+## API Provider Configuration
+
+To use the ASR API provider, set these environment variables **before starting the backend**:
+
+```powershell
+$env:MEDIA_TRANSCRIPT_PROVIDER="api"
+$env:MEDIA_TRANSCRIPT_API_KEY="your_api_key_here"
+$env:MEDIA_TRANSCRIPT_API_BASE_URL="https://api.openai.com/v1"
+$env:MEDIA_TRANSCRIPT_MODEL="whisper-1"
+$env:MEDIA_TRANSCRIPT_TIMEOUT_SECONDS="60"
+```
+
+- `MEDIA_TRANSCRIPT_API_KEY` — your API key (never commit to the repository)
+- `MEDIA_TRANSCRIPT_API_BASE_URL` — base URL or full endpoint; the code appends `/audio/transcriptions` if not already present
+- `MEDIA_TRANSCRIPT_MODEL` — model name (default: `whisper-1`)
+- `MEDIA_TRANSCRIPT_TIMEOUT_SECONDS` — HTTP request timeout (default: `60`)
+
+The API provider expects an OpenAI-compatible response format:
+
+```json
+{"text": "...transcript text..."}
+```
+
+**Important**: After changing environment variables, restart the backend. Media files that were already ingested must be re-ingested to use the new transcript provider.
+
+### API Fallback Behavior
+
+If any of the following occurs, the API provider falls back to `mock` with a warning:
+
+- `MEDIA_TRANSCRIPT_API_KEY` or `MEDIA_TRANSCRIPT_API_BASE_URL` is empty
+- HTTP 4xx / 5xx response from the API
+- Request timeout
+- Network / connection error
+- Unparseable JSON response
+- Empty transcript text in the API response
+
+The API key is never written to metadata, warnings, or logs.
 
 ## Ingest
 
@@ -48,9 +97,9 @@ conda run -n minddock python -m app.demo ingest --no-rebuild
 After ingest, the video source is indexed using transcript text. In the source drawer, representative metadata should show:
 
 - `Video source`
-- `Transcript: sidecar`
+- `Transcript: sidecar` (or `Transcript: api` / `mock`)
 - media filename
-- sidecar filename
+- sidecar filename (if sidecar was used)
 
 ## Skill Resolve Demo
 
@@ -63,6 +112,8 @@ The command should resolve to the builtin `video.transcribe` binding when no loc
 ## Notes
 
 - Retrieval uses transcript text only.
+- This is **video transcript ingestion (ASR)**, not video frame understanding, OCR, or multimodal video analysis.
 - Ready video sources remain selectable as normal sources.
 - Pending and failed source behavior is unchanged.
 - No large media files should be committed to git.
+- The sidecar transcript path remains the most stable demo path.

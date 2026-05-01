@@ -52,7 +52,13 @@ When a recognized sidecar exists next to a matching media file, it **always take
 
 ## API Provider Configuration
 
-To use the ASR API provider, set these environment variables **before starting the backend**:
+### Option 1: Frontend (Recommended)
+
+Open **Settings → Runtime → Media Transcript Provider**, select `api` as the provider, fill in the base URL, API key, model, and timeout, then click **Save**. The API key is stored only in `os.environ`; other fields are persisted to `data/active_media_transcript.json`.
+
+### Option 2: Environment Variables
+
+Set these environment variables **before starting the backend**:
 
 ```powershell
 $env:MEDIA_TRANSCRIPT_PROVIDER="api"
@@ -73,7 +79,18 @@ The API provider expects an OpenAI-compatible response format:
 {"text": "...transcript text..."}
 ```
 
-**Important**: After changing environment variables, restart the backend. Media files that were already ingested must be re-ingested to use the new transcript provider.
+**Important**: After changing environment variables or saving via the frontend, restart the backend. Media files that were already ingested must be re-ingested to use the new transcript provider.
+
+### Config Priority
+
+The effective media transcript config is resolved in this order:
+
+1. **UI active config** (`data/active_media_transcript.json` + `os.environ` for api_key)
+2. **Settings** (from `.env` or `Settings` object)
+3. **os.environ** (raw environment variables)
+4. **Defaults** (provider=`mock`, model=`whisper-1`, timeout=60s)
+
+Sidecar transcripts always take priority over any provider setting.
 
 ### API Fallback Behavior
 
@@ -125,17 +142,21 @@ Only media sources with `transcript_provider` of `sidecar` or `api` are eligible
 
 ## Frontend Visibility
 
-Open **Settings → Runtime** to see the read-only **Media Transcript Provider** card. It shows:
+Open **Settings → Runtime** to see the editable **Media Transcript Provider** editor. It shows:
 
-- Status (Enabled / Disabled / Enabled — missing key)
-- Provider (`api`, `mock`, `disabled`)
-- API Key and Base URL configured/missing status
-- Model and timeout
+- Provider selector (`api`, `mock`, `disabled`)
+- Enabled toggle
+- Base URL field
+- API Key field (password input, never displayed after save)
+- Model field
+- Timeout field
 - Capability: **Transcript-only ASR**
 - Limitations: no frame understanding, no multimodal embedding
-- Config source: Environment variables
+- Config source: `ui_override` (when saved via frontend) or `environment` (when using env vars only)
 
-No API key is exposed. The frontend cannot edit or save media transcript credentials; configuration remains environment-variable based.
+**Save** persists non-secret fields to `data/active_media_transcript.json`; the API key is stored only in `os.environ`. **Reset** removes the active config file and clears UI-set env vars. **Test Config** validates the current form values against the ASR endpoint.
+
+The effective config priority is: **UI active config > Settings > os.environ > defaults**. Sidecar transcripts always take priority regardless of provider setting.
 
 ## Skill Resolve Demo
 

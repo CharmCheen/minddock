@@ -26,6 +26,19 @@ from app.rag.source_models import SourceDescriptor, SourceLoadResult
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass(frozen=True)
+class ResolvedMediaTranscriptConfig:
+    """Resolved media transcript configuration with UI override > env > default priority."""
+
+    enabled: bool
+    provider: str
+    api_key: str
+    base_url: str
+    model: str
+    timeout_seconds: float
+    config_source: str
+
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".webm"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
 MEDIA_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
@@ -135,15 +148,18 @@ class OptionalApiMediaTranscriptionClient:
     """
 
     fallback: MediaTranscriptionClient = MockMediaTranscriptionClient()
+    api_key: str = ""
+    api_base_url: str = ""
+    model: str = ""
+    timeout_seconds: float = 0.0
 
     def transcribe(
         self,
         path: Path,
         media_type: Literal["audio", "video"],
     ) -> MediaTranscriptResult:
-        settings = get_settings()
-        api_key = (getattr(settings, "media_transcript_api_key", "") or "").strip()
-        api_base_url = (getattr(settings, "media_transcript_api_base_url", "") or "").strip()
+        api_key = self.api_key.strip()
+        api_base_url = self.api_base_url.strip()
         if not api_key or not api_base_url:
             logger.warning(
                 "Media API provider selected but not configured (missing api_key or base_url). "
@@ -157,8 +173,8 @@ class OptionalApiMediaTranscriptionClient:
                 warnings=_dedupe(("transcript_api_unconfigured", "transcript_mock_fallback", *fallback_result.warnings)),
             )
 
-        model = getattr(settings, "media_transcript_model", "whisper-1") or "whisper-1"
-        timeout = float(getattr(settings, "media_transcript_timeout_seconds", 60.0) or 60.0)
+        model = self.model.strip() or "whisper-1"
+        timeout = self.timeout_seconds if self.timeout_seconds > 0 else 60.0
         endpoint = _build_transcription_endpoint(api_base_url)
 
         try:
@@ -295,15 +311,55 @@ class MediaSourceLoader:
         )
 
 
-def build_media_transcription_client() -> MediaTranscriptionClient:
-    """Build a transcription client based on runtime settings."""
+def _resolve_media_transcript_runtime_config() -> ResolvedMediaTranscriptConfig:
+    """Resolve media transcript config with UI active config > settings > env > default priority."""
+    from app.runtime.media_transcript_active_config import (
+        CONFIG_FILE,
+        get_active_media_transcript_config,
+        get_effective_media_transcript_api_key,
+        get_effective_media_transcript_base_url,
+        get_effective_media_transcript_config_source,
+        get_effective_media_transcript_model,
+        get_effective_media_transcript_provider,
+        get_effective_media_transcript_timeout,
+    )
+
     settings = get_settings()
-    if not getattr(settings, "media_transcript_enabled", True):
+    active = get_active_media_transcript_config()
+
+    if active.enabled:
+        enabled = True
+    elif not CONFIG_FILE.exists():
+        # No active config on disk -- fall back to settings
+        enabled = bool(getattr(settings, "media_transcript_enabled", True))
+    else:
+        # Active config file exists but is disabled -- respect the UI choice
+        enabled = False
+
+    return ResolvedMediaTranscriptConfig(
+        enabled=enabled,
+        provider=get_effective_media_transcript_provider(active, settings),
+        api_key=get_effective_media_transcript_api_key(active, settings),
+        base_url=get_effective_media_transcript_base_url(active, settings),
+        model=get_effective_media_transcript_model(active, settings),
+        timeout_seconds=get_effective_media_transcript_timeout(active, settings),
+        config_source=get_effective_media_transcript_config_source(active, settings),
+    )
+
+
+def build_media_transcription_client() -> MediaTranscriptionClient:
+    """Build a transcription client based on resolved runtime config (UI override > env > default)."""
+    resolved = _resolve_media_transcript_runtime_config()
+    if not resolved.enabled:
         return DisabledMediaTranscriptionClient()
-    provider = str(getattr(settings, "media_transcript_provider", "mock") or "mock").strip().lower()
-    if provider == "api":
-        return OptionalApiMediaTranscriptionClient()
-    if provider == "disabled":
+    if resolved.provider == "api":
+        return OptionalApiMediaTranscriptionClient(
+            api_key=resolved.api_key,
+            api_base_url=resolved.base_url,
+            model=resolved.model,
+            timeout_seconds=resolved.timeout_seconds,
+        )
+    if resolved.provider == "disabled":
         return DisabledMediaTranscriptionClient()
     return MockMediaTranscriptionClient()
 

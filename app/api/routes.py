@@ -465,6 +465,7 @@ def get_media_transcript_config() -> MediaTranscriptConfigResponse:
         enabled=enabled,
         provider=provider,
         api_key_configured=len(api_key) > 0,
+        base_url=base_url,
         base_url_configured=len(base_url) > 0,
         model=model,
         timeout_seconds=timeout,

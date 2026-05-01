@@ -154,7 +154,7 @@ Open **Settings → Runtime** to see the editable **Media Transcript Provider** 
 - Limitations: no frame understanding, no multimodal embedding
 - Config source: `ui_override` (when saved via frontend) or `environment` (when using env vars only)
 
-**Save** persists non-secret fields to `data/active_media_transcript.json`; the API key is stored only in `os.environ`. **Reset** removes the active config file and clears UI-set env vars. **Test Config** validates the current form values against the ASR endpoint.
+**Save** persists non-secret fields to `data/active_media_transcript.json`; the API key is stored only in `os.environ`. **Reset** removes the active config file and clears UI-set env vars. Note: Reset clears the UI override and current backend-session key. If you rely on shell environment variables (`MEDIA_TRANSCRIPT_API_KEY` etc.), restart the backend or reconfigure as needed. **Test Config** validates the current form values against the ASR endpoint.
 
 The effective config priority is: **UI active config > Settings > os.environ > defaults**. Sidecar transcripts always take priority regardless of provider setting.
 

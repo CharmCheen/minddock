@@ -207,6 +207,7 @@ export interface MediaTranscriptConfigResponse {
   enabled: boolean;
   provider: string;
   api_key_configured: boolean;
+  base_url: string;
   base_url_configured: boolean;
   model: string;
   timeout_seconds: number;

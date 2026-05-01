@@ -108,6 +108,45 @@ class TestGetMediaTranscriptConfig:
         assert "no_frame_understanding" in data["limitations"]
         assert "no_multimodal_embedding" in data["limitations"]
 
+    def test_base_url_field_present_and_empty_by_default(self, client, temp_config_file):
+        data = client.get("/frontend/media-transcript-config").json()
+        assert "base_url" in data
+        assert data["base_url"] == ""
+
+    def test_base_url_returns_saved_value(self, client, temp_config_file):
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "api",
+                "base_url": "https://saved.example.com/v1",
+                "model": "whisper-1",
+                "timeout_seconds": 60.0,
+                "enabled": True,
+            },
+        )
+        data = client.get("/frontend/media-transcript-config").json()
+        assert data["base_url"] == "https://saved.example.com/v1"
+        assert data["base_url_configured"] is True
+
+    def test_base_url_not_leaking_api_key(self, client, temp_config_file, monkeypatch):
+        """Security: base_url field must not contain api_key."""
+        monkeypatch.setenv("MEDIA_TRANSCRIPT_API_KEY", "sk-should-not-appear")
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "api",
+                "base_url": "https://safe.example.com/v1",
+                "api_key": "sk-should-not-appear",
+                "model": "whisper-1",
+                "timeout_seconds": 60.0,
+                "enabled": True,
+            },
+        )
+        data = client.get("/frontend/media-transcript-config").json()
+        assert data["base_url"] == "https://safe.example.com/v1"
+        body = json.dumps(data)
+        assert "sk-should-not-appear" not in body
+
 
 class TestUpdateMediaTranscriptConfig:
     """Tests for PUT /frontend/media-transcript-config."""

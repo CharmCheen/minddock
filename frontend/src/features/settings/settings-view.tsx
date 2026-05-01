@@ -534,7 +534,7 @@ function MediaTranscriptEditor() {
         setForm({
           provider: (data.provider as MediaTranscriptFormValues['provider']) || 'mock',
           enabled: data.enabled,
-          base_url: '',
+          base_url: data.base_url ?? '',
           api_key: '',
           model: data.model || 'whisper-1',
           timeout_seconds: data.timeout_seconds || 60,
@@ -801,7 +801,8 @@ function MediaTranscriptEditor() {
 
           <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.5, padding: '6px 0' }}>
             Provider, base URL, model and timeout may persist as non-secret configuration.
-            This editor prepares the Media Transcript provider configuration; media ingestion override wiring is completed in the next phase.
+            Saved UI configuration is now used by media ingestion. Sidecar transcripts still take precedence over API transcription.
+            Reset clears the UI override and current backend-session key. If you rely on shell environment variables, restart the backend or reconfigure as needed.
           </div>
 
           {testResult && (

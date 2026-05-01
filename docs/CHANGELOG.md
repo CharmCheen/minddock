@@ -98,6 +98,17 @@ Update it before every push.
 
 ### Fixed
 
+- **Media Transcript Config: base_url round-trip** (`P1`):
+  - `MediaTranscriptConfigResponse` now includes `base_url: str` so the frontend can round-trip the configured URL.
+  - `GET /frontend/media-transcript-config` returns the effective base URL (ui_override or environment).
+  - Frontend Settings `loadConfig` now restores the `base_url` form field from the backend response instead of always clearing it.
+  - Users can Save → reopen Settings → base_url is preserved → Save again without losing the URL.
+
+- **Media Transcript Config: Phase 3 text and reset boundary** (`P2`):
+  - Frontend Settings text updated: "Saved UI configuration is now used by media ingestion."
+  - Reset boundary note added: "Reset clears the UI override and current backend-session key."
+  - `docs/VIDEO_SKILL_DEMO.md` updated with reset boundary behavior.
+
 - **Progressive SSE Streaming** (`/frontend/execute/stream`): 
   - `RunRegistry.append_internal_event` now real-time projects internal events into `recent_client_events` when `stream_mode` is set, enabling the SSE endpoint to yield events while the run is still executing instead of batching them after completion.
   - `FrontendFacade.execute_run` accepts an optional `on_run_started` callback so the streaming route can obtain the `run_id` immediately and begin polling the registry progressively.

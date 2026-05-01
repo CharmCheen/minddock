@@ -2085,6 +2085,7 @@ class MediaTranscriptConfigResponse(BaseModel):
     enabled: bool = Field(description="Whether media transcript ingestion is enabled")
     provider: str = Field(description="Active provider kind (api, mock, disabled)")
     api_key_configured: bool = Field(description="Whether an API key is present")
+    base_url: str = Field(default="", description="Configured ASR API base URL (non-secret)")
     base_url_configured: bool = Field(description="Whether a base URL is configured")
     model: str = Field(description="Configured ASR model name")
     timeout_seconds: float = Field(description="Request timeout for transcript API calls")

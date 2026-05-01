@@ -127,3 +127,48 @@ def test_expired_runs_are_evicted() -> None:
 
     assert evicted == 1
     assert registry.get("run-1") is None
+
+
+def test_append_internal_event_projects_to_recent_client_events_when_stream_mode_set() -> None:
+    """Streaming runs must mirror internal events into recent_client_events in real time."""
+    from app.application.events import ExecutionEvent, ExecutionEventKind, RunStartedPayload
+
+    registry = _registry()
+    registry.register(_run(), stream_mode="execute")
+
+    event = ExecutionEvent(
+        event_id="evt-1",
+        run_id="run-1",
+        sequence=1,
+        kind=ExecutionEventKind.RUN_STARTED,
+        task_type="chat",
+        payload=RunStartedPayload(request=_run().request_summary),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+    registry.append_internal_event("run-1", event)
+
+    recent = registry.get_recent_client_events("run-1")
+    assert len(recent) == 1
+    assert recent[0].kind == ClientEventKind.RUN_STARTED
+
+
+def test_append_internal_event_does_not_project_when_stream_mode_is_none() -> None:
+    """Non-streaming runs should not populate recent_client_events from internal events."""
+    from app.application.events import ExecutionEvent, ExecutionEventKind, RunStartedPayload
+
+    registry = _registry()
+    registry.register(_run(), stream_mode=None)
+
+    event = ExecutionEvent(
+        event_id="evt-1",
+        run_id="run-1",
+        sequence=1,
+        kind=ExecutionEventKind.RUN_STARTED,
+        task_type="chat",
+        payload=RunStartedPayload(request=_run().request_summary),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+    registry.append_internal_event("run-1", event)
+
+    recent = registry.get_recent_client_events("run-1")
+    assert len(recent) == 0

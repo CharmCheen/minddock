@@ -318,21 +318,22 @@ def execute_frontend_task_stream(
         import threading
         import time
 
-        run_started_event: list[dict] = []
+        run_id_holder: list[str] = []
+        run_holder: list[ExecutionRun] = []
         run_completed = threading.Event()
         run_error: list[Exception] = []
 
         def run_in_thread():
             try:
-                run = frontend_facade.execute_run(request)
-                # Collect the run_started event from registry (already emitted before we poll)
-                events = frontend_facade.run_registry.get_recent_client_events(run.run_id, debug=debug_enabled)
-                if events:
-                    run_started_event.append({"run_id": run.run_id, "events": events})
-                else:
-                    # Fallback: project from internal events
-                    projected = project_run_events(run, debug=debug_enabled)
-                    run_started_event.append({"run_id": run.run_id, "events": projected})
+
+                def on_started(rid: str) -> None:
+                    run_id_holder.append(rid)
+
+                run = frontend_facade.execute_run(request, on_run_started=on_started)
+                run_holder.append(run)
+                # Fallback for consumers that don't invoke the callback
+                if not run_id_holder:
+                    run_id_holder.append(run.run_id)
             except Exception as exc:
                 run_error.append(exc)
             finally:
@@ -348,10 +349,17 @@ def execute_frontend_task_stream(
             # Wait for the run to start (first event available) or complete
             run_completed.wait(timeout=2.0)
 
-            if run_started_event:
-                events = run_started_event[0]["events"]
+            # Progressive poll: once we know the run_id, continuously yield
+            # newly-projected events from the registry so the client sees
+            # progress while the run is still executing.
+            if run_id_holder:
+                events = frontend_facade.run_registry.get_recent_client_events(
+                    run_id_holder[0], debug=debug_enabled
+                )
+                # Fallback for mocks / legacy paths that don't populate the registry
+                if not events and run_holder:
+                    events = project_run_events(run_holder[0], debug=debug_enabled)
                 for evt in events:
-                    # Yield each new event not yet seen (deque may grow between polls)
                     if evt.sequence not in yielded_sequences:
                         yield serialize_client_event_sse(evt)
                         yielded_sequences.add(evt.sequence)
@@ -362,9 +370,9 @@ def execute_frontend_task_stream(
             time.sleep(poll_interval)
 
         # After run completes, do a final poll to pick up any remaining events
-        if run_started_event:
+        if run_id_holder:
             final_events = frontend_facade.run_registry.get_recent_client_events(
-                run_started_event[0]["run_id"], debug=debug_enabled
+                run_id_holder[0], debug=debug_enabled
             )
             for evt in final_events:
                 if evt.sequence not in yielded_sequences:
@@ -377,7 +385,7 @@ def execute_frontend_task_stream(
             )
             hb_events = inject_heartbeat_events(
                 all_events,
-                run_id=run_started_event[0]["run_id"],
+                run_id=run_id_holder[0],
                 heartbeat_interval_seconds=frontend_facade.run_registry.config.heartbeat_interval_seconds,
             )
             for evt in hb_events:

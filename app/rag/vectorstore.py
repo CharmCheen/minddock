@@ -286,7 +286,10 @@ class LangChainChromaStore:
             for metadata, document in zip(metadatas, documents, strict=True)
         ]
         rows.sort(key=_chunk_sort_key)
-        detail = _build_source_detail([row["metadata"] for row in rows])
+        detail = _build_source_detail(
+            [row["metadata"] for row in rows],
+            row_documents=[row["document"] for row in rows],
+        )
         page_rows = rows[offset : offset + limit]
         previews = [
             _build_chunk_preview(row, include_admin_metadata=include_admin_metadata)
@@ -521,7 +524,10 @@ def inspect_source(
     )
 
 
-def _build_source_detail(rows: list[dict[str, object]]) -> SourceDetail:
+def _build_source_detail(
+    rows: list[dict[str, object]],
+    row_documents: list[str] | None = None,
+) -> SourceDetail:
     representative = rows[0]
     doc_id = str(representative.get("doc_id") or "")
     source = str(representative.get("source") or representative.get("source_path") or "")
@@ -538,6 +544,29 @@ def _build_source_detail(rows: list[dict[str, object]]) -> SourceDetail:
         for key, value in representative.items()
         if key not in {"chunk_id", "doc_id"}
     }
+
+    # Aggregate derived chunk flags and previews for source-level display
+    derived_kinds: set[str] = set()
+    for idx, row in enumerate(rows):
+        if str(row.get("is_derived") or "").strip().lower() != "true":
+            continue
+        kind = str(row.get("derived_kind") or "").strip()
+        if not kind:
+            continue
+        derived_kinds.add(kind)
+        if row_documents and idx < len(row_documents):
+            text = row_documents[idx]
+        else:
+            text = ""
+        if kind == "media_summary" and "derived_summary_preview" not in representative_metadata and text:
+            representative_metadata["derived_summary_preview"] = text[:1000]
+        elif kind == "media_outline" and "derived_outline_preview" not in representative_metadata and text:
+            representative_metadata["derived_outline_preview"] = text[:800]
+    if "media_summary" in derived_kinds:
+        representative_metadata["has_derived_summary"] = "true"
+    if "media_outline" in derived_kinds:
+        representative_metadata["has_derived_outline"] = "true"
+
     return SourceDetail(
         entry=SourceCatalogEntry(
             doc_id=doc_id,
@@ -636,6 +665,23 @@ def _build_chunk_preview(
             admin_metadata["requested_url"] = requested_url
         if final_url:
             admin_metadata["final_url"] = final_url
+
+    # Expose derived chunk metadata for frontend display
+    is_derived = str(metadata.get("is_derived") or "").strip().lower()
+    if is_derived == "true":
+        admin_metadata["is_derived"] = "true"
+        derived_kind = str(metadata.get("derived_kind") or "").strip()
+        if derived_kind:
+            admin_metadata["derived_kind"] = derived_kind
+        derived_from = str(metadata.get("derived_from") or "").strip()
+        if derived_from:
+            admin_metadata["derived_from"] = derived_from
+        derived_basis = str(metadata.get("derived_basis") or "").strip()
+        if derived_basis:
+            admin_metadata["derived_basis"] = derived_basis
+        evidence_basis = str(metadata.get("evidence_basis") or "").strip()
+        if evidence_basis:
+            admin_metadata["evidence_basis"] = evidence_basis
 
     return SourceChunkPreview(
         chunk_id=chunk_id,

@@ -1019,6 +1019,28 @@ export const SourceList: React.FC = () => {
                           </span>
                         );
                       })()}
+                      {metadataString(src.representative_metadata, 'has_derived_summary') === 'true' && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center',
+                          background: 'var(--color-success-bg)',
+                          color: 'var(--color-success-text)',
+                          border: '1px solid var(--color-success-border)',
+                          borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
+                        }}>
+                          Summary
+                        </span>
+                      )}
+                      {metadataString(src.representative_metadata, 'has_derived_outline') === 'true' && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center',
+                          background: 'var(--color-success-bg)',
+                          color: 'var(--color-success-text)',
+                          border: '1px solid var(--color-success-border)',
+                          borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
+                        }}>
+                          Outline
+                        </span>
+                      )}
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>

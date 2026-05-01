@@ -70,6 +70,12 @@ Update it before every push.
   - No frontend changes in Phase 1; frontend badges/preview deferred to Phase 2.
   - Unit tests cover disabled mode, short-text skipping, mock/disabled provider skipping, metadata correctness, summary char limits, outline item limits, max-input truncation, exception safety, and end-to-end ingest integration.
 
+- **Media Transcript Derived Docs Phase 2 (Frontend + Backend Exposure)**
+  - Backend `app/rag/vectorstore.py`: `_build_chunk_preview()` now exposes `is_derived`, `derived_kind`, `derived_from`, `derived_basis` in `admin_metadata` for derived chunks; `_build_source_detail()` aggregates `has_derived_summary` and `has_derived_outline` flags in `representative_metadata`.
+  - Frontend Source Drawer (`source-drawer.tsx`): new "Derived Content" section displays extractive summary and outline blocks when derived chunks exist, with "Extractive / deterministic" badge and "Derived from transcript" labels.
+  - Frontend Source List (`source-list.tsx`): green Summary and Outline badges appear next to the transcript provider badge when derived content is available.
+  - No new dependencies, no LLM calls, no video frame analysis. Derived content is strictly extractive/deterministic from transcript text.
+
 ### Fixed
 
 - **Progressive SSE Streaming** (`/frontend/execute/stream`): 

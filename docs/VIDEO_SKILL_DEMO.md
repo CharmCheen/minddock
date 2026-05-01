@@ -105,6 +105,24 @@ After ingest, the video source is indexed using transcript text. In the source d
 
 The source list also shows a `Transcript: {provider}` badge for ready video/audio sources.
 
+## Derived Content (Summary & Outline)
+
+When `MEDIA_TRANSCRIPT_DERIVED_ENABLED=true` and the transcript is long enough (≥ `MEDIA_TRANSCRIPT_DERIVED_MIN_CHARS`, default 400), the ingest pipeline generates two additional derived chunks:
+
+- **media_summary** — extractive summary (up to `MEDIA_TRANSCRIPT_DERIVED_SUMMARY_MAX_CHARS` chars)
+- **media_outline** — extractive outline (up to `MEDIA_TRANSCRIPT_DERIVED_OUTLINE_MAX_ITEMS` items)
+
+These are deterministic/extractive — no LLM calls, no video frame analysis.
+
+### Frontend Display
+
+- **Source Drawer**: A "Derived Content" section appears when derived chunks exist, showing the summary and outline with "Derived from transcript" labels and an "Extractive / deterministic" badge.
+- **Source List**: Green `Summary` and `Outline` badges appear next to the transcript provider badge.
+
+### Eligibility
+
+Only media sources with `transcript_provider` of `sidecar` or `api` are eligible. Mock and disabled providers are skipped. If the transcript is too short, derived chunks are not generated.
+
 ## Frontend Visibility
 
 Open **Settings → Runtime** to see the read-only **Media Transcript Provider** card. It shows:

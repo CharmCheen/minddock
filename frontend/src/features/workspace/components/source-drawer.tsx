@@ -3,7 +3,7 @@ import { useWorkspaceStore } from '../store';
 import { SourceService } from '../../../lib/api/services/sources';
 import { useAvailabilityStore } from '../../app/store/availability';
 import { IconLink, IconFileText, IconPlug, IconX } from '../../../components/ui/icons';
-import { SourceItem } from '../../../core/types/api';
+import { SourceItem, SourceChunkResponse } from '../../../core/types/api';
 
 const EXTRACTION_WARNING_TEXT = 'Extraction may be incomplete. This page may require JavaScript rendering or contain little readable text.';
 const LOW_TEXT_CHAR_THRESHOLD = 300;
@@ -61,6 +61,37 @@ function mediaMetadata(source: SourceItem | null): {
   };
 }
 
+interface DerivedChunk {
+  chunkId: string;
+  text: string;
+  derivedKind: string;
+  derivedFrom: string;
+}
+
+const DERIVED_SUMMARY_MAX_CHARS = 1000;
+const DERIVED_OUTLINE_MAX_CHARS = 800;
+
+const getChunkMetadata = (chunk: SourceChunkResponse): Record<string, unknown> => {
+  return chunk.admin_metadata ?? chunk.metadata ?? {};
+};
+
+function extractDerivedChunks(chunks: SourceChunkResponse[]): DerivedChunk[] {
+  const derived: DerivedChunk[] = [];
+  for (const chunk of chunks) {
+    const meta = getChunkMetadata(chunk);
+    const isDerived = metadataString(meta, 'is_derived');
+    if (isDerived === 'true') {
+      derived.push({
+        chunkId: chunk.chunk_id,
+        text: chunk.preview_text,
+        derivedKind: metadataString(meta, 'derived_kind'),
+        derivedFrom: metadataString(meta, 'derived_from'),
+      });
+    }
+  }
+  return derived;
+}
+
 export const SourceDrawer: React.FC = () => {
   const {
     selectedDocId,
@@ -88,6 +119,20 @@ export const SourceDrawer: React.FC = () => {
     : 'MindDock is still importing this source. Chunks will be available after import completes.';
   const showExtractionWarning = hasUrlExtractionWarning(selectedDocDetail);
   const selectedMediaMetadata = mediaMetadata(selectedDocDetail);
+  const derivedChunks = extractDerivedChunks(selectedDocChunks);
+  const repMetadata = selectedDocDetail?.representative_metadata || {};
+
+  const repSummaryPreview = metadataString(repMetadata, 'derived_summary_preview');
+  const derivedSummaryFromChunks = derivedChunks.find((c) => c.derivedKind === 'media_summary');
+  const derivedSummary = repSummaryPreview
+    ? { chunkId: 'representative', text: repSummaryPreview, derivedKind: 'media_summary', derivedFrom: '' }
+    : derivedSummaryFromChunks;
+
+  const repOutlinePreview = metadataString(repMetadata, 'derived_outline_preview');
+  const derivedOutlineFromChunks = derivedChunks.find((c) => c.derivedKind === 'media_outline');
+  const derivedOutline = repOutlinePreview
+    ? { chunkId: 'representative', text: repOutlinePreview, derivedKind: 'media_outline', derivedFrom: '' }
+    : derivedOutlineFromChunks;
 
   useEffect(() => {
     if (!drawerOpen || !selectedDocId) return;
@@ -369,6 +414,132 @@ export const SourceDrawer: React.FC = () => {
             {selectedMediaMetadata.sidecarFilename && (
               <span>Sidecar: {selectedMediaMetadata.sidecarFilename}</span>
             )}
+          </div>
+        )}
+
+        {/* Derived Content: Summary and Outline */}
+        {(derivedSummary || derivedOutline) && (
+          <div
+            data-testid="source-derived-content"
+            style={{
+              padding: '12px 20px',
+              borderBottom: '1px solid var(--color-border-subtle)',
+              background: 'var(--color-surface)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              flexShrink: 0,
+            }}
+          >
+            <div style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              color: 'var(--color-text-tertiary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}>
+              Derived Content
+              <span style={{
+                fontSize: '10px',
+                fontWeight: 500,
+                letterSpacing: '0',
+                textTransform: 'none',
+                color: 'var(--color-text-tertiary)',
+                background: 'var(--color-canvas-subtle)',
+                padding: '1px 6px',
+                borderRadius: 'var(--radius-full)',
+                border: '1px solid var(--color-border-subtle)',
+              }}>
+                Extractive / deterministic
+              </span>
+            </div>
+
+            {derivedSummary && (
+              <div style={{
+                background: 'var(--color-canvas-subtle)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border-subtle)',
+                padding: '10px 12px',
+              }}>
+                <div style={{
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: 'var(--color-text-primary)',
+                  marginBottom: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}>
+                  Transcript Summary
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 500,
+                    color: 'var(--color-text-tertiary)',
+                  }}>
+                    Derived from transcript
+                  </span>
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  lineHeight: '1.6',
+                  color: 'var(--color-text-secondary)',
+                  whiteSpace: 'pre-wrap',
+                }}>
+                  {derivedSummary.text.length > DERIVED_SUMMARY_MAX_CHARS
+                    ? derivedSummary.text.slice(0, DERIVED_SUMMARY_MAX_CHARS) + '…'
+                    : derivedSummary.text}
+                </div>
+              </div>
+            )}
+
+            {derivedOutline && (
+              <div style={{
+                background: 'var(--color-canvas-subtle)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border-subtle)',
+                padding: '10px 12px',
+              }}>
+                <div style={{
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: 'var(--color-text-primary)',
+                  marginBottom: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}>
+                  Transcript Outline
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 500,
+                    color: 'var(--color-text-tertiary)',
+                  }}>
+                    Derived from transcript
+                  </span>
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  lineHeight: '1.6',
+                  color: 'var(--color-text-secondary)',
+                  whiteSpace: 'pre-wrap',
+                }}>
+                  {derivedOutline.text.length > DERIVED_OUTLINE_MAX_CHARS
+                    ? derivedOutline.text.slice(0, DERIVED_OUTLINE_MAX_CHARS) + '…'
+                    : derivedOutline.text}
+                </div>
+              </div>
+            )}
+
+            <div style={{
+              fontSize: '10px',
+              color: 'var(--color-text-tertiary)',
+              lineHeight: '1.4',
+            }}>
+              This does not perform frame-level video understanding.
+            </div>
           </div>
         )}
 

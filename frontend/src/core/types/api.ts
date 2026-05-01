@@ -169,6 +169,7 @@ export interface SourceChunkResponse {
   page?: number;
   location?: string;
   metadata?: Record<string, unknown>;
+  admin_metadata?: Record<string, unknown>;
 }
 
 export interface SourceChunkWrapperResponse {

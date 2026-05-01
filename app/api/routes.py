@@ -47,6 +47,8 @@ from app.api.schemas import (
     RuntimeConfigTestResponse,
     RuntimeProfileListResponse,
     MediaTranscriptConfigResponse,
+    MediaTranscriptConfigTestResponse,
+    MediaTranscriptConfigUpdateRequest,
     SearchRequest,
     SearchResponse,
     SkillDetailResponse,
@@ -423,15 +425,180 @@ def get_runtime_config() -> RuntimeConfigResponse:
 @router.get(
     "/frontend/media-transcript-config",
     response_model=MediaTranscriptConfigResponse,
-    summary="Read-only media transcript provider configuration",
+    summary="Get the active media transcript provider configuration",
 )
 def get_media_transcript_config() -> MediaTranscriptConfigResponse:
-    """Return sanitized, read-only media transcript config for frontend visibility.
+    """Return sanitized media transcript config for frontend visibility.
 
-    No API keys are returned. Configuration remains environment-variable based.
+    Priority: UI active config > environment settings > default.
+    No API keys are returned.
     """
+    from app.runtime.media_transcript_active_config import (
+        CONFIG_FILE,
+        get_active_media_transcript_config,
+        get_effective_media_transcript_api_key,
+        get_effective_media_transcript_base_url,
+        get_effective_media_transcript_config_source,
+        get_effective_media_transcript_model,
+        get_effective_media_transcript_provider,
+        get_effective_media_transcript_timeout,
+    )
+
     settings = get_settings()
-    return MediaTranscriptConfigResponse.from_settings(settings)
+    active = get_active_media_transcript_config()
+
+    api_key = get_effective_media_transcript_api_key(active, settings)
+    base_url = get_effective_media_transcript_base_url(active, settings)
+    provider = get_effective_media_transcript_provider(active, settings)
+    model = get_effective_media_transcript_model(active, settings)
+    timeout = get_effective_media_transcript_timeout(active, settings)
+    config_source = get_effective_media_transcript_config_source(active, settings)
+
+    # When no active config file exists, defer to settings for the enabled flag.
+    # When the file exists (UI override), use the active config's value directly.
+    if CONFIG_FILE.exists():
+        enabled = active.enabled
+    else:
+        enabled = bool(getattr(settings, "media_transcript_enabled", False))
+
+    return MediaTranscriptConfigResponse(
+        enabled=enabled,
+        provider=provider,
+        api_key_configured=len(api_key) > 0,
+        base_url_configured=len(base_url) > 0,
+        model=model,
+        timeout_seconds=timeout,
+        config_source=config_source,
+    )
+
+
+@router.put(
+    "/frontend/media-transcript-config",
+    response_model=MediaTranscriptConfigResponse,
+    summary="Update the active media transcript provider configuration",
+)
+def update_media_transcript_config(body: MediaTranscriptConfigUpdateRequest) -> MediaTranscriptConfigResponse:
+    """Save the media transcript configuration.
+
+    Security: api_key is NEVER written to disk. It is set in os.environ only.
+    """
+    from app.runtime.media_transcript_active_config import save_active_media_transcript_config
+
+    save_active_media_transcript_config(
+        provider=body.provider,
+        base_url=body.base_url,
+        api_key=body.api_key,
+        model=body.model,
+        timeout_seconds=body.timeout_seconds,
+        enabled=body.enabled,
+    )
+
+    # Refresh settings cache so get_settings() picks up new env vars
+    get_settings.cache_clear()
+
+    # Return the updated config
+    return get_media_transcript_config()
+
+
+@router.post(
+    "/frontend/media-transcript-config/reset",
+    response_model=MediaTranscriptConfigResponse,
+    summary="Clear user-configured media transcript config and restore defaults",
+)
+def reset_media_transcript_config() -> MediaTranscriptConfigResponse:
+    """Remove the persisted media transcript configuration and restore defaults."""
+    from app.runtime.media_transcript_active_config import reset_active_media_transcript_config
+
+    reset_active_media_transcript_config()
+
+    # Refresh settings cache
+    get_settings.cache_clear()
+
+    return get_media_transcript_config()
+
+
+@router.post(
+    "/frontend/media-transcript-config/test",
+    response_model=MediaTranscriptConfigTestResponse,
+    summary="Test media transcript configuration completeness",
+)
+def test_media_transcript_config(body: MediaTranscriptConfigUpdateRequest) -> MediaTranscriptConfigTestResponse:
+    """Validate that a media transcript configuration is complete.
+
+    First version: configuration completeness check only, no real API calls.
+    """
+    if body.provider == "mock" or body.provider == "disabled":
+        return MediaTranscriptConfigTestResponse(
+            success=True,
+            message=f"Provider '{body.provider}' does not require additional configuration.",
+        )
+
+    # provider == "api" — check completeness
+    # Check api_key: either provided in body or already in env
+    from app.runtime.media_transcript_active_config import get_active_media_transcript_config
+
+    active = get_active_media_transcript_config()
+    settings = get_settings()
+
+    # api_key: body → active config env → settings → env
+    effective_key = (body.api_key or "").strip()
+    if not effective_key and active.enabled and active.api_key_source == "env":
+        effective_key = os.environ.get("MEDIA_TRANSCRIPT_API_KEY", "").strip()
+    if not effective_key:
+        effective_key = str(getattr(settings, "media_transcript_api_key", "") or "").strip()
+    if not effective_key:
+        effective_key = os.environ.get("MEDIA_TRANSCRIPT_API_KEY", "").strip()
+
+    # base_url: body → active → settings → env
+    body_base_url = body.base_url.strip()
+    if body_base_url:
+        effective_base_url = body_base_url
+    elif active.enabled and active.base_url:
+        effective_base_url = active.base_url
+    else:
+        effective_base_url = str(getattr(settings, "media_transcript_api_base_url", "") or "").strip()
+        if not effective_base_url:
+            effective_base_url = os.environ.get("MEDIA_TRANSCRIPT_API_BASE_URL", "").strip()
+
+    # model: body → active → settings → env
+    body_model = body.model.strip()
+    if body_model and body_model != "whisper-1":
+        effective_model = body_model
+    elif body_model == "" or (body_model == "whisper-1" and body.model == ""):
+        # Explicitly empty model — treat as missing
+        effective_model = ""
+    elif active.enabled and active.model:
+        effective_model = active.model
+    else:
+        effective_model = str(getattr(settings, "media_transcript_model", "") or "").strip()
+        if not effective_model:
+            effective_model = os.environ.get("MEDIA_TRANSCRIPT_MODEL", "").strip()
+
+    if not effective_key:
+        return MediaTranscriptConfigTestResponse(
+            success=False,
+            message="API key is required for the api provider. Enter a key or set MEDIA_TRANSCRIPT_API_KEY in the backend environment.",
+            error_kind="missing_api_key",
+        )
+
+    if not effective_base_url:
+        return MediaTranscriptConfigTestResponse(
+            success=False,
+            message="Base URL is required for the api provider.",
+            error_kind="missing_base_url",
+        )
+
+    if not effective_model:
+        return MediaTranscriptConfigTestResponse(
+            success=False,
+            message="Model name is required for the api provider.",
+            error_kind="missing_model",
+        )
+
+    return MediaTranscriptConfigTestResponse(
+        success=True,
+        message=f"Configuration is complete. Provider 'api' with model '{effective_model}' is ready.",
+    )
 
 
 @router.put(

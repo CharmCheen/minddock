@@ -153,3 +153,84 @@ The command should resolve to the builtin `video.transcribe` binding when no loc
 - Pending and failed source behavior is unchanged.
 - No large media files should be committed to git.
 - The sidecar transcript path remains the most stable demo path.
+
+## Quick Demo Runbook
+
+Reproducible steps to verify the full media transcript derived-chunks pipeline.
+
+### Prerequisites
+
+- `knowledge_base/demo_video.mp4` — a small video file (any size, not used for frame analysis)
+- `knowledge_base/demo_video.transcript.md` — a sidecar transcript (≥ 400 chars recommended)
+
+### Step 1: Enable derived chunks
+
+```powershell
+$env:MEDIA_TRANSCRIPT_DERIVED_ENABLED="true"
+$env:MEDIA_TRANSCRIPT_DERIVED_MIN_CHARS="100"
+$env:MEDIA_TRANSCRIPT_DERIVED_MAX_INPUT_CHARS="20000"
+$env:MEDIA_TRANSCRIPT_DERIVED_SUMMARY_MAX_CHARS="800"
+$env:MEDIA_TRANSCRIPT_DERIVED_OUTLINE_MAX_ITEMS="8"
+```
+
+### Step 2: Ingest
+
+```bash
+conda run -n minddock python -m app.demo ingest
+```
+
+Verify in the output that `demo_video.mp4` appears in `ingested_sources` and chunk count increases by 2 (summary + outline) compared to a non-derived ingest.
+
+### Step 3: Start backend and frontend
+
+```bash
+# Terminal 1
+conda run -n minddock python -m app.demo serve --port 8000
+
+# Terminal 2
+cd frontend
+npm run dev
+```
+
+### Step 4: Verify in frontend
+
+**Settings → Runtime**: Media Transcript Provider card should show:
+- Capability: Transcript-only ASR
+- Limitations: no frame understanding
+
+**Source List**: `demo_video` should show:
+- `Transcript: sidecar` badge
+- `Summary` badge
+- `Outline` badge
+
+**Source Drawer** (click demo_video):
+- `video.transcribe` loader badge
+- `Basis: transcript text`
+- **Derived Content** section with:
+  - Transcript Summary (extractive)
+  - Transcript Outline (extractive)
+  - "Extractive / deterministic" badge
+  - "This does not perform frame-level video understanding."
+- Raw transcript chunks still visible below
+
+### Step 5: Test retrieval
+
+Ask these questions in the chat panel:
+
+1. `demo video 里提到了什么 smoke test？`
+2. `这个视频的 summary 和 outline 讲了什么？`
+
+Expected: answers cite `demo_video.mp4`, derived chunks appear in retrieval results.
+
+### What this proves
+
+```text
+视频文件 → sidecar transcript → raw transcript chunk
+→ derived summary chunk (extractive, deterministic)
+→ derived outline chunk (extractive, deterministic)
+→ frontend Source Drawer 可展示
+→ RAG search 可命中 derived chunks
+→ citation 指向原始视频源
+```
+
+This is **not** video frame understanding, multimodal analysis, or LLM-generated summarization.

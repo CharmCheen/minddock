@@ -97,9 +97,27 @@ conda run -n minddock python -m app.demo ingest --no-rebuild
 After ingest, the video source is indexed using transcript text. In the source drawer, representative metadata should show:
 
 - `Video source`
-- `Transcript: sidecar` (or `Transcript: api` / `mock`)
+- `video.transcribe` (loader name badge)
+- `Transcript: sidecar` (or `Transcript: api` / `mock` / `disabled`)
+- `Basis: transcript text`
 - media filename
 - sidecar filename (if sidecar was used)
+
+The source list also shows a `Transcript: {provider}` badge for ready video/audio sources.
+
+## Frontend Visibility
+
+Open **Settings → Runtime** to see the read-only **Media Transcript Provider** card. It shows:
+
+- Status (Enabled / Disabled / Enabled — missing key)
+- Provider (`api`, `mock`, `disabled`)
+- API Key and Base URL configured/missing status
+- Model and timeout
+- Capability: **Transcript-only ASR**
+- Limitations: no frame understanding, no multimodal embedding
+- Config source: Environment variables
+
+No API key is exposed. The frontend cannot edit or save media transcript credentials; configuration remains environment-variable based.
 
 ## Skill Resolve Demo
 

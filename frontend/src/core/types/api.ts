@@ -202,6 +202,18 @@ export interface RuntimeConfigResponse {
   } | null;
 }
 
+export interface MediaTranscriptConfigResponse {
+  enabled: boolean;
+  provider: string;
+  api_key_configured: boolean;
+  base_url_configured: boolean;
+  model: string;
+  timeout_seconds: number;
+  capability: string;
+  limitations: string[];
+  config_source: string;
+}
+
 export interface RuntimeConfigUpdateRequest {
   provider: string;
   base_url: string;

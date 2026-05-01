@@ -40,6 +40,8 @@ function mediaMetadata(source: SourceItem | null): {
   transcriptProvider: string;
   mediaFilename: string;
   sidecarFilename: string;
+  loaderName: string;
+  retrievalBasis: string;
 } | null {
   if (!source || source.source_state?.ingest_status !== 'ready') {
     return null;
@@ -54,6 +56,8 @@ function mediaMetadata(source: SourceItem | null): {
     transcriptProvider: metadataString(metadata, 'transcript_provider'),
     mediaFilename: metadataString(metadata, 'media_filename'),
     sidecarFilename: metadataString(metadata, 'transcript_sidecar_filename'),
+    loaderName: metadataString(metadata, 'loader_name'),
+    retrievalBasis: metadataString(metadata, 'retrieval_basis'),
   };
 }
 
@@ -332,8 +336,32 @@ export const SourceDrawer: React.FC = () => {
             }}>
               {selectedMediaMetadata.label}
             </span>
+            {selectedMediaMetadata.loaderName && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center',
+                background: 'var(--color-brand-50)',
+                color: 'var(--color-brand-600)',
+                border: '1px solid var(--color-brand-200)',
+                borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '11px', fontWeight: 600,
+              }}>
+                {selectedMediaMetadata.loaderName}
+              </span>
+            )}
             {selectedMediaMetadata.transcriptProvider && (
-              <span>Transcript: {selectedMediaMetadata.transcriptProvider}</span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center',
+                background: 'var(--color-info-bg)',
+                color: 'var(--color-info-text)',
+                border: '1px solid var(--color-info-border)',
+                borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '11px', fontWeight: 600,
+              }}>
+                Transcript: {selectedMediaMetadata.transcriptProvider}
+              </span>
+            )}
+            {selectedMediaMetadata.retrievalBasis && (
+              <span style={{ color: 'var(--color-text-tertiary)' }}>
+                Basis: {selectedMediaMetadata.retrievalBasis.replace(/_/g, ' ')}
+              </span>
             )}
             {selectedMediaMetadata.mediaFilename && (
               <span>Media: {selectedMediaMetadata.mediaFilename}</span>

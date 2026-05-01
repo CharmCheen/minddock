@@ -1004,6 +1004,21 @@ export const SourceList: React.FC = () => {
                       >
                         {statusValue === 'ready' ? '● ready' : statusValue === 'indexing' ? '◌ indexing...' : statusValue === 'failed' ? '✕ failed' : '○ ' + statusValue}
                       </span>
+                      {(() => {
+                        const tp = metadataString(src.representative_metadata, 'transcript_provider');
+                        if (!tp) return null;
+                        return (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center',
+                            background: 'var(--color-info-bg)',
+                            color: 'var(--color-info-text)',
+                            border: '1px solid var(--color-info-border)',
+                            borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
+                          }}>
+                            Transcript: {tp}
+                          </span>
+                        );
+                      })()}
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>

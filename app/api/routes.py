@@ -46,6 +46,7 @@ from app.api.schemas import (
     RuntimeConfigTestRequest,
     RuntimeConfigTestResponse,
     RuntimeProfileListResponse,
+    MediaTranscriptConfigResponse,
     SearchRequest,
     SearchResponse,
     SkillDetailResponse,
@@ -417,6 +418,20 @@ def get_runtime_config() -> RuntimeConfigResponse:
     from app.runtime.active_config import get_active_config, get_effective_runtime_status
     config = get_active_config()
     return RuntimeConfigResponse.from_config(config, get_effective_runtime_status(), _resolve_effective_runtime_response())
+
+
+@router.get(
+    "/frontend/media-transcript-config",
+    response_model=MediaTranscriptConfigResponse,
+    summary="Read-only media transcript provider configuration",
+)
+def get_media_transcript_config() -> MediaTranscriptConfigResponse:
+    """Return sanitized, read-only media transcript config for frontend visibility.
+
+    No API keys are returned. Configuration remains environment-variable based.
+    """
+    settings = get_settings()
+    return MediaTranscriptConfigResponse.from_settings(settings)
 
 
 @router.put(

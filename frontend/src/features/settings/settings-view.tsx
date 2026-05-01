@@ -3,7 +3,8 @@ import { RuntimeFormValues, useSettingsStore } from './store';
 import { deriveRuntimeStatus } from './runtime-status';
 import { useWorkspacePreferences } from './workspace-preferences';
 import { SkillService } from '../../lib/api/services/skills';
-import { SourceSkillItem, SourceSkillValidationResponse } from '../../core/types/api';
+import { MediaTranscriptConfigService } from '../../lib/api/services/media-transcript-config';
+import { MediaTranscriptConfigResponse, SourceSkillItem, SourceSkillValidationResponse } from '../../core/types/api';
 import { IconX } from '../../components/ui/icons';
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -483,7 +484,124 @@ function RuntimeTab() {
           </div>
         </form>
       )}
+
+      <MediaTranscriptStatus />
     </>
+  );
+}
+
+function MediaTranscriptStatus() {
+  const [config, setConfig] = useState<MediaTranscriptConfigResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    MediaTranscriptConfigService.getConfig()
+      .then((data) => {
+        if (!cancelled) setConfig(data);
+      })
+      .catch(() => {
+        // Silently ignore; this is read-only visibility
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const statusColor = config?.enabled
+    ? config?.api_key_configured
+      ? '#22c55e'
+      : '#f59e0b'
+    : '#94a3b8';
+  const statusLabel = config?.enabled
+    ? config?.api_key_configured
+      ? 'Enabled'
+      : 'Enabled — missing key'
+    : 'Disabled';
+
+  return (
+    <div
+      data-testid="media-transcript-status"
+      style={{
+        padding: '14px',
+        background: 'var(--color-canvas-subtle)',
+        border: '1px solid var(--color-border-subtle)',
+        borderRadius: 'var(--radius-md)',
+        display: 'grid',
+        gap: '10px',
+        marginTop: '16px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Media Transcript Provider
+        </span>
+        <span
+          style={{
+            padding: '3px 10px',
+            borderRadius: 'var(--radius-full)',
+            background: `${statusColor}15`,
+            border: `1px solid ${statusColor}40`,
+            color: statusColor,
+            fontSize: '11px',
+            fontWeight: 700,
+          }}
+        >
+          {loading ? 'Loading…' : statusLabel}
+        </span>
+      </div>
+
+      <div
+        style={{
+          padding: '10px 12px',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-sm)',
+          fontSize: '12px',
+          color: 'var(--color-text-tertiary)',
+          lineHeight: 1.45,
+        }}
+      >
+        Used during media ingestion to turn audio/video files into transcript text.
+        This does not perform frame-level video understanding.
+      </div>
+
+      {config && (
+        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '5px 10px', fontSize: '13px' }}>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Provider</span>
+          <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{config.provider}</span>
+
+          <span style={{ color: 'var(--color-text-tertiary)' }}>API Key</span>
+          <span style={{ color: config.api_key_configured ? 'var(--color-text-secondary)' : 'var(--color-warning-text)' }}>
+            {config.api_key_configured ? 'Configured' : 'Missing'}
+          </span>
+
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Base URL</span>
+          <span style={{ color: config.base_url_configured ? 'var(--color-text-secondary)' : 'var(--color-warning-text)' }}>
+            {config.base_url_configured ? 'Configured' : 'Missing'}
+          </span>
+
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Model</span>
+          <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{config.model}</span>
+
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Timeout</span>
+          <span style={{ color: 'var(--color-text-secondary)' }}>{config.timeout_seconds}s</span>
+
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Capability</span>
+          <span style={{ color: 'var(--color-text-secondary)' }}>Transcript-only ASR</span>
+
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Limitations</span>
+          <span style={{ color: 'var(--color-text-secondary)' }}>
+            {config.limitations.map((l) => l.replace(/_/g, ' ')).join(', ')}
+          </span>
+
+          <span style={{ color: 'var(--color-text-tertiary)' }}>Config source</span>
+          <span style={{ color: 'var(--color-text-secondary)' }}>Environment variables</span>
+        </div>
+      )}
+    </div>
   );
 }
 

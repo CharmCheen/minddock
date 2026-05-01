@@ -2191,3 +2191,92 @@ def test_unified_execute_stream_endpoint_emits_events_progressively(monkeypatch)
         f"Expected progressive yields but got only {len(serialize_calls)} call(s). "
         "This means events are still emitted as a single batch after execution completes."
     )
+
+
+def test_media_transcript_config_endpoint_returns_read_only_status() -> None:
+    client = TestClient(app)
+    response = client.get("/frontend/media-transcript-config")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    # Must expose basic booleans and provider/model
+    assert "enabled" in body
+    assert "provider" in body
+    assert "api_key_configured" in body
+    assert "base_url_configured" in body
+    assert "model" in body
+    assert "timeout_seconds" in body
+    assert "capability" in body
+    assert "limitations" in body
+    assert "config_source" in body
+
+    # Security: never return raw API key
+    assert "api_key" not in body
+
+    # Type checks
+    assert isinstance(body["enabled"], bool)
+    assert isinstance(body["api_key_configured"], bool)
+    assert isinstance(body["base_url_configured"], bool)
+    assert isinstance(body["timeout_seconds"], (int, float))
+
+    # Capability must clarify transcript-only ASR
+    assert body["capability"] == "transcript_only_asr"
+    assert "no_frame_understanding" in body["limitations"]
+    assert "no_multimodal_embedding" in body["limitations"]
+    assert body["config_source"] == "environment"
+
+
+def test_media_transcript_config_reflects_environment_settings(monkeypatch) -> None:
+    from app.api import routes
+    from app.core.config import get_settings
+
+    client = TestClient(app)
+
+    # Override settings to verify the endpoint reads from config
+    monkeypatch.setattr(
+        routes.get_settings(),
+        "media_transcript_enabled",
+        True,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        routes.get_settings(),
+        "media_transcript_provider",
+        "api",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        routes.get_settings(),
+        "media_transcript_api_key",
+        "sk-test-key",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        routes.get_settings(),
+        "media_transcript_api_base_url",
+        "https://api.example.com/v1",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        routes.get_settings(),
+        "media_transcript_model",
+        "whisper-large",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        routes.get_settings(),
+        "media_transcript_timeout_seconds",
+        120.0,
+        raising=False,
+    )
+
+    response = client.get("/frontend/media-transcript-config")
+    body = response.json()
+
+    assert body["enabled"] is True
+    assert body["provider"] == "api"
+    assert body["api_key_configured"] is True
+    assert body["base_url_configured"] is True
+    assert body["model"] == "whisper-large"
+    assert body["timeout_seconds"] == 120.0

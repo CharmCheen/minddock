@@ -515,7 +515,12 @@ class FrontendFacade:
             raise RuntimeError("Unified execution run completed without a final response.")
         return run.final_response
 
-    def execute_run(self, request: UnifiedExecutionRequest) -> ExecutionRun:
+    def execute_run(
+        self,
+        request: UnifiedExecutionRequest,
+        *,
+        on_run_started: Callable[[str], None] | None = None,
+    ) -> ExecutionRun:
         """Execute one request while collecting a stable event stream."""
 
         intent_result = self._classify_intent(request)
@@ -527,6 +532,8 @@ class FrontendFacade:
             status=ExecutionRunStatus.RUNNING,
         )
         self.run_registry.register(run, debug_enabled=request.debug or request.include_events, stream_mode="execute")
+        if on_run_started is not None:
+            on_run_started(run.run_id)
         collector = EventCollector(
             run_id=run.run_id,
             task_type=request.task_type.value,

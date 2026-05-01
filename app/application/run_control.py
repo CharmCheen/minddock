@@ -131,6 +131,12 @@ class RunRegistry:
             if run is None:
                 return None
             run.internal_events.append(event)
+            # Real-time projection for streaming runs so that SSE consumers see
+            # events progressively without waiting for run completion.
+            if run.stream_mode:
+                projected = self.projector.project(event, debug=run.debug_enabled)
+                if projected is not None:
+                    run.recent_client_events.append(projected)
             run.updated_at = self._now()
             return run
 

@@ -44,6 +44,14 @@ Update it before every push.
 - README and demo docs were updated to document the current defense-ready flow: ingest -> search -> chat -> summarize -> incremental maintenance
 - Added a concise architecture overview and a bundled `knowledge_base/example.md` dataset for fresh-clone demos
 
+### Fixed
+
+- **Progressive SSE Streaming** (`/frontend/execute/stream`): 
+  - `RunRegistry.append_internal_event` now real-time projects internal events into `recent_client_events` when `stream_mode` is set, enabling the SSE endpoint to yield events while the run is still executing instead of batching them after completion.
+  - `FrontendFacade.execute_run` accepts an optional `on_run_started` callback so the streaming route can obtain the `run_id` immediately and begin polling the registry progressively.
+  - `execute_frontend_task_stream` generator was updated to poll `get_recent_client_events` continuously once the `run_id` is known, with a fallback to `project_run_events` for legacy/mock paths.
+  - Added unit tests verifying real-time projection behavior for streaming vs non-streaming runs.
+
 ### Notes
 
 - Stage reports under `docs/reports/` remain unchanged by policy

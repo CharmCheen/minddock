@@ -849,7 +849,7 @@ def test_unified_execute_stream_request_parses_source_filter(monkeypatch) -> Non
     client = TestClient(app)
     captured: dict[str, object] = {}
 
-    def fake_execute_run(request):
+    def fake_execute_run(request, **kwargs):
         captured["filters"] = request.retrieval.filters
         collector = EventCollector(run_id="run-filter", task_type="chat")
         run = ExecutionRun(
@@ -968,7 +968,7 @@ def test_unified_execute_stream_endpoint_returns_valid_sse(monkeypatch) -> None:
 
     client = TestClient(app)
 
-    def fake_execute_run(request):
+    def fake_execute_run(request, **kwargs):
         collector = EventCollector(run_id="run-123", task_type="chat")
         collector.emit(
             kind=ExecutionEventKind.RUN_STARTED,
@@ -1056,7 +1056,7 @@ def test_unified_execute_stream_endpoint_injects_heartbeat_when_gap_exists(monke
     client = TestClient(app)
     base = datetime.now(timezone.utc)
 
-    def fake_execute_run(request):
+    def fake_execute_run(request, **kwargs):
         collector = EventCollector(run_id="run-123", task_type="chat")
         collector.emit(
             kind=ExecutionEventKind.RUN_STARTED,
@@ -1119,7 +1119,7 @@ def test_unified_execute_stream_endpoint_respects_debug_visibility(monkeypatch) 
     client = TestClient(app)
     routes.frontend_facade.run_registry._runs.clear()
 
-    def fake_execute_run(request):
+    def fake_execute_run(request, **kwargs):
         collector = EventCollector(run_id="run-123", task_type="chat")
         collector.emit(
             kind=ExecutionEventKind.STEP_COMPLETED,
@@ -1150,7 +1150,7 @@ def test_unified_execute_stream_endpoint_emits_failed_event(monkeypatch) -> None
     client = TestClient(app)
     routes.frontend_facade.run_registry._runs.clear()
 
-    def fake_execute_run(request):
+    def fake_execute_run(request, **kwargs):
         collector = EventCollector(run_id="run-123", task_type="chat")
         collector.emit(
             kind=ExecutionEventKind.RUN_STARTED,
@@ -2075,7 +2075,7 @@ def test_unified_execute_stream_endpoint_emits_events_progressively(monkeypatch)
         from app.api.streaming import serialize_client_event_sse as real_serialize
         return real_serialize(event)
 
-    def fake_execute_run_progressive(request):
+    def fake_execute_run_progressive(request, *, on_run_started=None):
         """execute_run that emits events to registry progressively in a background thread."""
         from app.application.events import ExecutionRun, ExecutionRunStatus
 
@@ -2096,6 +2096,8 @@ def test_unified_execute_stream_endpoint_emits_events_progressively(monkeypatch)
             status=ExecutionRunStatus.RUNNING,
         )
         registry.register(run, debug_enabled=False, stream_mode="execute")
+        if on_run_started is not None:
+            on_run_started(run_id)
 
         # Emit events progressively from a background thread, via the registry sink
         def emit_thread():

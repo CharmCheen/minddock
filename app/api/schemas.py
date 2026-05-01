@@ -2075,6 +2075,36 @@ def _event_payload_to_dict(event: ExecutionEvent) -> dict[str, Any]:
     return {"kind": event.kind.value}
 
 
+class MediaTranscriptConfigResponse(BaseModel):
+    """Read-only media transcript provider configuration for frontend visibility."""
+
+    enabled: bool = Field(description="Whether media transcript ingestion is enabled")
+    provider: str = Field(description="Active provider kind (api, mock, disabled)")
+    api_key_configured: bool = Field(description="Whether an API key is present in environment")
+    base_url_configured: bool = Field(description="Whether a base URL is present in environment")
+    model: str = Field(description="Configured ASR model name")
+    timeout_seconds: float = Field(description="Request timeout for transcript API calls")
+    capability: str = Field(default="transcript_only_asr", description="What the provider can do")
+    limitations: list[str] = Field(
+        default_factory=lambda: ["no_frame_understanding", "no_multimodal_embedding"],
+        description="Explicit limitations to avoid confusion with video understanding",
+    )
+    config_source: str = Field(default="environment", description="Where configuration is read from")
+
+    @classmethod
+    def from_settings(cls, settings) -> "MediaTranscriptConfigResponse":
+        api_key = str(getattr(settings, "media_transcript_api_key", "") or "").strip()
+        base_url = str(getattr(settings, "media_transcript_api_base_url", "") or "").strip()
+        return cls(
+            enabled=bool(getattr(settings, "media_transcript_enabled", False)),
+            provider=str(getattr(settings, "media_transcript_provider", "disabled") or "disabled").strip(),
+            api_key_configured=len(api_key) > 0,
+            base_url_configured=len(base_url) > 0,
+            model=str(getattr(settings, "media_transcript_model", "whisper-1") or "whisper-1").strip(),
+            timeout_seconds=float(getattr(settings, "media_transcript_timeout_seconds", 60.0) or 60.0),
+        )
+
+
 def _client_event_payload_to_dict(payload) -> dict[str, Any]:
     if isinstance(payload, ClientRunStartedPayload):
         return {

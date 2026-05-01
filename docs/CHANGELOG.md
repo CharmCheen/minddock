@@ -52,6 +52,14 @@ Update it before every push.
 - README and demo docs were updated to document the current defense-ready flow: ingest -> search -> chat -> summarize -> incremental maintenance
 - Added a concise architecture overview and a bundled `knowledge_base/example.md` dataset for fresh-clone demos
 
+### Added
+
+- **Media Transcript Frontend/Backend Alignment**
+  - New read-only backend endpoint `GET /frontend/media-transcript-config` exposes sanitized media transcript configuration (enabled, provider, api_key_configured, base_url_configured, model, timeout, capability, limitations, config_source). No API keys are returned.
+  - Frontend Settings page now displays a read-only **Media Transcript Provider** status card under the Runtime tab, clearly stating this is transcript-only ASR and not video frame understanding.
+  - Source list and source drawer now show transcript provider badges (`Transcript: api` / `sidecar` / `mock` / `disabled`) when `loader_name` is `video.transcribe` or `audio.transcribe`, plus `retrieval_basis: transcript_text`.
+  - Integration tests cover the new endpoint (200 response, no API key leak, correct field types, environment reflection).
+
 ### Fixed
 
 - **Progressive SSE Streaming** (`/frontend/execute/stream`): 

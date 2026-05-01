@@ -2076,12 +2076,17 @@ def _event_payload_to_dict(event: ExecutionEvent) -> dict[str, Any]:
 
 
 class MediaTranscriptConfigResponse(BaseModel):
-    """Read-only media transcript provider configuration for frontend visibility."""
+    """Media transcript provider configuration for frontend visibility.
+
+    The api_key is masked — never returned as plaintext.
+    config_source tells you where the config is coming from.
+    """
 
     enabled: bool = Field(description="Whether media transcript ingestion is enabled")
     provider: str = Field(description="Active provider kind (api, mock, disabled)")
-    api_key_configured: bool = Field(description="Whether an API key is present in environment")
-    base_url_configured: bool = Field(description="Whether a base URL is present in environment")
+    api_key_configured: bool = Field(description="Whether an API key is present")
+    base_url: str = Field(default="", description="Configured ASR API base URL (non-secret)")
+    base_url_configured: bool = Field(description="Whether a base URL is configured")
     model: str = Field(description="Configured ASR model name")
     timeout_seconds: float = Field(description="Request timeout for transcript API calls")
     capability: str = Field(default="transcript_only_asr", description="What the provider can do")
@@ -2103,6 +2108,41 @@ class MediaTranscriptConfigResponse(BaseModel):
             model=str(getattr(settings, "media_transcript_model", "whisper-1") or "whisper-1").strip(),
             timeout_seconds=float(getattr(settings, "media_transcript_timeout_seconds", 60.0) or 60.0),
         )
+
+
+class MediaTranscriptConfigUpdateRequest(BaseModel):
+    """Request body for updating the media transcript configuration."""
+
+    provider: Literal["mock", "api", "disabled"] = Field(default="mock", description="Provider kind")
+    base_url: str = Field(default="", description="Base URL for the ASR API endpoint")
+    api_key: str | None = Field(
+        default=None,
+        description="API key to use for this process. Omit or leave blank to keep the current key.",
+    )
+    model: str = Field(default="whisper-1", description="ASR model name")
+    timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0, description="Request timeout in seconds")
+    enabled: bool = Field(default=True, description="Enable this configuration")
+
+    @field_validator("base_url")
+    @classmethod
+    def base_url_must_be_valid(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            return v
+        if not stripped.startswith(("http://", "https://")):
+            raise ValueError("base_url must start with http:// or https://")
+        return stripped
+
+
+class MediaTranscriptConfigTestResponse(BaseModel):
+    """Response body for a media transcript configuration test."""
+
+    success: bool = Field(description="True if the configuration is valid")
+    message: str = Field(description="Human-readable result message")
+    error_kind: str | None = Field(
+        default=None,
+        description="Structured error kind if failed: 'missing_api_key', 'missing_base_url', 'missing_model', 'ok'",
+    )
 
 
 def _client_event_payload_to_dict(payload) -> dict[str, Any]:

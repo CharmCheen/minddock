@@ -1,5 +1,9 @@
 import { apiClient } from '../client';
-import { MediaTranscriptConfigResponse } from '../../../core/types/api';
+import {
+  MediaTranscriptConfigResponse,
+  MediaTranscriptConfigUpdateRequest,
+  MediaTranscriptConfigTestResponse,
+} from '../../../core/types/api';
 
 export interface MediaTranscriptServiceOptions {
   signal?: AbortSignal;
@@ -10,6 +14,39 @@ export const MediaTranscriptConfigService = {
     const response = await apiClient.get<MediaTranscriptConfigResponse>('/frontend/media-transcript-config', {
       signal: options?.signal,
     });
+    return response.data;
+  },
+
+  async updateConfig(
+    payload: MediaTranscriptConfigUpdateRequest,
+    options?: MediaTranscriptServiceOptions,
+  ): Promise<MediaTranscriptConfigResponse> {
+    const response = await apiClient.put<MediaTranscriptConfigResponse>(
+      '/frontend/media-transcript-config',
+      payload,
+      { signal: options?.signal },
+    );
+    return response.data;
+  },
+
+  async resetConfig(options?: MediaTranscriptServiceOptions): Promise<MediaTranscriptConfigResponse> {
+    const response = await apiClient.post<MediaTranscriptConfigResponse>(
+      '/frontend/media-transcript-config/reset',
+      {},
+      { signal: options?.signal },
+    );
+    return response.data;
+  },
+
+  async testConfig(
+    payload: MediaTranscriptConfigUpdateRequest,
+    options?: MediaTranscriptServiceOptions,
+  ): Promise<MediaTranscriptConfigTestResponse> {
+    const response = await apiClient.post<MediaTranscriptConfigTestResponse>(
+      '/frontend/media-transcript-config/test',
+      payload,
+      { signal: options?.signal },
+    );
     return response.data;
   },
 };

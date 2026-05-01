@@ -52,7 +52,13 @@ When a recognized sidecar exists next to a matching media file, it **always take
 
 ## API Provider Configuration
 
-To use the ASR API provider, set these environment variables **before starting the backend**:
+### Option 1: Frontend (Recommended)
+
+Open **Settings → Runtime → Media Transcript Provider**, select `api` as the provider, fill in the base URL, API key, model, and timeout, then click **Save**. The API key is stored only in `os.environ`; other fields are persisted to `data/active_media_transcript.json`.
+
+### Option 2: Environment Variables
+
+Set these environment variables **before starting the backend**:
 
 ```powershell
 $env:MEDIA_TRANSCRIPT_PROVIDER="api"
@@ -73,7 +79,18 @@ The API provider expects an OpenAI-compatible response format:
 {"text": "...transcript text..."}
 ```
 
-**Important**: After changing environment variables, restart the backend. Media files that were already ingested must be re-ingested to use the new transcript provider.
+**Important**: After changing environment variables or saving via the frontend, restart the backend. Media files that were already ingested must be re-ingested to use the new transcript provider.
+
+### Config Priority
+
+The effective media transcript config is resolved in this order:
+
+1. **UI active config** (`data/active_media_transcript.json` + `os.environ` for api_key)
+2. **Settings** (from `.env` or `Settings` object)
+3. **os.environ** (raw environment variables)
+4. **Defaults** (provider=`mock`, model=`whisper-1`, timeout=60s)
+
+Sidecar transcripts always take priority over any provider setting.
 
 ### API Fallback Behavior
 
@@ -125,17 +142,21 @@ Only media sources with `transcript_provider` of `sidecar` or `api` are eligible
 
 ## Frontend Visibility
 
-Open **Settings → Runtime** to see the read-only **Media Transcript Provider** card. It shows:
+Open **Settings → Runtime** to see the editable **Media Transcript Provider** editor. It shows:
 
-- Status (Enabled / Disabled / Enabled — missing key)
-- Provider (`api`, `mock`, `disabled`)
-- API Key and Base URL configured/missing status
-- Model and timeout
+- Provider selector (`api`, `mock`, `disabled`)
+- Enabled toggle
+- Base URL field
+- API Key field (password input, never displayed after save)
+- Model field
+- Timeout field
 - Capability: **Transcript-only ASR**
 - Limitations: no frame understanding, no multimodal embedding
-- Config source: Environment variables
+- Config source: `ui_override` (when saved via frontend) or `environment` (when using env vars only)
 
-No API key is exposed. The frontend cannot edit or save media transcript credentials; configuration remains environment-variable based.
+**Save** persists non-secret fields to `data/active_media_transcript.json`; the API key is stored only in `os.environ`. **Reset** removes the active config file and clears UI-set env vars. Note: Reset clears the UI override and current backend-session key. If you rely on shell environment variables (`MEDIA_TRANSCRIPT_API_KEY` etc.), restart the backend or reconfigure as needed. **Test Config** validates the current form values against the ASR endpoint.
+
+The effective config priority is: **UI active config > Settings > os.environ > defaults**. Sidecar transcripts always take priority regardless of provider setting.
 
 ## Skill Resolve Demo
 
@@ -153,3 +174,84 @@ The command should resolve to the builtin `video.transcribe` binding when no loc
 - Pending and failed source behavior is unchanged.
 - No large media files should be committed to git.
 - The sidecar transcript path remains the most stable demo path.
+
+## Quick Demo Runbook
+
+Reproducible steps to verify the full media transcript derived-chunks pipeline.
+
+### Prerequisites
+
+- `knowledge_base/demo_video.mp4` — a small video file (any size, not used for frame analysis)
+- `knowledge_base/demo_video.transcript.md` — a sidecar transcript (≥ 400 chars recommended)
+
+### Step 1: Enable derived chunks
+
+```powershell
+$env:MEDIA_TRANSCRIPT_DERIVED_ENABLED="true"
+$env:MEDIA_TRANSCRIPT_DERIVED_MIN_CHARS="100"
+$env:MEDIA_TRANSCRIPT_DERIVED_MAX_INPUT_CHARS="20000"
+$env:MEDIA_TRANSCRIPT_DERIVED_SUMMARY_MAX_CHARS="800"
+$env:MEDIA_TRANSCRIPT_DERIVED_OUTLINE_MAX_ITEMS="8"
+```
+
+### Step 2: Ingest
+
+```bash
+conda run -n minddock python -m app.demo ingest
+```
+
+Verify in the output that `demo_video.mp4` appears in `ingested_sources` and chunk count increases by 2 (summary + outline) compared to a non-derived ingest.
+
+### Step 3: Start backend and frontend
+
+```bash
+# Terminal 1
+conda run -n minddock python -m app.demo serve --port 8000
+
+# Terminal 2
+cd frontend
+npm run dev
+```
+
+### Step 4: Verify in frontend
+
+**Settings → Runtime**: Media Transcript Provider card should show:
+- Capability: Transcript-only ASR
+- Limitations: no frame understanding
+
+**Source List**: `demo_video` should show:
+- `Transcript: sidecar` badge
+- `Summary` badge
+- `Outline` badge
+
+**Source Drawer** (click demo_video):
+- `video.transcribe` loader badge
+- `Basis: transcript text`
+- **Derived Content** section with:
+  - Transcript Summary (extractive)
+  - Transcript Outline (extractive)
+  - "Extractive / deterministic" badge
+  - "This does not perform frame-level video understanding."
+- Raw transcript chunks still visible below
+
+### Step 5: Test retrieval
+
+Ask these questions in the chat panel:
+
+1. `demo video 里提到了什么 smoke test？`
+2. `这个视频的 summary 和 outline 讲了什么？`
+
+Expected: answers cite `demo_video.mp4`, derived chunks appear in retrieval results.
+
+### What this proves
+
+```text
+视频文件 → sidecar transcript → raw transcript chunk
+→ derived summary chunk (extractive, deterministic)
+→ derived outline chunk (extractive, deterministic)
+→ frontend Source Drawer 可展示
+→ RAG search 可命中 derived chunks
+→ citation 指向原始视频源
+```
+
+This is **not** video frame understanding, multimodal analysis, or LLM-generated summarization.

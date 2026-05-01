@@ -76,7 +76,38 @@ Update it before every push.
   - Frontend Source List (`source-list.tsx`): green Summary and Outline badges appear next to the transcript provider badge when derived content is available.
   - No new dependencies, no LLM calls, no video frame analysis. Derived content is strictly extractive/deterministic from transcript text.
 
+- **Media Transcript Config Phase 2 (Frontend Editor)**
+  - Frontend Settings page now exposes an editable **Media Transcript Provider** editor (replaces the read-only status card).
+  - Form fields: provider (mock/api/disabled), enabled toggle, base_url, api_key (password input, never displayed after save), model, timeout.
+  - Save persists non-secret fields to `data/active_media_transcript.json`; api_key is stored only in `os.environ`.
+  - Reset removes the active config file and clears UI-set env vars.
+  - Test Config button sends the current form values to `POST /frontend/media-transcript-config/test`.
+  - New frontend types: `MediaTranscriptConfigUpdateRequest`, `MediaTranscriptConfigTestResponse`.
+  - New frontend service methods: `updateConfig`, `resetConfig`, `testConfig`.
+
+- **Media Transcript Config Phase 3 (Media Loader UI Override)**
+  - `app/rag/media_loader.py` now resolves effective media transcript config with priority: UI active config > Settings > os.environ > defaults.
+  - New `ResolvedMediaTranscriptConfig` frozen dataclass holds the resolved effective config.
+  - New `_resolve_media_transcript_runtime_config()` reads the active config file and settings to produce the resolved config.
+  - `build_media_transcription_client()` uses the resolved config to construct the appropriate client.
+  - `OptionalApiMediaTranscriptionClient` now accepts config as instance fields (`api_key`, `api_base_url`, `model`, `timeout_seconds`) instead of reading from `get_settings()`.
+  - Sidecar transcript priority is preserved regardless of provider setting.
+  - Provider=mock/disabled behavior unchanged.
+  - Tests updated to use dual monkeypatch pattern (media_loader.get_settings + active_config.get_active_media_transcript_config).
+  - New Phase 3 tests: UI override uses override values, UI override priority over settings, api_key from os.environ, api_key empty when no env var.
+
 ### Fixed
+
+- **Media Transcript Config: base_url round-trip** (`P1`):
+  - `MediaTranscriptConfigResponse` now includes `base_url: str` so the frontend can round-trip the configured URL.
+  - `GET /frontend/media-transcript-config` returns the effective base URL (ui_override or environment).
+  - Frontend Settings `loadConfig` now restores the `base_url` form field from the backend response instead of always clearing it.
+  - Users can Save → reopen Settings → base_url is preserved → Save again without losing the URL.
+
+- **Media Transcript Config: Phase 3 text and reset boundary** (`P2`):
+  - Frontend Settings text updated: "Saved UI configuration is now used by media ingestion."
+  - Reset boundary note added: "Reset clears the UI override and current backend-session key."
+  - `docs/VIDEO_SKILL_DEMO.md` updated with reset boundary behavior.
 
 - **Progressive SSE Streaming** (`/frontend/execute/stream`): 
   - `RunRegistry.append_internal_event` now real-time projects internal events into `recent_client_events` when `stream_mode` is set, enabling the SSE endpoint to yield events while the run is still executing instead of batching them after completion.

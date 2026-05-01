@@ -207,12 +207,28 @@ export interface MediaTranscriptConfigResponse {
   enabled: boolean;
   provider: string;
   api_key_configured: boolean;
+  base_url: string;
   base_url_configured: boolean;
   model: string;
   timeout_seconds: number;
   capability: string;
   limitations: string[];
   config_source: string;
+}
+
+export interface MediaTranscriptConfigUpdateRequest {
+  provider: "mock" | "api" | "disabled";
+  base_url?: string;
+  api_key?: string | null;
+  model?: string;
+  timeout_seconds?: number;
+  enabled?: boolean;
+}
+
+export interface MediaTranscriptConfigTestResponse {
+  success: boolean;
+  message: string;
+  error_kind?: string | null;
 }
 
 export interface RuntimeConfigUpdateRequest {

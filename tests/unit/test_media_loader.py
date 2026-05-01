@@ -333,24 +333,39 @@ def test_media_source_loader_truncates_long_text(tmp_path: Path) -> None:
 
 
 def test_build_media_transcription_client_mock_by_default(monkeypatch) -> None:
+    from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
+
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
+        lambda: ActiveMediaTranscriptConfig(enabled=False),
+    )
     client = build_media_transcription_client()
     assert isinstance(client, MockMediaTranscriptionClient)
 
 
 def test_build_media_transcription_client_disabled_when_setting_false(monkeypatch) -> None:
-    original = get_settings()
+    from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
     monkeypatch.setattr(
         "app.rag.media_loader.get_settings",
         lambda: Settings(media_transcript_enabled=False),
+    )
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
+        lambda: ActiveMediaTranscriptConfig(enabled=False),
     )
     client = build_media_transcription_client()
     assert isinstance(client, DisabledMediaTranscriptionClient)
 
 
 def test_build_media_transcription_client_api_when_setting_api(monkeypatch) -> None:
+    from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
     monkeypatch.setattr(
         "app.rag.media_loader.get_settings",
         lambda: Settings(media_transcript_provider="api"),
+    )
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
+        lambda: ActiveMediaTranscriptConfig(enabled=False),
     )
     client = build_media_transcription_client()
     assert isinstance(client, OptionalApiMediaTranscriptionClient)
@@ -435,19 +450,14 @@ def test_api_client_success_calls_correct_endpoint(monkeypatch, tmp_path: Path) 
         return _fake_httpx_post_success(url, headers, data, files, timeout)
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-test-fake-key",
-            media_transcript_api_base_url="https://api.example.com/v1",
-            media_transcript_model="whisper-1",
-            media_transcript_timeout_seconds=30.0,
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
-    client = OptionalApiMediaTranscriptionClient()
+    client = OptionalApiMediaTranscriptionClient(
+        api_key="sk-test-fake-key",
+        api_base_url="https://api.example.com/v1",
+        model="whisper-1",
+        timeout_seconds=30.0,
+    )
     result = client.transcribe(media_path, "audio")
 
     assert result.provider == "api"
@@ -469,17 +479,12 @@ def test_api_client_success_no_double_endpoint(monkeypatch, tmp_path: Path) -> N
         return _fake_httpx_post_success(url, headers, data, files, timeout)
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-test-fake-key",
-            media_transcript_api_base_url="https://api.example.com/v1/audio/transcriptions",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
-    client = OptionalApiMediaTranscriptionClient()
+    client = OptionalApiMediaTranscriptionClient(
+        api_key="sk-test-fake-key",
+        api_base_url="https://api.example.com/v1/audio/transcriptions",
+    )
     client.transcribe(media_path, "audio")
     assert call_url == "https://api.example.com/v1/audio/transcriptions"
 
@@ -498,14 +503,6 @@ def test_api_client_missing_config_fallback(monkeypatch, tmp_path: Path) -> None
         return _fake_httpx_post_success(*args, **kwargs)
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="",
-            media_transcript_api_base_url="",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
     client = OptionalApiMediaTranscriptionClient()
@@ -528,17 +525,11 @@ def test_api_client_missing_key_only_fallback(monkeypatch, tmp_path: Path) -> No
         return _fake_httpx_post_success(*args, **kwargs)
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="",
-            media_transcript_api_base_url="https://api.example.com/v1",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
-    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "audio")
+    result = OptionalApiMediaTranscriptionClient(
+        api_base_url="https://api.example.com/v1",
+    ).transcribe(media_path, "audio")
 
     assert result.provider == "mock"
     assert "transcript_api_unconfigured" in result.warnings
@@ -556,17 +547,11 @@ def test_api_client_missing_base_url_only_fallback(monkeypatch, tmp_path: Path) 
         return _fake_httpx_post_success(*args, **kwargs)
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-test-fake-key",
-            media_transcript_api_base_url="",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
-    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "audio")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="sk-test-fake-key",
+    ).transcribe(media_path, "audio")
 
     assert result.provider == "mock"
     assert "transcript_api_unconfigured" in result.warnings
@@ -585,17 +570,12 @@ def test_api_client_http_4xx_fallback(monkeypatch, tmp_path: Path) -> None:
         )
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-test-fake-key",
-            media_transcript_api_base_url="https://api.example.com/v1",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp4")
-    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "video")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="sk-test-fake-key",
+        api_base_url="https://api.example.com/v1",
+    ).transcribe(media_path, "video")
 
     assert result.provider == "mock"
     assert "transcript_api_http_error" in result.warnings
@@ -610,17 +590,12 @@ def test_api_client_timeout_fallback(monkeypatch, tmp_path: Path) -> None:
         raise httpx.TimeoutException("Request timed out")
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-test-fake-key",
-            media_transcript_api_base_url="https://api.example.com/v1",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp4")
-    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "video")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="sk-test-fake-key",
+        api_base_url="https://api.example.com/v1",
+    ).transcribe(media_path, "video")
 
     assert result.provider == "mock"
     assert "transcript_api_timeout" in result.warnings
@@ -634,17 +609,12 @@ def test_api_client_network_error_fallback(monkeypatch, tmp_path: Path) -> None:
         raise httpx.ConnectError("Connection refused")
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-test-fake-key",
-            media_transcript_api_base_url="https://api.example.com/v1",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp4")
-    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "video")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="sk-test-fake-key",
+        api_base_url="https://api.example.com/v1",
+    ).transcribe(media_path, "video")
 
     assert result.provider == "mock"
     assert "transcript_api_network_error" in result.warnings
@@ -667,17 +637,12 @@ def test_api_client_empty_text_fallback(monkeypatch, tmp_path: Path) -> None:
         return FakeResponse()
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-test-fake-key",
-            media_transcript_api_base_url="https://api.example.com/v1",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp4")
-    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "video")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="sk-test-fake-key",
+        api_base_url="https://api.example.com/v1",
+    ).transcribe(media_path, "video")
 
     assert result.provider == "mock"
     assert "transcript_api_empty" in result.warnings
@@ -696,20 +661,16 @@ def test_sidecar_priority_over_api_provider(monkeypatch, tmp_path: Path) -> None
         return _fake_httpx_post_success(*args, **kwargs)
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-test-fake-key",
-            media_transcript_api_base_url="https://api.example.com/v1",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "demo_video.mp4")
     (kb_dir / "demo_video.txt").write_text("Sidecar beats API", encoding="utf-8")
     descriptor = build_file_descriptor(media_path, kb_dir)
 
-    result = MediaSourceLoader().load(descriptor)
+    client = OptionalApiMediaTranscriptionClient(
+        api_key="sk-test-fake-key",
+        api_base_url="https://api.example.com/v1",
+    )
+    result = MediaSourceLoader(transcription_client=client).load(descriptor)
 
     assert result.text == "Sidecar beats API"
     assert result.metadata["transcript_provider"] == "sidecar"
@@ -723,18 +684,13 @@ def test_api_key_not_in_metadata_when_api_success(monkeypatch, tmp_path: Path) -
     from app.rag.media_loader import OptionalApiMediaTranscriptionClient
 
     monkeypatch.setattr("httpx.post", _fake_httpx_post_success)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-secret-do-not-leak",
-            media_transcript_api_base_url="https://api.example.com/v1",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
     descriptor = build_file_descriptor(media_path, kb_dir)
-    loader = MediaSourceLoader(transcription_client=OptionalApiMediaTranscriptionClient())
+    loader = MediaSourceLoader(transcription_client=OptionalApiMediaTranscriptionClient(
+        api_key="sk-secret-do-not-leak",
+        api_base_url="https://api.example.com/v1",
+    ))
     result = loader.load(descriptor)
 
     raw = " ".join(result.metadata.values())
@@ -747,17 +703,12 @@ def test_api_key_not_in_warnings_when_api_success(monkeypatch, tmp_path: Path) -
     from app.rag.media_loader import OptionalApiMediaTranscriptionClient
 
     monkeypatch.setattr("httpx.post", _fake_httpx_post_success)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-secret-do-not-leak",
-            media_transcript_api_base_url="https://api.example.com/v1",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
-    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "audio")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="sk-secret-do-not-leak",
+        api_base_url="https://api.example.com/v1",
+    ).transcribe(media_path, "audio")
 
     for warning in result.warnings:
         assert "sk-secret" not in warning
@@ -767,17 +718,10 @@ def test_api_key_not_in_warnings_when_api_success(monkeypatch, tmp_path: Path) -
 def test_api_key_not_in_warnings_when_api_fallback(monkeypatch, tmp_path: Path) -> None:
     from app.rag.media_loader import OptionalApiMediaTranscriptionClient
 
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-secret-do-not-leak",
-            media_transcript_api_base_url="",
-        ),
-    )
-
     kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
-    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "audio")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="sk-secret-do-not-leak",
+    ).transcribe(media_path, "audio")
 
     for warning in result.warnings:
         assert "sk-secret" not in warning
@@ -786,17 +730,10 @@ def test_api_key_not_in_warnings_when_api_fallback(monkeypatch, tmp_path: Path) 
 def test_api_client_fallback_uses_correct_warning_code(monkeypatch, tmp_path: Path) -> None:
     from app.rag.media_loader import OptionalApiMediaTranscriptionClient
 
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-test-fake-key",
-            media_transcript_api_base_url="",
-        ),
-    )
-
     kb_dir, media_path = _write_media(tmp_path, "sample.mp3")
-    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "audio")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="sk-test-fake-key",
+    ).transcribe(media_path, "audio")
 
     assert result.provider == "mock"
     assert "transcript_api_unconfigured" in result.warnings
@@ -807,6 +744,8 @@ def test_api_client_fallback_uses_correct_warning_code(monkeypatch, tmp_path: Pa
 
 
 def test_mock_provider_still_works_with_new_settings(monkeypatch, tmp_path: Path) -> None:
+    from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
+
     monkeypatch.setattr(
         "app.rag.media_loader.get_settings",
         lambda: Settings(
@@ -814,6 +753,10 @@ def test_mock_provider_still_works_with_new_settings(monkeypatch, tmp_path: Path
             media_transcript_api_key="sk-test-fake-key",
             media_transcript_api_base_url="https://api.example.com/v1",
         ),
+    )
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
+        lambda: ActiveMediaTranscriptConfig(enabled=False),
     )
 
     client = build_media_transcription_client()
@@ -826,6 +769,8 @@ def test_mock_provider_still_works_with_new_settings(monkeypatch, tmp_path: Path
 
 
 def test_disabled_provider_still_works_with_new_settings(monkeypatch, tmp_path: Path) -> None:
+    from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
+
     monkeypatch.setattr(
         "app.rag.media_loader.get_settings",
         lambda: Settings(
@@ -833,6 +778,10 @@ def test_disabled_provider_still_works_with_new_settings(monkeypatch, tmp_path: 
             media_transcript_api_key="sk-test-fake-key",
             media_transcript_api_base_url="https://api.example.com/v1",
         ),
+    )
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
+        lambda: ActiveMediaTranscriptConfig(enabled=False),
     )
 
     client = build_media_transcription_client()
@@ -862,17 +811,140 @@ def test_api_client_json_parse_error_fallback(monkeypatch, tmp_path: Path) -> No
         return FakeResponse()
 
     monkeypatch.setattr("httpx.post", _fake_post)
-    monkeypatch.setattr(
-        "app.rag.media_loader.get_settings",
-        lambda: Settings(
-            media_transcript_provider="api",
-            media_transcript_api_key="sk-test-fake-key",
-            media_transcript_api_base_url="https://api.example.com/v1",
-        ),
-    )
 
     kb_dir, media_path = _write_media(tmp_path, "sample.mp4")
-    result = OptionalApiMediaTranscriptionClient().transcribe(media_path, "video")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="sk-test-fake-key",
+        api_base_url="https://api.example.com/v1",
+    ).transcribe(media_path, "video")
 
     assert result.provider == "mock"
     assert "transcript_api_parse_error" in result.warnings
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: UI override tests
+# ---------------------------------------------------------------------------
+
+
+def test_ui_override_active_config_enabled_api_uses_override_values(monkeypatch) -> None:
+    """When active config has enabled=True and provider=api,
+    build_media_transcription_client() uses UI override provider/base_url/model/timeout."""
+    from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
+
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
+        lambda: ActiveMediaTranscriptConfig(
+            enabled=True,
+            provider="api",
+            base_url="https://ui-override.example.com/v1",
+            model="ui-model",
+            timeout_seconds=120.0,
+            api_key_source="env",
+        ),
+    )
+    # Settings should be ignored when active config is enabled
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="mock",
+            media_transcript_api_base_url="https://settings.example.com/v1",
+            media_transcript_model="settings-model",
+            media_transcript_timeout_seconds=30.0,
+        ),
+    )
+    monkeypatch.setenv("MEDIA_TRANSCRIPT_API_KEY", "sk-ui-override-key")
+
+    client = build_media_transcription_client()
+    assert isinstance(client, OptionalApiMediaTranscriptionClient)
+    assert client.api_base_url == "https://ui-override.example.com/v1"
+    assert client.model == "ui-model"
+    assert client.timeout_seconds == 120.0
+    assert client.api_key == "sk-ui-override-key"
+
+
+def test_ui_override_base_url_model_timeout_priority_over_settings(monkeypatch) -> None:
+    """UI override base_url/model/timeout take priority over env Settings."""
+    from app.rag.media_loader import _resolve_media_transcript_runtime_config
+    from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
+
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
+        lambda: ActiveMediaTranscriptConfig(
+            enabled=True,
+            provider="api",
+            base_url="https://priority.example.com/v1",
+            model="priority-model",
+            timeout_seconds=99.0,
+            api_key_source="env",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_provider="mock",
+            media_transcript_api_base_url="https://lower-priority.example.com/v1",
+            media_transcript_model="lower-model",
+            media_transcript_timeout_seconds=10.0,
+        ),
+    )
+    monkeypatch.setenv("MEDIA_TRANSCRIPT_API_KEY", "sk-priority-key")
+
+    resolved = _resolve_media_transcript_runtime_config()
+    assert resolved.base_url == "https://priority.example.com/v1"
+    assert resolved.model == "priority-model"
+    assert resolved.timeout_seconds == 99.0
+    assert resolved.provider == "api"
+    assert resolved.config_source == "ui_override"
+
+
+def test_ui_override_api_key_from_environ(monkeypatch) -> None:
+    """api_key is always read from os.environ when active config api_key_source='env'."""
+    from app.rag.media_loader import _resolve_media_transcript_runtime_config
+    from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
+
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
+        lambda: ActiveMediaTranscriptConfig(
+            enabled=True,
+            provider="api",
+            base_url="https://api.example.com/v1",
+            model="whisper-1",
+            timeout_seconds=60.0,
+            api_key_source="env",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(media_transcript_api_key=""),
+    )
+    monkeypatch.setenv("MEDIA_TRANSCRIPT_API_KEY", "sk-from-env-var")
+
+    resolved = _resolve_media_transcript_runtime_config()
+    assert resolved.api_key == "sk-from-env-var"
+
+
+def test_ui_override_api_key_empty_when_no_env(monkeypatch) -> None:
+    """api_key is empty when api_key_source='env' but env var is not set."""
+    from app.rag.media_loader import _resolve_media_transcript_runtime_config
+    from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
+
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
+        lambda: ActiveMediaTranscriptConfig(
+            enabled=True,
+            provider="api",
+            base_url="https://api.example.com/v1",
+            model="whisper-1",
+            timeout_seconds=60.0,
+            api_key_source="env",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(media_transcript_api_key=""),
+    )
+    monkeypatch.delenv("MEDIA_TRANSCRIPT_API_KEY", raising=False)
+
+    resolved = _resolve_media_transcript_runtime_config()
+    assert resolved.api_key == ""

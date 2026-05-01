@@ -21,6 +21,7 @@ from app.rag.source_models import utc_now_iso
 from app.rag.splitter import _chunk_by_tokens, split_text
 from app.rag.vectorstore import clear_vectorstore_cache, get_vectorstore
 from app.rag.structured_chunker import structured_pdf_chunks, ChunkMeta
+from app.rag.media_transcript_postprocessor import MediaTranscriptPostprocessor
 from app.skills.source_binding import resolve_source_skill_binding_with_reason
 
 logger = logging.getLogger(__name__)
@@ -217,6 +218,17 @@ def _build_chunk_documents(
             **extra,
         }
         documents.append(Document(page_content=chunk_text, metadata=metadata))
+
+    # Derive summary/outline chunks for eligible media transcripts
+    settings = get_settings()
+    postprocessor = MediaTranscriptPostprocessor(
+        enabled=settings.media_transcript_derived_enabled,
+        min_chars=settings.media_transcript_derived_min_chars,
+        max_input_chars=settings.media_transcript_derived_max_input_chars,
+        summary_max_chars=settings.media_transcript_derived_summary_max_chars,
+        outline_max_items=settings.media_transcript_derived_outline_max_items,
+    )
+    documents.extend(postprocessor.generate_derived_documents(load_result, documents))
 
     return documents
 

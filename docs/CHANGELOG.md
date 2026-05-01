@@ -60,6 +60,16 @@ Update it before every push.
   - Source list and source drawer now show transcript provider badges (`Transcript: api` / `sidecar` / `mock` / `disabled`) when `loader_name` is `video.transcribe` or `audio.transcribe`, plus `retrieval_basis: transcript_text`.
   - Integration tests cover the new endpoint (200 response, no API key leak, correct field types, environment reflection).
 
+- **Media Transcript Derived Docs Phase 1 (Backend Only)**
+  - New `MediaTranscriptPostprocessor` in `app/rag/media_transcript_postprocessor.py` generates deterministic extractive summary and outline chunks from media transcripts without any LLM calls.
+  - New configuration fields (all default-off): `MEDIA_TRANSCRIPT_DERIVED_ENABLED`, `MEDIA_TRANSCRIPT_DERIVED_MIN_CHARS`, `MEDIA_TRANSCRIPT_DERIVED_MAX_INPUT_CHARS`, `MEDIA_TRANSCRIPT_DERIVED_SUMMARY_MAX_CHARS`, `MEDIA_TRANSCRIPT_DERIVED_OUTLINE_MAX_ITEMS`.
+  - Hooked into `app/rag/ingest.py` `_build_chunk_documents` (non-page-mode path) so derived chunks are appended after raw `split_text()` chunks for eligible media sources.
+  - Eligibility: only `loader_name` of `audio.transcribe` or `video.transcribe` with `transcript_provider` `sidecar` or `api` are processed; `mock` and `disabled` providers are skipped.
+  - Derived chunks carry metadata flags `is_derived=true`, `derived_kind=media_summary|media_outline`, `derived_from=transcript`, `derived_basis=transcript_text`, `evidence_basis=transcript_text` while preserving all original media metadata (`loader_name`, `transcript_provider`, `retrieval_basis`, `source_media`, `media_filename`).
+  - Postprocessor failures are swallowed with a warning log so ingest never breaks.
+  - No frontend changes in Phase 1; frontend badges/preview deferred to Phase 2.
+  - Unit tests cover disabled mode, short-text skipping, mock/disabled provider skipping, metadata correctness, summary char limits, outline item limits, max-input truncation, exception safety, and end-to-end ingest integration.
+
 ### Fixed
 
 - **Progressive SSE Streaming** (`/frontend/execute/stream`): 

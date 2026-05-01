@@ -7,6 +7,14 @@ Update it before every push.
 
 ### Added
 
+- ASR API provider for media transcript ingestion: `OptionalApiMediaTranscriptionClient` now calls an OpenAI-style `/audio/transcriptions` endpoint via `httpx`
+- New configuration fields: `MEDIA_TRANSCRIPT_API_KEY`, `MEDIA_TRANSCRIPT_API_BASE_URL`, `MEDIA_TRANSCRIPT_MODEL`, `MEDIA_TRANSCRIPT_TIMEOUT_SECONDS`
+- Graceful fallback from API to mock on missing config, HTTP errors, timeouts, network errors, JSON parse errors, and empty text responses
+- API key is never written to metadata, warnings, or logs
+- Sidecar transcript priority is preserved regardless of provider setting
+- Mock and disabled provider behavior unchanged
+- Tests covering API success, missing config fallback, HTTP error fallback, timeout/network error fallback, empty text fallback, JSON parse error fallback, sidecar priority, key leak prevention, endpoint construction, and original mock/disabled behavior
+
 - Rule-based retrieval quality check (`quality_check`) after compress in the unified retrieval pipeline
 - One bounded retry (`max_retries = 1`) with deterministic query expansion: instruction-word stripping, whitespace normalization, and modest `top_k` increase (`min(max(top_k + 3, int(top_k * 1.5)), 20)`)
 - `UnifiedWorkflowState` extended with `quality_ok`, `quality_reasons`, `low_confidence`, `reflection`, `original_query`, `expanded_query`, `retry_count`, `max_retries`, and `task_type`

@@ -4,7 +4,13 @@ import { deriveRuntimeStatus } from './runtime-status';
 import { useWorkspacePreferences } from './workspace-preferences';
 import { SkillService } from '../../lib/api/services/skills';
 import { MediaTranscriptConfigService } from '../../lib/api/services/media-transcript-config';
-import { MediaTranscriptConfigResponse, SourceSkillItem, SourceSkillValidationResponse } from '../../core/types/api';
+import {
+  MediaTranscriptConfigResponse,
+  MediaTranscriptConfigUpdateRequest,
+  MediaTranscriptConfigTestResponse,
+  SourceSkillItem,
+  SourceSkillValidationResponse,
+} from '../../core/types/api';
 import { IconX } from '../../components/ui/icons';
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -485,30 +491,141 @@ function RuntimeTab() {
         </form>
       )}
 
-      <MediaTranscriptStatus />
+      <MediaTranscriptEditor />
     </>
   );
 }
 
-function MediaTranscriptStatus() {
+interface MediaTranscriptFormValues {
+  provider: 'mock' | 'api' | 'disabled';
+  enabled: boolean;
+  base_url: string;
+  api_key: string;
+  model: string;
+  timeout_seconds: number;
+}
+
+function MediaTranscriptEditor() {
   const [config, setConfig] = useState<MediaTranscriptConfigResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<MediaTranscriptConfigTestResponse | null>(null);
 
-  useEffect(() => {
+  const [form, setForm] = useState<MediaTranscriptFormValues>({
+    provider: 'mock',
+    enabled: false,
+    base_url: '',
+    api_key: '',
+    model: 'whisper-1',
+    timeout_seconds: 60,
+  });
+
+  const loadConfig = () => {
     let cancelled = false;
     setLoading(true);
     MediaTranscriptConfigService.getConfig()
       .then((data) => {
-        if (!cancelled) setConfig(data);
+        if (cancelled) return;
+        setConfig(data);
+        setForm({
+          provider: (data.provider as MediaTranscriptFormValues['provider']) || 'mock',
+          enabled: data.enabled,
+          base_url: '',
+          api_key: '',
+          model: data.model || 'whisper-1',
+          timeout_seconds: data.timeout_seconds || 60,
+        });
       })
-      .catch(() => {
-        // Silently ignore; this is read-only visibility
-      })
+      .catch(() => {})
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
+  };
+
+  useEffect(() => {
+    const cleanup = loadConfig();
+    return cleanup;
   }, []);
+
+  const patchForm = (patch: Partial<MediaTranscriptFormValues>) => {
+    setForm((prev) => ({ ...prev, ...patch }));
+    setSuccessMessage(null);
+    setTestResult(null);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const trimmedKey = form.api_key.trim();
+      const payload: MediaTranscriptConfigUpdateRequest = {
+        provider: form.provider,
+        enabled: form.enabled,
+        base_url: form.base_url.trim(),
+        model: form.model.trim(),
+        timeout_seconds: form.timeout_seconds,
+      };
+      if (trimmedKey) {
+        payload.api_key = trimmedKey;
+      }
+      await MediaTranscriptConfigService.updateConfig(payload);
+      setForm((prev) => ({ ...prev, api_key: '' }));
+      loadConfig();
+      setSuccessMessage('Configuration saved.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to save media transcript config.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setResetting(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      await MediaTranscriptConfigService.resetConfig();
+      setForm((prev) => ({ ...prev, api_key: '' }));
+      loadConfig();
+      setSuccessMessage('Configuration reset to defaults.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to reset media transcript config.');
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setError(null);
+    setTestResult(null);
+    try {
+      const trimmedKey = form.api_key.trim();
+      const payload: MediaTranscriptConfigUpdateRequest = {
+        provider: form.provider,
+        base_url: form.base_url.trim(),
+        model: form.model.trim(),
+      };
+      if (trimmedKey) {
+        payload.api_key = trimmedKey;
+      }
+      const result = await MediaTranscriptConfigService.testConfig(payload);
+      setTestResult(result);
+    } catch (err: unknown) {
+      setTestResult({
+        success: false,
+        message: err instanceof Error ? err.message : 'Test request failed.',
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const statusColor = config?.enabled
     ? config?.api_key_configured
@@ -520,6 +637,8 @@ function MediaTranscriptStatus() {
       ? 'Enabled'
       : 'Enabled — missing key'
     : 'Disabled';
+
+  const canTest = form.provider === 'mock' || form.provider === 'disabled' || Boolean(form.base_url.trim() && form.model.trim());
 
   return (
     <div
@@ -568,38 +687,210 @@ function MediaTranscriptStatus() {
         This does not perform frame-level video understanding.
       </div>
 
-      {config && (
-        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '5px 10px', fontSize: '13px' }}>
-          <span style={{ color: 'var(--color-text-tertiary)' }}>Provider</span>
-          <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{config.provider}</span>
+      {loading ? (
+        <p style={{ color: 'var(--color-text-tertiary)', fontSize: '14px', margin: 0 }}>Loading media transcript settings...</p>
+      ) : (
+        <form
+          data-testid="media-transcript-form"
+          onSubmit={(e) => { e.preventDefault(); void handleSave(); }}
+          style={{ display: 'grid', gap: '12px' }}
+        >
+          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+            Provider
+            <select
+              value={form.provider}
+              onChange={(e) => patchForm({ provider: e.target.value as MediaTranscriptFormValues['provider'] })}
+              style={fieldStyle}
+            >
+              <option value="mock">Mock (transcript passthrough)</option>
+              <option value="api">API (OpenAI-compatible ASR)</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </label>
 
-          <span style={{ color: 'var(--color-text-tertiary)' }}>API Key</span>
-          <span style={{ color: config.api_key_configured ? 'var(--color-text-secondary)' : 'var(--color-warning-text)' }}>
-            {config.api_key_configured ? 'Configured' : 'Missing'}
-          </span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-text-secondary)', fontSize: '14px', fontWeight: 500 }}>
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(e) => patchForm({ enabled: e.target.checked })}
+            />
+            Enable media transcript provider
+          </label>
 
-          <span style={{ color: 'var(--color-text-tertiary)' }}>Base URL</span>
-          <span style={{ color: config.base_url_configured ? 'var(--color-text-secondary)' : 'var(--color-warning-text)' }}>
-            {config.base_url_configured ? 'Configured' : 'Missing'}
-          </span>
+          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+            API Base URL
+            <input
+              value={form.base_url}
+              onChange={(e) => patchForm({ base_url: e.target.value })}
+              placeholder={config?.base_url_configured ? 'Configured — enter new URL to change' : 'https://api.example.com/v1'}
+              style={fieldStyle}
+              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+              onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+            />
+          </label>
 
-          <span style={{ color: 'var(--color-text-tertiary)' }}>Model</span>
-          <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{config.model}</span>
+          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+            API Key
+            <input
+              type="password"
+              value={form.api_key}
+              onChange={(e) => patchForm({ api_key: e.target.value })}
+              placeholder={config?.api_key_configured ? 'Configured — leave blank to keep current key' : 'Enter API key'}
+              autoComplete="off"
+              style={fieldStyle}
+              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+              onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+            />
+            <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.45 }}>
+              API key is kept only for the current backend session and is not written to disk.
+            </span>
+          </label>
 
-          <span style={{ color: 'var(--color-text-tertiary)' }}>Timeout</span>
-          <span style={{ color: 'var(--color-text-secondary)' }}>{config.timeout_seconds}s</span>
+          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+            Model
+            <input
+              value={form.model}
+              onChange={(e) => patchForm({ model: e.target.value })}
+              placeholder="whisper-1"
+              style={fieldStyle}
+              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+              onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+            />
+          </label>
 
-          <span style={{ color: 'var(--color-text-tertiary)' }}>Capability</span>
-          <span style={{ color: 'var(--color-text-secondary)' }}>Transcript-only ASR</span>
+          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+            Timeout (seconds)
+            <input
+              type="number"
+              min={1}
+              max={600}
+              value={form.timeout_seconds}
+              onChange={(e) => patchForm({ timeout_seconds: Math.max(1, Math.min(600, Number(e.target.value) || 60)) })}
+              style={fieldStyle}
+              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+              onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+            />
+          </label>
 
-          <span style={{ color: 'var(--color-text-tertiary)' }}>Limitations</span>
-          <span style={{ color: 'var(--color-text-secondary)' }}>
-            {config.limitations.map((l) => l.replace(/_/g, ' ')).join(', ')}
-          </span>
+          {config && (
+            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '4px 10px', fontSize: '12px', padding: '8px 0', borderTop: '1px solid var(--color-border-subtle)' }}>
+              <span style={{ color: 'var(--color-text-tertiary)' }}>API Key</span>
+              <span style={{ color: config.api_key_configured ? 'var(--color-success-text)' : 'var(--color-warning-text)' }}>
+                {config.api_key_configured ? 'Configured' : 'Missing'}
+              </span>
 
-          <span style={{ color: 'var(--color-text-tertiary)' }}>Config source</span>
-          <span style={{ color: 'var(--color-text-secondary)' }}>Environment variables</span>
-        </div>
+              <span style={{ color: 'var(--color-text-tertiary)' }}>Base URL</span>
+              <span style={{ color: config.base_url_configured ? 'var(--color-success-text)' : 'var(--color-warning-text)' }}>
+                {config.base_url_configured ? 'Configured' : 'Missing'}
+              </span>
+
+              <span style={{ color: 'var(--color-text-tertiary)' }}>Config source</span>
+              <span style={{ color: 'var(--color-text-secondary)' }}>
+                {config.config_source === 'ui_override' ? 'UI override' : 'Environment variables'}
+              </span>
+
+              <span style={{ color: 'var(--color-text-tertiary)' }}>Capability</span>
+              <span style={{ color: 'var(--color-text-secondary)' }}>Transcript-only ASR</span>
+
+              <span style={{ color: 'var(--color-text-tertiary)' }}>Limitations</span>
+              <span style={{ color: 'var(--color-text-secondary)' }}>
+                {config.limitations.map((l) => l.replace(/_/g, ' ')).join(', ')}
+              </span>
+            </div>
+          )}
+
+          <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.5, padding: '6px 0' }}>
+            Provider, base URL, model and timeout may persist as non-secret configuration.
+            This editor prepares the Media Transcript provider configuration; media ingestion override wiring is completed in the next phase.
+          </div>
+
+          {testResult && (
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-md)',
+                background: testResult.success ? 'var(--color-success-bg)' : 'var(--color-error-bg)',
+                border: `1px solid ${testResult.success ? 'var(--color-success-border)' : 'var(--color-error-border)'}`,
+                color: testResult.success ? 'var(--color-success-text)' : 'var(--color-error-text)',
+                fontSize: '13px',
+              }}
+            >
+              <strong>{testResult.success ? 'Config OK' : 'Config incomplete'}</strong>
+              <div style={{ marginTop: '3px' }}>{testResult.message}</div>
+            </div>
+          )}
+
+          {error && (
+            <div style={{ padding: '10px 14px', background: 'var(--color-error-bg)', border: '1px solid var(--color-error-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-error-text)', fontSize: '13px' }}>
+              {error}
+            </div>
+          )}
+          {successMessage && (
+            <div style={{ padding: '10px 14px', background: 'var(--color-success-bg)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-success-text)', fontSize: '13px' }}>
+              {successMessage}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginTop: '4px' }}>
+            <button
+              type="button"
+              onClick={() => void handleReset()}
+              disabled={resetting}
+              style={{
+                padding: '9px 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-error-border)',
+                background: 'var(--color-error-bg)',
+                color: 'var(--color-error-text)',
+                cursor: resetting ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+                fontSize: '13px',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {resetting ? 'Resetting...' : 'Reset'}
+            </button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => void handleTest()}
+                disabled={!canTest || testing}
+                style={{
+                  padding: '9px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border-subtle)',
+                  background: 'var(--color-canvas-subtle)',
+                  color: 'var(--color-text-secondary)',
+                  cursor: canTest && !testing ? 'pointer' : 'not-allowed',
+                  opacity: canTest && !testing ? 1 : 0.55,
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  transition: 'all var(--transition-fast)',
+                }}
+              >
+                {testing ? 'Testing...' : 'Test Config'}
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                style={{
+                  padding: '9px 18px',
+                  borderRadius: 'var(--radius-md)',
+                  border: 'none',
+                  background: saving ? 'var(--color-canvas)' : 'var(--color-brand-600)',
+                  color: saving ? 'var(--color-text-tertiary)' : '#fff',
+                  fontWeight: 700,
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  fontSize: '13px',
+                  transition: 'all var(--transition-fast)',
+                  boxShadow: saving ? 'none' : 'var(--shadow-md)',
+                }}
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </form>
       )}
     </div>
   );

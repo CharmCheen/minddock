@@ -215,6 +215,21 @@ export interface MediaTranscriptConfigResponse {
   config_source: string;
 }
 
+export interface MediaTranscriptConfigUpdateRequest {
+  provider: "mock" | "api" | "disabled";
+  base_url?: string;
+  api_key?: string | null;
+  model?: string;
+  timeout_seconds?: number;
+  enabled?: boolean;
+}
+
+export interface MediaTranscriptConfigTestResponse {
+  success: boolean;
+  message: string;
+  error_kind?: string | null;
+}
+
 export interface RuntimeConfigUpdateRequest {
   provider: string;
   base_url: string;

@@ -5,6 +5,7 @@ from app.rag.media_loader import (
     AUDIO_EXTENSIONS,
     DisabledMediaTranscriptionClient,
     MEDIA_EXTENSIONS,
+    LocalAsrFailedTranscriptionClient,
     MockMediaTranscriptionClient,
     OptionalApiMediaTranscriptionClient,
     MediaSourceLoader,
@@ -1000,8 +1001,8 @@ def test_ui_override_active_config_enabled_local_uses_local_fields(monkeypatch) 
     assert client.model == "small"
 
 
-def test_local_provider_fallback_to_mock_on_bootstrap_failure(monkeypatch) -> None:
-    """Local ASR bootstrap failure should fall back to mock."""
+def test_local_provider_does_not_fallback_to_mock_on_bootstrap_failure(monkeypatch, tmp_path: Path) -> None:
+    """Local ASR bootstrap failure returns empty local transcript, not mock text."""
     from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
     from app.runtime.local_asr_bootstrap import LocalAsrBootstrapResult
 
@@ -1037,7 +1038,72 @@ def test_local_provider_fallback_to_mock_on_bootstrap_failure(monkeypatch) -> No
     )
 
     client = build_media_transcription_client()
-    assert isinstance(client, MockMediaTranscriptionClient)
+    assert isinstance(client, LocalAsrFailedTranscriptionClient)
+
+    _, media_path = _write_media(tmp_path, "sample.mp3")
+    result = client.transcribe(media_path, "audio")
+    assert result.provider == "local"
+    assert result.text == ""
+    assert "local_asr_failed" in result.warnings
+    assert "local_asr_bootstrap_failed" in result.warnings
+
+
+def test_local_asr_http_500_does_not_fallback_to_mock(monkeypatch, tmp_path: Path) -> None:
+    """Local ASR HTTP errors must not index mock transcripts."""
+    import httpx
+
+    def _fake_post(*args, **kwargs):
+        request = httpx.Request("POST", "http://127.0.0.1:9001/v1/audio/transcriptions")
+        response = httpx.Response(500, request=request)
+        raise httpx.HTTPStatusError("500 Server Error", request=request, response=response)
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+
+    _, media_path = _write_media(tmp_path, "sample.mp3")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="local-dev-key",
+        api_base_url="http://127.0.0.1:9001/v1",
+        model="base",
+        result_provider="local",
+        fallback_to_mock=False,
+        warning_prefix="local_asr",
+    ).transcribe(media_path, "audio")
+
+    assert result.provider == "local"
+    assert result.text == ""
+    assert "local_asr_failed" in result.warnings
+    assert "local_asr_http_error" in result.warnings
+    assert "transcript_mock_fallback" not in result.warnings
+
+
+def test_local_asr_empty_transcript_does_not_fallback_to_mock(monkeypatch, tmp_path: Path) -> None:
+    """Local ASR empty text stays empty and visible as a local ASR failure."""
+    def _fake_post(*args, **kwargs):
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"text": ""}
+
+        return FakeResponse()
+
+    monkeypatch.setattr("httpx.post", _fake_post)
+
+    _, media_path = _write_media(tmp_path, "sample.mp3")
+    result = OptionalApiMediaTranscriptionClient(
+        api_key="local-dev-key",
+        api_base_url="http://127.0.0.1:9001/v1",
+        model="base",
+        result_provider="local",
+        fallback_to_mock=False,
+        warning_prefix="local_asr",
+    ).transcribe(media_path, "audio")
+
+    assert result.provider == "local"
+    assert result.text == ""
+    assert "local_asr_empty_transcript" in result.warnings
+    assert "transcript_mock_fallback" not in result.warnings
 
 
 def test_local_provider_resolved_config_has_local_fields(monkeypatch) -> None:
@@ -1144,11 +1210,34 @@ def test_local_provider_uses_local_asr_model_not_generic_model(monkeypatch) -> N
 
     original_init = OptionalApiMediaTranscriptionClient.__init__
 
-    def _capturing_init(self, *, fallback=None, api_key="", api_base_url="", model="", timeout_seconds=0.0):
+    def _capturing_init(
+        self,
+        *,
+        fallback=None,
+        api_key="",
+        api_base_url="",
+        model="",
+        timeout_seconds=0.0,
+        result_provider="api",
+        fallback_to_mock=True,
+        warning_prefix="transcript_api",
+    ):
         captured["model"] = model
         captured["api_key"] = api_key
         captured["api_base_url"] = api_base_url
-        return original_init(self, fallback=fallback, api_key=api_key, api_base_url=api_base_url, model=model, timeout_seconds=timeout_seconds)
+        captured["result_provider"] = result_provider
+        captured["fallback_to_mock"] = fallback_to_mock
+        return original_init(
+            self,
+            fallback=fallback,
+            api_key=api_key,
+            api_base_url=api_base_url,
+            model=model,
+            timeout_seconds=timeout_seconds,
+            result_provider=result_provider,
+            fallback_to_mock=fallback_to_mock,
+            warning_prefix=warning_prefix,
+        )
 
     monkeypatch.setattr(OptionalApiMediaTranscriptionClient, "__init__", _capturing_init)
 
@@ -1169,3 +1258,5 @@ def test_local_provider_uses_local_asr_model_not_generic_model(monkeypatch) -> N
     assert captured["model"] == "small"
     assert captured["model"] != "whisper-1"
     assert captured["api_key"] == "local-dev-key"
+    assert captured["result_provider"] == "local"
+    assert captured["fallback_to_mock"] is False

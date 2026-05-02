@@ -857,3 +857,386 @@ class TestLocalAsrStartEndpoint:
         response = client.post("/frontend/media-transcript-config/local/start")
         body = json.dumps(response.json())
         assert "sk-secret" not in body
+
+
+class TestLocalAsrModelStatusEndpoint:
+    """Tests for GET /frontend/media-transcript-config/local/model/status."""
+
+    def test_model_status_not_local_provider(self, client, temp_config_file):
+        client.put(
+            "/frontend/media-transcript-config",
+            json={"provider": "api", "enabled": True, "base_url": "https://api.example.com/v1", "model": "whisper-1"},
+        )
+        response = client.get("/frontend/media-transcript-config/local/model/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "not_local_provider"
+
+    def test_model_status_not_running(self, client, temp_config_file, monkeypatch):
+        import httpx
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("refused")))
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        response = client.get("/frontend/media-transcript-config/local/model/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "not_running"
+
+    def test_model_status_not_loaded(self, client, temp_config_file, monkeypatch):
+        import httpx
+
+        def _route(*args, **kwargs):
+            url = str(args[0] if args else kwargs.get("url", ""))
+            response = MagicMock()
+            if "/health" in url:
+                response.status_code = 200
+                response.json.return_value = {"status": "ok"}
+            else:
+                response.status_code = 200
+                response.json.return_value = {
+                    "status": "not_loaded",
+                    "model": "small",
+                    "requested_device": "auto",
+                    "actual_device": "",
+                    "compute_type": "int8",
+                    "message": "Model has not been loaded yet.",
+                }
+            return response
+
+        monkeypatch.setattr(httpx, "get", _route)
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        response = client.get("/frontend/media-transcript-config/local/model/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "not_loaded"
+        assert data["model"] == "small"
+
+    def test_model_status_ready(self, client, temp_config_file, monkeypatch):
+        import httpx
+
+        def _route(*args, **kwargs):
+            url = str(args[0] if args else kwargs.get("url", ""))
+            response = MagicMock()
+            if "/health" in url:
+                response.status_code = 200
+                response.json.return_value = {"status": "ok"}
+            else:
+                response.status_code = 200
+                response.json.return_value = {
+                    "status": "ready",
+                    "model": "small",
+                    "requested_device": "auto",
+                    "actual_device": "cuda",
+                    "compute_type": "int8",
+                    "message": "Model is loaded and ready.",
+                }
+            return response
+
+        monkeypatch.setattr(httpx, "get", _route)
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        response = client.get("/frontend/media-transcript-config/local/model/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ready"
+        assert data["actual_device"] == "cuda"
+
+    def test_model_status_failed(self, client, temp_config_file, monkeypatch):
+        import httpx
+
+        def _route(*args, **kwargs):
+            url = str(args[0] if args else kwargs.get("url", ""))
+            response = MagicMock()
+            if "/health" in url:
+                response.status_code = 200
+                response.json.return_value = {"status": "ok"}
+            else:
+                response.status_code = 200
+                response.json.return_value = {
+                    "status": "failed",
+                    "model": "small",
+                    "requested_device": "auto",
+                    "actual_device": "",
+                    "compute_type": "int8",
+                    "message": "Model load failed.",
+                }
+            return response
+
+        monkeypatch.setattr(httpx, "get", _route)
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        response = client.get("/frontend/media-transcript-config/local/model/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "failed"
+
+    def test_model_status_no_persistence(self, client, temp_config_file, monkeypatch):
+        import httpx
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"status": "ok"}
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: response)
+
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_model": "small",
+            },
+        )
+        before = temp_config_file.read_text()
+        client.get("/frontend/media-transcript-config/local/model/status")
+        after = temp_config_file.read_text()
+        assert before == after
+
+    def test_model_status_response_has_no_api_key(self, client, temp_config_file, monkeypatch):
+        import httpx
+
+        def _route(*args, **kwargs):
+            url = str(args[0] if args else kwargs.get("url", ""))
+            response = MagicMock()
+            if "/health" in url:
+                response.status_code = 200
+                response.json.return_value = {"status": "ok"}
+            else:
+                response.status_code = 200
+                response.json.return_value = {"status": "ready", "model": "small", "message": "Ready"}
+            return response
+
+        monkeypatch.setattr(httpx, "get", _route)
+        monkeypatch.setenv("MEDIA_TRANSCRIPT_API_KEY", "sk-secret")
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "api_key": "sk-secret",
+                "local_asr_server_path": "/local/asr",
+                "local_asr_model": "small",
+            },
+        )
+        response = client.get("/frontend/media-transcript-config/local/model/status")
+        body = json.dumps(response.json())
+        assert "sk-secret" not in body
+
+
+class TestLocalAsrModelPreloadEndpoint:
+    """Tests for POST /frontend/media-transcript-config/local/model/preload."""
+
+    def test_preload_not_local_provider(self, client, temp_config_file):
+        client.put(
+            "/frontend/media-transcript-config",
+            json={"provider": "api", "enabled": True, "base_url": "https://api.example.com/v1", "model": "whisper-1"},
+        )
+        response = client.post("/frontend/media-transcript-config/local/model/preload", json={})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "not_local_provider"
+
+    def test_preload_server_not_running_auto_start_fails(self, client, temp_config_file, monkeypatch):
+        import httpx
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("refused")))
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/does/not/exist",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+                "local_asr_auto_start": True,
+            },
+        )
+        response = client.post("/frontend/media-transcript-config/local/model/preload", json={})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] in ("failed", "not_running")
+
+    def test_preload_server_already_running_returns_loading(self, client, temp_config_file, monkeypatch):
+        import httpx
+
+        def _route(*args, **kwargs):
+            url = str(args[0] if args else kwargs.get("url", ""))
+            response = MagicMock()
+            if "/health" in url:
+                response.status_code = 200
+                response.json.return_value = {"status": "ok"}
+            else:
+                response.status_code = 200
+                response.json.return_value = {
+                    "status": "loading",
+                    "model": "small",
+                    "requested_device": "auto",
+                    "compute_type": "int8",
+                    "message": "Model preload started in background.",
+                }
+            return response
+
+        monkeypatch.setattr(httpx, "get", _route)
+        monkeypatch.setattr(httpx, "post", _route)
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        response = client.post("/frontend/media-transcript-config/local/model/preload", json={})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "loading"
+
+    def test_preload_server_returns_ready(self, client, temp_config_file, monkeypatch):
+        import httpx
+
+        def _get(*args, **kwargs):
+            url = str(args[0] if args else kwargs.get("url", ""))
+            response = MagicMock()
+            if "/health" in url:
+                response.status_code = 200
+                response.json.return_value = {"status": "ok"}
+            else:
+                response.status_code = 200
+                response.json.return_value = {"status": "ready", "model": "small", "message": "Ready"}
+            return response
+
+        def _post(*args, **kwargs):
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {"status": "ready", "model": "small", "message": "Already ready."}
+            return response
+
+        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr(httpx, "post", _post)
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        response = client.post("/frontend/media-transcript-config/local/model/preload", json={})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ready"
+
+    def test_preload_no_persistence(self, client, temp_config_file, monkeypatch):
+        import httpx
+
+        def _get(*args, **kwargs):
+            url = str(args[0] if args else kwargs.get("url", ""))
+            response = MagicMock()
+            if "/health" in url:
+                response.status_code = 200
+                response.json.return_value = {"status": "ok"}
+            else:
+                response.status_code = 200
+                response.json.return_value = {"status": "ready", "model": "small", "message": "Ready"}
+            return response
+
+        def _post(*args, **kwargs):
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {"status": "loading", "model": "small", "message": "Loading"}
+            return response
+
+        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr(httpx, "post", _post)
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_model": "small",
+            },
+        )
+        before = temp_config_file.read_text()
+        client.post("/frontend/media-transcript-config/local/model/preload")
+        after = temp_config_file.read_text()
+        assert before == after
+
+    def test_preload_response_has_no_api_key(self, client, temp_config_file, monkeypatch):
+        import httpx
+
+        def _get(*args, **kwargs):
+            url = str(args[0] if args else kwargs.get("url", ""))
+            response = MagicMock()
+            if "/health" in url:
+                response.status_code = 200
+                response.json.return_value = {"status": "ok"}
+            else:
+                response.status_code = 200
+                response.json.return_value = {"status": "ready", "model": "small", "message": "Ready"}
+            return response
+
+        def _post(*args, **kwargs):
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {"status": "ready", "model": "small", "message": "Ready"}
+            return response
+
+        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr(httpx, "post", _post)
+        monkeypatch.setenv("MEDIA_TRANSCRIPT_API_KEY", "sk-secret")
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "api_key": "sk-secret",
+                "local_asr_server_path": "/local/asr",
+                "local_asr_model": "small",
+            },
+        )
+        response = client.post("/frontend/media-transcript-config/local/model/preload")
+        body = json.dumps(response.json())
+        assert "sk-secret" not in body

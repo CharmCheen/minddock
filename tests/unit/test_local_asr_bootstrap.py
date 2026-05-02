@@ -18,6 +18,8 @@ from app.runtime.local_asr_bootstrap import (
     check_local_asr_health,
     ensure_local_asr_if_enabled,
     get_local_asr_status,
+    check_local_asr_model_status,
+    preload_local_asr_model,
 )
 
 
@@ -338,3 +340,59 @@ class TestGetLocalAsrStatus:
         assert set(result.keys()) == {"status", "provider", "enabled", "base_url", "health_url", "model", "message"}
         assert result["enabled"] == "false"
         assert result["provider"] == "local"
+
+
+class TestCheckLocalAsrModelStatus:
+    def test_returns_status_from_server(self, monkeypatch):
+        import httpx
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "status": "ready",
+            "model": "small",
+            "requested_device": "auto",
+            "actual_device": "cuda",
+            "compute_type": "int8",
+            "message": "Model is loaded and ready.",
+        }
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: response)
+
+        result = check_local_asr_model_status("127.0.0.1", 9001, "small", "auto", "int8")
+        assert result["status"] == "ready"
+        assert result["model"] == "small"
+        assert result["actual_device"] == "cuda"
+        assert result["base_url"] == "http://127.0.0.1:9001/v1"
+
+    def test_returns_not_running_on_exception(self, monkeypatch):
+        import httpx
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("refused")))
+        result = check_local_asr_model_status("127.0.0.1", 9001, "small", "auto", "int8")
+        assert result["status"] == "not_running"
+        assert "Could not reach" in result["message"]
+
+
+class TestPreloadLocalAsrModel:
+    def test_returns_status_from_server(self, monkeypatch):
+        import httpx
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "status": "loading",
+            "model": "small",
+            "requested_device": "auto",
+            "compute_type": "int8",
+            "message": "Model preload started in background.",
+        }
+        monkeypatch.setattr(httpx, "post", lambda *a, **k: response)
+
+        result = preload_local_asr_model("127.0.0.1", 9001, "small", "auto", "int8")
+        assert result["status"] == "loading"
+        assert result["model"] == "small"
+        assert result["base_url"] == "http://127.0.0.1:9001/v1"
+
+    def test_returns_failed_on_exception(self, monkeypatch):
+        import httpx
+        monkeypatch.setattr(httpx, "post", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("refused")))
+        result = preload_local_asr_model("127.0.0.1", 9001, "small", "auto", "int8")
+        assert result["status"] == "failed"
+        assert "Could not trigger" in result["message"]

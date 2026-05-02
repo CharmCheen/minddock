@@ -219,3 +219,89 @@ def get_local_asr_status(
         "model": model,
         "message": f"Local ASR server is not running at {host}:{port}.",
     }
+
+
+def check_local_asr_model_status(
+    host: str,
+    port: int,
+    model: str,
+    device: str,
+    compute_type: str,
+) -> dict[str, str]:
+    """Query the local ASR server for model load status.
+
+    Returns a dict suitable for LocalAsrModelStatusResponse(**result).
+    """
+    base_url = f"http://{host}:{port}/v1"
+    try:
+        url = f"{base_url}/models/status"
+        response = httpx.get(
+            url,
+            params={"model": model, "device": device, "compute_type": compute_type},
+            timeout=5.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return {
+            "status": data.get("status", "unknown"),
+            "model": data.get("model", model),
+            "requested_device": data.get("requested_device", device),
+            "actual_device": data.get("actual_device", ""),
+            "compute_type": data.get("compute_type", compute_type),
+            "base_url": base_url,
+            "message": data.get("message", ""),
+        }
+    except Exception as exc:
+        logger.warning("Failed to query local ASR model status: %s", exc)
+        return {
+            "status": "not_running",
+            "model": model,
+            "requested_device": device,
+            "actual_device": "",
+            "compute_type": compute_type,
+            "base_url": base_url,
+            "message": f"Could not reach local ASR model status endpoint: {exc}",
+        }
+
+
+def preload_local_asr_model(
+    host: str,
+    port: int,
+    model: str,
+    device: str,
+    compute_type: str,
+) -> dict[str, str]:
+    """Trigger model preload on the local ASR server.
+
+    Returns a dict suitable for LocalAsrModelStatusResponse(**result).
+    """
+    base_url = f"http://{host}:{port}/v1"
+    try:
+        url = f"{base_url}/models/preload"
+        response = httpx.post(
+            url,
+            json={"model": model, "device": device, "compute_type": compute_type},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return {
+            "status": data.get("status", "unknown"),
+            "model": data.get("model", model),
+            "requested_device": data.get("requested_device", device),
+            "actual_device": data.get("actual_device", ""),
+            "compute_type": data.get("compute_type", compute_type),
+            "base_url": base_url,
+            "message": data.get("message", ""),
+        }
+    except Exception as exc:
+        logger.warning("Failed to trigger local ASR model preload: %s", exc)
+        return {
+            "status": "failed",
+            "model": model,
+            "requested_device": device,
+            "actual_device": "",
+            "compute_type": compute_type,
+            "base_url": base_url,
+            "message": f"Could not trigger model preload: {exc}",
+        }

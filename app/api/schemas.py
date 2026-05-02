@@ -2197,6 +2197,26 @@ class LocalAsrStatusResponse(BaseModel):
     message: str = Field(default="", description="Human-readable status message")
 
 
+class LocalAsrModelStatusResponse(BaseModel):
+    """Response body for local ASR model status check and preload."""
+
+    status: str = Field(description="Status: not_loaded, loading, ready, failed, not_running, not_configured, not_local_provider")
+    model: str = Field(default="", description="Configured ASR model name")
+    requested_device: str = Field(default="", description="Requested device strategy")
+    actual_device: str = Field(default="", description="Actual device used")
+    compute_type: str = Field(default="", description="Compute type")
+    base_url: str = Field(default="", description="Local ASR base URL")
+    message: str = Field(default="", description="Human-readable status message")
+
+
+class LocalAsrModelPreloadRequest(BaseModel):
+    """Request body to trigger local ASR model preload."""
+
+    model: str | None = Field(default=None, description="Model name; uses saved config if omitted")
+    device: str | None = Field(default=None, description="Device strategy; uses saved config if omitted")
+    compute_type: str | None = Field(default=None, description="Compute type; uses saved config if omitted")
+
+
 def _client_event_payload_to_dict(payload) -> dict[str, Any]:
     if isinstance(payload, ClientRunStartedPayload):
         return {

@@ -36,6 +36,13 @@ Update it before every push.
 - Intent metadata (`detected_intent`) is appended to `workflow_trace` in unified execution responses
 - Compare points now support optional `confidence`, `taxonomy`, and `evidence_coverage` metadata; `confidence` is clamped to `[0.0, 1.0]`, `taxonomy` normalizes to a controlled vocabulary, and `evidence_coverage` is server-computed from resolved evidence counts
 - Frontend now surfaces Compare 2.0 point metadata badges and a collapsed "Why this answer?" workflow-trace explanation panel for task, evidence, retry, source-scope, and quality signals.
+- **Local ASR provider mode** for Media Transcript Provider: manages a standalone `local_asr_server` (faster-whisper) via health-check + subprocess auto-start
+- New provider options: `disabled | mock | api | local`
+- Local ASR configuration fields: `local_asr_server_path`, `local_asr_host`, `local_asr_port`, `local_asr_model`, `local_asr_device`, `local_asr_compute_type`, `local_asr_auto_start`, `local_asr_timeout_seconds`
+- `ensure_local_asr_if_enabled` bootstrap with `/health` polling and fallback to mock on failure
+- `local-dev-key` internal placeholder for local OpenAI-compatible endpoint; no real API key required
+- Sidecar transcript priority preserved for all providers including local
+- Tests: `test_local_asr_bootstrap.py` (12 tests), extended `test_media_transcript_config_api.py` (local GET/PUT/TEST/RESET), extended `test_media_loader.py` (local provider resolution, fallback, sidecar priority)
 
 ### Changed
 

@@ -245,6 +245,8 @@ def check_local_asr_model_status(
         return {
             "status": data.get("status", "unknown"),
             "model": data.get("model", model),
+            "resolved_model": data.get("resolved_model", data.get("model", model)),
+            "model_path": data.get("model_path", ""),
             "requested_device": data.get("requested_device", device),
             "actual_device": data.get("actual_device", ""),
             "compute_type": data.get("compute_type", compute_type),
@@ -256,6 +258,8 @@ def check_local_asr_model_status(
         return {
             "status": "not_running",
             "model": model,
+            "resolved_model": model,
+            "model_path": "",
             "requested_device": device,
             "actual_device": "",
             "compute_type": compute_type,
@@ -288,6 +292,8 @@ def preload_local_asr_model(
         return {
             "status": data.get("status", "unknown"),
             "model": data.get("model", model),
+            "resolved_model": data.get("resolved_model", data.get("model", model)),
+            "model_path": data.get("model_path", ""),
             "requested_device": data.get("requested_device", device),
             "actual_device": data.get("actual_device", ""),
             "compute_type": data.get("compute_type", compute_type),
@@ -299,6 +305,8 @@ def preload_local_asr_model(
         return {
             "status": "failed",
             "model": model,
+            "resolved_model": model,
+            "model_path": "",
             "requested_device": device,
             "actual_device": "",
             "compute_type": compute_type,

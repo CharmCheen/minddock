@@ -4,6 +4,7 @@ import {
   MediaTranscriptConfigUpdateRequest,
   MediaTranscriptConfigTestResponse,
   LocalAsrStatusResponse,
+  LocalAsrModelStatusResponse,
 } from '../../../core/types/api';
 
 export interface MediaTranscriptServiceOptions {
@@ -62,6 +63,23 @@ export const MediaTranscriptConfigService = {
   async startLocalAsr(options?: MediaTranscriptServiceOptions): Promise<LocalAsrStatusResponse> {
     const response = await apiClient.post<LocalAsrStatusResponse>(
       '/frontend/media-transcript-config/local/start',
+      {},
+      { signal: options?.signal },
+    );
+    return response.data;
+  },
+
+  async checkLocalModelStatus(options?: MediaTranscriptServiceOptions): Promise<LocalAsrModelStatusResponse> {
+    const response = await apiClient.get<LocalAsrModelStatusResponse>(
+      '/frontend/media-transcript-config/local/model/status',
+      { signal: options?.signal },
+    );
+    return response.data;
+  },
+
+  async preloadLocalModel(options?: MediaTranscriptServiceOptions): Promise<LocalAsrModelStatusResponse> {
+    const response = await apiClient.post<LocalAsrModelStatusResponse>(
+      '/frontend/media-transcript-config/local/model/preload',
       {},
       { signal: options?.signal },
     );

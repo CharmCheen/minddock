@@ -264,6 +264,16 @@ export interface LocalAsrStatusResponse {
   message: string;
 }
 
+export interface LocalAsrModelStatusResponse {
+  status: string;
+  model?: string;
+  requested_device?: string;
+  actual_device?: string;
+  compute_type?: string;
+  base_url?: string;
+  message?: string;
+}
+
 export interface RuntimeConfigUpdateRequest {
   provider: string;
   base_url: string;

@@ -50,6 +50,8 @@ from app.api.schemas import (
     MediaTranscriptConfigTestResponse,
     MediaTranscriptConfigUpdateRequest,
     LocalAsrStatusResponse,
+    LocalAsrModelStatusResponse,
+    LocalAsrModelPreloadRequest,
     SearchRequest,
     SearchResponse,
     SkillDetailResponse,
@@ -757,6 +759,151 @@ def post_local_asr_start() -> LocalAsrStatusResponse:
         model=active.local_asr_model or "",
         message=result.message,
     )
+
+
+@router.get(
+    "/frontend/media-transcript-config/local/model/status",
+    response_model=LocalAsrModelStatusResponse,
+    summary="Check local ASR model load status",
+)
+def get_local_asr_model_status() -> LocalAsrModelStatusResponse:
+    """Query the local ASR server for the current model load status.
+
+    Reads persisted media transcript config and forwards the request to
+    the local ASR server's /v1/models/status. No transcription occurs.
+    """
+    from app.runtime.local_asr_bootstrap import (
+        check_local_asr_health,
+        check_local_asr_model_status,
+    )
+    from app.runtime.media_transcript_active_config import get_active_media_transcript_config
+
+    active = get_active_media_transcript_config()
+    if active.provider != "local":
+        return LocalAsrModelStatusResponse(
+            status="not_local_provider",
+            model=active.local_asr_model or "",
+            message=f"Provider is '{active.provider}', not 'local'.",
+        )
+
+    host = active.local_asr_host or "127.0.0.1"
+    port = active.local_asr_port or 9001
+    model = active.local_asr_model or ""
+    device = active.local_asr_device or "auto"
+    compute_type = active.local_asr_compute_type or "int8"
+
+    if not _is_valid_host_for_local_asr(host) or not _is_valid_port_for_local_asr(port):
+        return LocalAsrModelStatusResponse(
+            status="not_configured",
+            model=model,
+            requested_device=device,
+            compute_type=compute_type,
+            message=f"Invalid local ASR host/port: {host}:{port}.",
+        )
+
+    if not check_local_asr_health(host, port, timeout=2.0):
+        return LocalAsrModelStatusResponse(
+            status="not_running",
+            model=model,
+            requested_device=device,
+            compute_type=compute_type,
+            base_url=f"http://{host}:{port}/v1",
+            message=f"Local ASR server is not running at {host}:{port}.",
+        )
+
+    result = check_local_asr_model_status(host, port, model, device, compute_type)
+    return LocalAsrModelStatusResponse(**result)
+
+
+@router.post(
+    "/frontend/media-transcript-config/local/model/preload",
+    response_model=LocalAsrModelStatusResponse,
+    summary="Trigger local ASR model preload",
+)
+def post_local_asr_model_preload(
+    body: LocalAsrModelPreloadRequest,
+) -> LocalAsrModelStatusResponse:
+    """Trigger model preload on the local ASR server.
+
+    If the server is not running, attempts to auto-start it when
+    local_asr_auto_start is enabled. No transcription occurs.
+    """
+    from app.runtime.local_asr_bootstrap import (
+        check_local_asr_health,
+        ensure_local_asr_if_enabled,
+        preload_local_asr_model,
+    )
+    from app.runtime.media_transcript_active_config import get_active_media_transcript_config
+
+    active = get_active_media_transcript_config()
+    if active.provider != "local":
+        return LocalAsrModelStatusResponse(
+            status="not_local_provider",
+            model=active.local_asr_model or "",
+            message=f"Provider is '{active.provider}', not 'local'.",
+        )
+
+    host = active.local_asr_host or "127.0.0.1"
+    port = active.local_asr_port or 9001
+    model = (body.model or active.local_asr_model or "").strip()
+    device = (body.device or active.local_asr_device or "auto").strip()
+    compute_type = (body.compute_type or active.local_asr_compute_type or "int8").strip()
+
+    if not _is_valid_host_for_local_asr(host) or not _is_valid_port_for_local_asr(port):
+        return LocalAsrModelStatusResponse(
+            status="not_configured",
+            model=model,
+            requested_device=device,
+            compute_type=compute_type,
+            message=f"Invalid local ASR host/port: {host}:{port}.",
+        )
+
+    if not check_local_asr_health(host, port, timeout=2.0):
+        # Attempt auto-start if enabled
+        if active.local_asr_auto_start:
+            start_result = ensure_local_asr_if_enabled(
+                provider=active.provider,
+                server_path=active.local_asr_server_path or "",
+                host=host,
+                port=port,
+                auto_start=True,
+                timeout_seconds=active.local_asr_timeout_seconds or 120.0,
+            )
+            if start_result.status not in ("already_running", "started"):
+                return LocalAsrModelStatusResponse(
+                    status="failed" if start_result.status == "failed" else "not_running",
+                    model=model,
+                    requested_device=device,
+                    compute_type=compute_type,
+                    base_url=f"http://{host}:{port}/v1",
+                    message=start_result.message,
+                )
+        else:
+            return LocalAsrModelStatusResponse(
+                status="not_running",
+                model=model,
+                requested_device=device,
+                compute_type=compute_type,
+                base_url=f"http://{host}:{port}/v1",
+                message=f"Local ASR server is not running at {host}:{port} and auto_start is disabled.",
+            )
+
+    result = preload_local_asr_model(host, port, model, device, compute_type)
+    return LocalAsrModelStatusResponse(**result)
+
+
+# ---------------------------------------------------------------------------
+# Helpers reused by local ASR endpoints
+# ---------------------------------------------------------------------------
+
+def _is_valid_host_for_local_asr(host: str) -> bool:
+    from app.runtime.local_asr_bootstrap import _is_valid_host as _bootstrap_is_valid_host
+    return _bootstrap_is_valid_host(host)
+
+
+def _is_valid_port_for_local_asr(port: int) -> bool:
+    from app.runtime.local_asr_bootstrap import _is_valid_port as _bootstrap_is_valid_port
+    return _bootstrap_is_valid_port(port)
 
 
 @router.put(

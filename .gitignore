@@ -80,3 +80,10 @@ frontend/test-results/
 data/active_runtime.json
 frontend/data/
 data/chroma_backup_*/
+
+# Local ASR server artifacts
+tools/local_asr_server/__pycache__/
+tools/local_asr_server/*.pyc
+tools/local_asr_server/.cache/
+tools/local_asr_server/models/
+tools/local_asr_server/downloads/

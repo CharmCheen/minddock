@@ -44,6 +44,23 @@ Update it before every push.
 - Sidecar transcript priority preserved for all providers including local
 - Tests: `test_local_asr_bootstrap.py` (12 tests), extended `test_media_transcript_config_api.py` (local GET/PUT/TEST/RESET), extended `test_media_loader.py` (local provider resolution, fallback, sidecar priority)
 
+- **Local ASR Model Preload and Ready Status**
+  - `local_asr_server` 新增 `GET /v1/models/status` 和 `POST /v1/models/preload`，支持后台模型加载与状态查询
+  - MindDock 后端新增代理端点：
+    - `GET /frontend/media-transcript-config/local/model/status`
+    - `POST /frontend/media-transcript-config/local/model/preload`
+  - 新增 schema：`LocalAsrModelStatusResponse`、`LocalAsrModelPreloadRequest`
+  - `local_asr_bootstrap.py` 新增 `check_local_asr_model_status()` 和 `preload_local_asr_model()` helper
+  - 前端 Settings → Media Transcript Provider 在 `provider=local` 区域新增：
+    - **Check Model** 按钮 — 查询模型加载状态
+    - **Preload Model** 按钮 — 触发后台模型预加载
+    - Model Status 结果展示块（Ready / Loading / Not Loaded / Failed）
+    - 推荐操作流程提示文案
+  - 前端新增类型 `LocalAsrModelStatusResponse`，service 新增 `checkLocalModelStatus()` 和 `preloadLocalModel()`
+  - 后端测试：单元测试 4 个（model status + preload），集成测试 12 个（status 6 个 + preload 6 个）
+  - 前端 build + smoke tests 通过
+  - 文档更新：`docs/LOCAL_ASR_PROVIDER.md`、`docs/VIDEO_SKILL_DEMO.md`、`docs/CHANGELOG.md`
+
 ### Changed
 
 - Repository naming aligned to `MindDock`

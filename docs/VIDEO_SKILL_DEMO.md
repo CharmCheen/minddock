@@ -11,7 +11,7 @@ Set via `MEDIA_TRANSCRIPT_PROVIDER` (default: `mock`):
 | `sidecar`  | Always takes priority when a matching transcript sidecar exists next to the media file |
 | `mock`     | Returns deterministic placeholder transcripts; no external dependency |
 | `api`      | Calls a remote OpenAI-style audio transcription endpoint (`/audio/transcriptions`) |
-| `local`    | Manages a local faster-whisper ASR companion service (auto-start + health-check) |
+| `local`    | Manages a local faster-whisper ASR companion service (auto-start + health-check + model preload) |
 | `disabled` | Returns empty text with warning; no media ingestion |
 
 ## Supported Media
@@ -149,11 +149,23 @@ Open **Settings → Runtime** to see the editable **Media Transcript Provider** 
 - Enabled toggle
 - Remote API fields: Base URL, API Key, Model, Timeout
 - Local ASR fields: Server Path, Host, Port, Model, Device, Compute Type, Auto Start, Timeout
+- **Check Status** / **Start Local ASR** buttons — 检查/启动本地服务
+- **Check Model** / **Preload Model** buttons — 检查/预加载 faster-whisper 模型
 - Capability: **Transcript-only ASR**
 - Limitations: no frame understanding, no multimodal embedding
 - Config source: `ui_override` (when saved via frontend) or `environment` (when using env vars only)
 
 **Save** persists non-secret fields to `data/active_media_transcript.json`; the API key is stored only in `os.environ`. **Reset** removes the active config file and clears UI-set env vars. Note: Reset clears the UI override and current backend-session key. If you rely on shell environment variables (`MEDIA_TRANSCRIPT_API_KEY` etc.), restart the backend or reconfigure as needed. **Test Config** validates the current form values for completeness; it does not perform a real transcription.
+
+**Local ASR Recommended Flow**:
+1. Save settings
+2. Start Local ASR
+3. Check Status
+4. Preload Model
+5. Wait until Ready
+6. Run ingest
+
+Preload Model 会让 `local_asr_server` 加载选中的模型。首次 preload 可能从 HuggingFace 下载模型（small ~500MB）。3050 Laptop 4GB 推荐 `small`/`base` + `int8`。
 
 The effective config priority is: **UI active config > Settings > os.environ > defaults**. Sidecar transcripts always take priority regardless of provider setting.
 

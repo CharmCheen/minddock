@@ -1,0 +1,11 @@
+# Local ASR server dependencies
+# Install in a separate environment, e.g.: conda create -n local-asr python=3.10
+# then: pip install -r requirements.txt
+
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.0.0
+faster-whisper>=1.0.0
+
+# Optional: torch with CUDA support for GPU transcription
+# pip install torch

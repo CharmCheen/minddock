@@ -11,7 +11,13 @@ MindDock 的 Media Transcript Provider 支持 **Local ASR** 模式，通过本�
 
 ## 本地 ASR 服务
 
-独立服务路径：`D:\大学\毕业设计\code\local_asr_server`
+独立服务路径：`D:\大学\毕业设计\code\V0.1\tools\local_asr_server`
+
+Local ASR companion server is included under `tools/local_asr_server`.
+It should be installed in a separate environment, for example `local-asr`.
+It is not part of MindDock's main Python dependencies.
+It does not run unless the user selects Local ASR and starts it.
+First model preload may download faster-whisper model files into the user's HuggingFace cache.
 
 接口兼容 OpenAI：
 
@@ -36,7 +42,7 @@ MindDock 的 Media Transcript Provider 支持 **Local ASR** 模式，通过本�
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
 | Provider | `Mock` | 选择 `Local ASR` |
-| Local ASR Server Path | `D:\大学\毕业设计\code\local_asr_server` | 服务目录 |
+| Local ASR Server Path | `D:\大学\毕业设计\code\V0.1\tools\local_asr_server` | 服务目录 |
 | Host | `127.0.0.1` | 监听地址 |
 | Port | `9001` | 监听端口 |
 | Model | `small` | faster-whisper 模型 |
@@ -97,7 +103,7 @@ ingest 无 sidecar 视频时，`media_loader` 发现 `provider=local`：
 
 ```bash
 MEDIA_TRANSCRIPT_PROVIDER=local
-MEDIA_TRANSCRIPT_LOCAL_ASR_SERVER_PATH=D:\大学\毕业设计\code\local_asr_server
+MEDIA_TRANSCRIPT_LOCAL_ASR_SERVER_PATH=D:\大学\毕业设计\code\V0.1\tools\local_asr_server
 MEDIA_TRANSCRIPT_LOCAL_ASR_HOST=127.0.0.1
 MEDIA_TRANSCRIPT_LOCAL_ASR_PORT=9001
 MEDIA_TRANSCRIPT_LOCAL_ASR_MODEL=small

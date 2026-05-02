@@ -5,8 +5,7 @@
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.0.0
+faster-whisper>=1.0.0
 
-# Optional: faster-whisper for actual transcription
-# pip install faster-whisper
-# Optional: torch for CUDA device detection
+# Optional: torch with CUDA support for GPU transcription
 # pip install torch

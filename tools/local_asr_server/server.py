@@ -72,20 +72,13 @@ def _resolve_device(requested_device: str) -> tuple[str, str]:
 
 
 def _do_preload(model: str, device: str, compute_type: str) -> None:
-    """Background thread worker that loads the model into cache."""
+    """Background thread worker that loads the model into cache.
+
+    The loading state is already set by model_preload() before the thread
+    starts, so this function only updates the final ready/failed state.
+    """
     key = _cache_key(model, device, compute_type)
     lock = _get_lock(key)
-
-    with lock:
-        MODEL_STATES[key] = {
-            "status": _STATE_LOADING,
-            "model": model,
-            "requested_device": device,
-            "actual_device": device,
-            "compute_type": compute_type,
-            "message": "Model is loading...",
-            "timestamp": time.time(),
-        }
 
     try:
         if not _HAS_FASTER_WHISPER:
@@ -191,31 +184,49 @@ async def model_preload(body: PreloadRequest) -> dict[str, Any]:
     - If already ready → return ready immediately.
     - If currently loading → return loading immediately.
     - If not_loaded or failed → start background thread to load.
+
+    Uses per-key locking so repeated preload requests never spawn
+    multiple threads for the same model configuration.
     """
     key = _cache_key(body.model, body.device, body.compute_type)
-    state = MODEL_STATES.get(key)
+    lock = _get_lock(key)
 
-    if state is not None and state["status"] == _STATE_READY:
-        return {
-            "status": _STATE_READY,
-            "model": state["model"],
-            "requested_device": state["requested_device"],
-            "actual_device": state.get("actual_device", ""),
-            "compute_type": state["compute_type"],
-            "message": state["message"],
-        }
+    with lock:
+        state = MODEL_STATES.get(key)
 
-    if state is not None and state["status"] == _STATE_LOADING:
-        return {
+        if state is not None and state["status"] == _STATE_READY:
+            return {
+                "status": _STATE_READY,
+                "model": state["model"],
+                "requested_device": state["requested_device"],
+                "actual_device": state.get("actual_device", ""),
+                "compute_type": state["compute_type"],
+                "message": state["message"],
+            }
+
+        if state is not None and state["status"] == _STATE_LOADING:
+            return {
+                "status": _STATE_LOADING,
+                "model": state["model"],
+                "requested_device": state["requested_device"],
+                "actual_device": state.get("actual_device", ""),
+                "compute_type": state["compute_type"],
+                "message": state["message"],
+            }
+
+        # Synchronously mark loading before starting the thread so
+        # concurrent requests see the loading state immediately.
+        MODEL_STATES[key] = {
             "status": _STATE_LOADING,
-            "model": state["model"],
-            "requested_device": state["requested_device"],
-            "actual_device": state.get("actual_device", ""),
-            "compute_type": state["compute_type"],
-            "message": state["message"],
+            "model": body.model,
+            "requested_device": body.device,
+            "actual_device": "",
+            "compute_type": body.compute_type,
+            "message": "Model preload started in background.",
+            "timestamp": time.time(),
         }
 
-    # Start background load
+    # Start background load (outside the lock to avoid blocking callers)
     thread = threading.Thread(
         target=_do_preload,
         args=(body.model, body.device, body.compute_type),

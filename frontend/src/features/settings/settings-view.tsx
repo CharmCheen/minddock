@@ -497,12 +497,20 @@ function RuntimeTab() {
 }
 
 interface MediaTranscriptFormValues {
-  provider: 'mock' | 'api' | 'disabled';
+  provider: 'mock' | 'api' | 'local' | 'disabled';
   enabled: boolean;
   base_url: string;
   api_key: string;
   model: string;
   timeout_seconds: number;
+  local_asr_server_path: string;
+  local_asr_host: string;
+  local_asr_port: number;
+  local_asr_model: string;
+  local_asr_device: string;
+  local_asr_compute_type: string;
+  local_asr_auto_start: boolean;
+  local_asr_timeout_seconds: number;
 }
 
 function MediaTranscriptEditor() {
@@ -522,6 +530,14 @@ function MediaTranscriptEditor() {
     api_key: '',
     model: 'whisper-1',
     timeout_seconds: 60,
+    local_asr_server_path: 'D:\\大学\\毕业设计\\code\\local_asr_server',
+    local_asr_host: '127.0.0.1',
+    local_asr_port: 9001,
+    local_asr_model: 'small',
+    local_asr_device: 'auto',
+    local_asr_compute_type: 'int8',
+    local_asr_auto_start: true,
+    local_asr_timeout_seconds: 120,
   });
 
   const loadConfig = () => {
@@ -538,6 +554,14 @@ function MediaTranscriptEditor() {
           api_key: '',
           model: data.model || 'whisper-1',
           timeout_seconds: data.timeout_seconds || 60,
+          local_asr_server_path: data.local_asr_server_path || 'D:\\大学\\毕业设计\\code\\local_asr_server',
+          local_asr_host: data.local_asr_host || '127.0.0.1',
+          local_asr_port: data.local_asr_port || 9001,
+          local_asr_model: data.local_asr_model || 'small',
+          local_asr_device: data.local_asr_device || 'auto',
+          local_asr_compute_type: data.local_asr_compute_type || 'int8',
+          local_asr_auto_start: data.local_asr_auto_start ?? true,
+          local_asr_timeout_seconds: data.local_asr_timeout_seconds || 120,
         });
       })
       .catch(() => {})
@@ -570,6 +594,14 @@ function MediaTranscriptEditor() {
         base_url: form.base_url.trim(),
         model: form.model.trim(),
         timeout_seconds: form.timeout_seconds,
+        local_asr_server_path: form.local_asr_server_path.trim(),
+        local_asr_host: form.local_asr_host.trim(),
+        local_asr_port: form.local_asr_port,
+        local_asr_model: form.local_asr_model.trim(),
+        local_asr_device: form.local_asr_device.trim(),
+        local_asr_compute_type: form.local_asr_compute_type.trim(),
+        local_asr_auto_start: form.local_asr_auto_start,
+        local_asr_timeout_seconds: form.local_asr_timeout_seconds,
       };
       if (trimmedKey) {
         payload.api_key = trimmedKey;
@@ -611,6 +643,14 @@ function MediaTranscriptEditor() {
         provider: form.provider,
         base_url: form.base_url.trim(),
         model: form.model.trim(),
+        local_asr_server_path: form.local_asr_server_path.trim(),
+        local_asr_host: form.local_asr_host.trim(),
+        local_asr_port: form.local_asr_port,
+        local_asr_model: form.local_asr_model.trim(),
+        local_asr_device: form.local_asr_device.trim(),
+        local_asr_compute_type: form.local_asr_compute_type.trim(),
+        local_asr_auto_start: form.local_asr_auto_start,
+        local_asr_timeout_seconds: form.local_asr_timeout_seconds,
       };
       if (trimmedKey) {
         payload.api_key = trimmedKey;
@@ -627,18 +667,20 @@ function MediaTranscriptEditor() {
     }
   };
 
+  const isLocal = form.provider === 'local';
+  const isApi = form.provider === 'api';
+
   const statusColor = config?.enabled
-    ? config?.api_key_configured
-      ? '#22c55e'
-      : '#f59e0b'
+    ? (isLocal ? '#22c55e' : config?.api_key_configured ? '#22c55e' : '#f59e0b')
     : '#94a3b8';
   const statusLabel = config?.enabled
-    ? config?.api_key_configured
-      ? 'Enabled'
-      : 'Enabled — missing key'
+    ? (isLocal ? 'Enabled' : config?.api_key_configured ? 'Enabled' : 'Enabled — missing key')
     : 'Disabled';
 
-  const canTest = form.provider === 'mock' || form.provider === 'disabled' || Boolean(form.base_url.trim() && form.model.trim());
+  const canTest = form.provider === 'mock'
+    || form.provider === 'disabled'
+    || (isApi && Boolean(form.base_url.trim() && form.model.trim()))
+    || (isLocal && Boolean(form.local_asr_server_path.trim() && form.local_asr_model.trim()));
 
   return (
     <div
@@ -703,7 +745,8 @@ function MediaTranscriptEditor() {
               style={fieldStyle}
             >
               <option value="mock">Mock (transcript passthrough)</option>
-              <option value="api">API (OpenAI-compatible ASR)</option>
+              <option value="api">Remote API (OpenAI-compatible ASR)</option>
+              <option value="local">Local ASR</option>
               <option value="disabled">Disabled</option>
             </select>
           </label>
@@ -717,60 +760,172 @@ function MediaTranscriptEditor() {
             Enable media transcript provider
           </label>
 
-          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
-            API Base URL
-            <input
-              value={form.base_url}
-              onChange={(e) => patchForm({ base_url: e.target.value })}
-              placeholder={config?.base_url_configured ? 'Configured — enter new URL to change' : 'https://api.example.com/v1'}
-              style={fieldStyle}
-              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
-              onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
-            />
-          </label>
+          {isApi && (
+            <>
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                API Base URL
+                <input
+                  value={form.base_url}
+                  onChange={(e) => patchForm({ base_url: e.target.value })}
+                  placeholder={config?.base_url_configured ? 'Configured — enter new URL to change' : 'https://api.example.com/v1'}
+                  style={fieldStyle}
+                  onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+                  onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+                />
+              </label>
 
-          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
-            API Key
-            <input
-              type="password"
-              value={form.api_key}
-              onChange={(e) => patchForm({ api_key: e.target.value })}
-              placeholder={config?.api_key_configured ? 'Configured — leave blank to keep current key' : 'Enter API key'}
-              autoComplete="off"
-              style={fieldStyle}
-              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
-              onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
-            />
-            <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.45 }}>
-              API key is kept only for the current backend session and is not written to disk.
-            </span>
-          </label>
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                API Key
+                <input
+                  type="password"
+                  value={form.api_key}
+                  onChange={(e) => patchForm({ api_key: e.target.value })}
+                  placeholder={config?.api_key_configured ? 'Configured — leave blank to keep current key' : 'Enter API key'}
+                  autoComplete="off"
+                  style={fieldStyle}
+                  onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+                  onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+                />
+                <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.45 }}>
+                  API key is kept only for the current backend session and is not written to disk.
+                </span>
+              </label>
 
-          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
-            Model
-            <input
-              value={form.model}
-              onChange={(e) => patchForm({ model: e.target.value })}
-              placeholder="whisper-1"
-              style={fieldStyle}
-              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
-              onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
-            />
-          </label>
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                Model
+                <input
+                  value={form.model}
+                  onChange={(e) => patchForm({ model: e.target.value })}
+                  placeholder="whisper-1"
+                  style={fieldStyle}
+                  onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+                  onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+                />
+              </label>
 
-          <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
-            Timeout (seconds)
-            <input
-              type="number"
-              min={1}
-              max={600}
-              value={form.timeout_seconds}
-              onChange={(e) => patchForm({ timeout_seconds: Math.max(1, Math.min(600, Number(e.target.value) || 60)) })}
-              style={fieldStyle}
-              onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
-              onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
-            />
-          </label>
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                Timeout (seconds)
+                <input
+                  type="number"
+                  min={1}
+                  max={600}
+                  value={form.timeout_seconds}
+                  onChange={(e) => patchForm({ timeout_seconds: Math.max(1, Math.min(600, Number(e.target.value) || 60)) })}
+                  style={fieldStyle}
+                  onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+                  onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+                />
+              </label>
+            </>
+          )}
+
+          {isLocal && (
+            <>
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                Local ASR Server Path
+                <input
+                  value={form.local_asr_server_path}
+                  onChange={(e) => patchForm({ local_asr_server_path: e.target.value })}
+                  placeholder={'D:\\大学\\毕业设计\\code\\local_asr_server'}
+                  style={fieldStyle}
+                  onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+                  onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                Host
+                <input
+                  value={form.local_asr_host}
+                  onChange={(e) => patchForm({ local_asr_host: e.target.value })}
+                  placeholder="127.0.0.1"
+                  style={fieldStyle}
+                  onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+                  onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                Port
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={form.local_asr_port}
+                  onChange={(e) => patchForm({ local_asr_port: Math.max(1, Math.min(65535, Number(e.target.value) || 9001)) })}
+                  style={fieldStyle}
+                  onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+                  onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                Model
+                <select
+                  value={form.local_asr_model}
+                  onChange={(e) => patchForm({ local_asr_model: e.target.value })}
+                  style={fieldStyle}
+                >
+                  <option value="tiny">tiny</option>
+                  <option value="base">base</option>
+                  <option value="small">small</option>
+                  <option value="medium">medium</option>
+                </select>
+              </label>
+
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                Device
+                <select
+                  value={form.local_asr_device}
+                  onChange={(e) => patchForm({ local_asr_device: e.target.value })}
+                  style={fieldStyle}
+                >
+                  <option value="auto">auto</option>
+                  <option value="cuda">cuda</option>
+                  <option value="cpu">cpu</option>
+                </select>
+              </label>
+
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                Compute Type
+                <select
+                  value={form.local_asr_compute_type}
+                  onChange={(e) => patchForm({ local_asr_compute_type: e.target.value })}
+                  style={fieldStyle}
+                >
+                  <option value="int8">int8</option>
+                </select>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-text-secondary)', fontSize: '14px', fontWeight: 500 }}>
+                <input
+                  type="checkbox"
+                  checked={form.local_asr_auto_start}
+                  onChange={(e) => patchForm({ local_asr_auto_start: e.target.checked })}
+                />
+                Auto-start local ASR server
+              </label>
+
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+                Timeout (seconds)
+                <input
+                  type="number"
+                  min={1}
+                  max={600}
+                  value={form.local_asr_timeout_seconds}
+                  onChange={(e) => patchForm({ local_asr_timeout_seconds: Math.max(1, Math.min(600, Number(e.target.value) || 120)) })}
+                  style={fieldStyle}
+                  onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
+                  onBlur={(e) => { e.target.style.borderColor = 'var(--color-border-subtle)'; e.target.style.boxShadow = 'none'; }}
+                />
+              </label>
+
+              <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.5, padding: '6px 0' }}>
+                Local ASR runs a local OpenAI-compatible transcription service managed by MindDock.
+                It transcribes audio only and does not perform frame-level video understanding.
+              </div>
+            </>
+          )}
 
           {config && (
             <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '4px 10px', fontSize: '12px', padding: '8px 0', borderTop: '1px solid var(--color-border-subtle)' }}>
@@ -799,11 +954,13 @@ function MediaTranscriptEditor() {
             </div>
           )}
 
-          <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.5, padding: '6px 0' }}>
-            Provider, base URL, model and timeout may persist as non-secret configuration.
-            Saved UI configuration is now used by media ingestion. Sidecar transcripts still take precedence over API transcription.
-            Reset clears the UI override and current backend-session key. If you rely on shell environment variables, restart the backend or reconfigure as needed.
-          </div>
+          {!isLocal && (
+            <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.5, padding: '6px 0' }}>
+              Provider, base URL, model and timeout may persist as non-secret configuration.
+              Saved UI configuration is now used by media ingestion. Sidecar transcripts still take precedence over API transcription.
+              Reset clears the UI override and current backend-session key. If you rely on shell environment variables, restart the backend or reconfigure as needed.
+            </div>
+          )}
 
           {testResult && (
             <div

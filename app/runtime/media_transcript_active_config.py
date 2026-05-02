@@ -29,6 +29,15 @@ class ActiveMediaTranscriptConfig:
     timeout_seconds: float = 60.0
     enabled: bool = False
     api_key_source: str = "none"  # "env" | "none"
+    # Local ASR fields
+    local_asr_server_path: str = ""
+    local_asr_host: str = ""
+    local_asr_port: int = 9001
+    local_asr_model: str = "small"
+    local_asr_device: str = "auto"
+    local_asr_compute_type: str = "int8"
+    local_asr_auto_start: bool = True
+    local_asr_timeout_seconds: float = 120.0
 
     def to_dict(self) -> dict:
         return {
@@ -38,6 +47,14 @@ class ActiveMediaTranscriptConfig:
             "timeout_seconds": self.timeout_seconds,
             "enabled": self.enabled,
             "api_key_source": self.api_key_source,
+            "local_asr_server_path": self.local_asr_server_path,
+            "local_asr_host": self.local_asr_host,
+            "local_asr_port": self.local_asr_port,
+            "local_asr_model": self.local_asr_model,
+            "local_asr_device": self.local_asr_device,
+            "local_asr_compute_type": self.local_asr_compute_type,
+            "local_asr_auto_start": self.local_asr_auto_start,
+            "local_asr_timeout_seconds": self.local_asr_timeout_seconds,
         }
 
     @classmethod
@@ -49,6 +66,14 @@ class ActiveMediaTranscriptConfig:
             timeout_seconds=float(data.get("timeout_seconds", 60.0)),
             enabled=bool(data.get("enabled", False)),
             api_key_source=str(data.get("api_key_source", "none")),
+            local_asr_server_path=str(data.get("local_asr_server_path", "")),
+            local_asr_host=str(data.get("local_asr_host", "")),
+            local_asr_port=int(data.get("local_asr_port", 9001)),
+            local_asr_model=str(data.get("local_asr_model", "small")),
+            local_asr_device=str(data.get("local_asr_device", "auto")),
+            local_asr_compute_type=str(data.get("local_asr_compute_type", "int8")),
+            local_asr_auto_start=bool(data.get("local_asr_auto_start", True)),
+            local_asr_timeout_seconds=float(data.get("local_asr_timeout_seconds", 120.0)),
         )
 
 
@@ -71,6 +96,15 @@ def save_active_media_transcript_config(
     model: str,
     timeout_seconds: float,
     enabled: bool,
+    *,
+    local_asr_server_path: str = "",
+    local_asr_host: str = "",
+    local_asr_port: int = 9001,
+    local_asr_model: str = "small",
+    local_asr_device: str = "auto",
+    local_asr_compute_type: str = "int8",
+    local_asr_auto_start: bool = True,
+    local_asr_timeout_seconds: float = 120.0,
 ) -> ActiveMediaTranscriptConfig:
     """Persist the active media transcript config to disk.
 
@@ -89,6 +123,14 @@ def save_active_media_transcript_config(
         timeout_seconds=timeout_seconds,
         enabled=enabled,
         api_key_source=api_key_source,
+        local_asr_server_path=local_asr_server_path,
+        local_asr_host=local_asr_host,
+        local_asr_port=local_asr_port,
+        local_asr_model=local_asr_model,
+        local_asr_device=local_asr_device,
+        local_asr_compute_type=local_asr_compute_type,
+        local_asr_auto_start=local_asr_auto_start,
+        local_asr_timeout_seconds=local_asr_timeout_seconds,
     )
 
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +154,15 @@ def save_active_media_transcript_config(
         os.environ["MEDIA_TRANSCRIPT_TIMEOUT_SECONDS"] = str(timeout_seconds)
         os.environ["MEDIA_TRANSCRIPT_PROVIDER"] = provider
         os.environ["MEDIA_TRANSCRIPT_ENABLED"] = "true"
+        # Local ASR env vars
+        os.environ["MEDIA_TRANSCRIPT_LOCAL_ASR_SERVER_PATH"] = local_asr_server_path
+        os.environ["MEDIA_TRANSCRIPT_LOCAL_ASR_HOST"] = local_asr_host
+        os.environ["MEDIA_TRANSCRIPT_LOCAL_ASR_PORT"] = str(local_asr_port)
+        os.environ["MEDIA_TRANSCRIPT_LOCAL_ASR_MODEL"] = local_asr_model
+        os.environ["MEDIA_TRANSCRIPT_LOCAL_ASR_DEVICE"] = local_asr_device
+        os.environ["MEDIA_TRANSCRIPT_LOCAL_ASR_COMPUTE_TYPE"] = local_asr_compute_type
+        os.environ["MEDIA_TRANSCRIPT_LOCAL_ASR_AUTO_START"] = "true" if local_asr_auto_start else "false"
+        os.environ["MEDIA_TRANSCRIPT_LOCAL_ASR_TIMEOUT_SECONDS"] = str(local_asr_timeout_seconds)
     else:
         os.environ.pop("MEDIA_TRANSCRIPT_API_KEY", None)
         os.environ.pop("MEDIA_TRANSCRIPT_API_BASE_URL", None)
@@ -119,6 +170,14 @@ def save_active_media_transcript_config(
         os.environ.pop("MEDIA_TRANSCRIPT_TIMEOUT_SECONDS", None)
         os.environ.pop("MEDIA_TRANSCRIPT_PROVIDER", None)
         os.environ.pop("MEDIA_TRANSCRIPT_ENABLED", None)
+        os.environ.pop("MEDIA_TRANSCRIPT_LOCAL_ASR_SERVER_PATH", None)
+        os.environ.pop("MEDIA_TRANSCRIPT_LOCAL_ASR_HOST", None)
+        os.environ.pop("MEDIA_TRANSCRIPT_LOCAL_ASR_PORT", None)
+        os.environ.pop("MEDIA_TRANSCRIPT_LOCAL_ASR_MODEL", None)
+        os.environ.pop("MEDIA_TRANSCRIPT_LOCAL_ASR_DEVICE", None)
+        os.environ.pop("MEDIA_TRANSCRIPT_LOCAL_ASR_COMPUTE_TYPE", None)
+        os.environ.pop("MEDIA_TRANSCRIPT_LOCAL_ASR_AUTO_START", None)
+        os.environ.pop("MEDIA_TRANSCRIPT_LOCAL_ASR_TIMEOUT_SECONDS", None)
 
     return config
 
@@ -140,6 +199,14 @@ def reset_active_media_transcript_config() -> None:
         "MEDIA_TRANSCRIPT_TIMEOUT_SECONDS",
         "MEDIA_TRANSCRIPT_PROVIDER",
         "MEDIA_TRANSCRIPT_ENABLED",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_SERVER_PATH",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_HOST",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_PORT",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_MODEL",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_DEVICE",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_COMPUTE_TYPE",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_AUTO_START",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_TIMEOUT_SECONDS",
     ):
         os.environ.pop(key, None)
 
@@ -213,3 +280,92 @@ def get_effective_media_transcript_timeout(active_config: ActiveMediaTranscriptC
         except ValueError:
             pass
     return 60.0
+
+
+# --- Local ASR effective getters ---
+
+def get_effective_local_asr_server_path(active_config: ActiveMediaTranscriptConfig, settings) -> str:
+    if active_config.enabled and active_config.local_asr_server_path:
+        return active_config.local_asr_server_path
+    val = str(getattr(settings, "media_transcript_local_asr_server_path", "") or "").strip()
+    if val:
+        return val
+    return os.environ.get("MEDIA_TRANSCRIPT_LOCAL_ASR_SERVER_PATH", "").strip()
+
+
+def get_effective_local_asr_host(active_config: ActiveMediaTranscriptConfig, settings) -> str:
+    if active_config.enabled and active_config.local_asr_host:
+        return active_config.local_asr_host
+    val = str(getattr(settings, "media_transcript_local_asr_host", "") or "").strip()
+    if val:
+        return val
+    return os.environ.get("MEDIA_TRANSCRIPT_LOCAL_ASR_HOST", "").strip() or "127.0.0.1"
+
+
+def get_effective_local_asr_port(active_config: ActiveMediaTranscriptConfig, settings) -> int:
+    if active_config.enabled:
+        return active_config.local_asr_port
+    val = getattr(settings, "media_transcript_local_asr_port", 0) or 0
+    if val:
+        return int(val)
+    env_val = os.environ.get("MEDIA_TRANSCRIPT_LOCAL_ASR_PORT", "").strip()
+    if env_val:
+        try:
+            return int(env_val)
+        except ValueError:
+            pass
+    return 9001
+
+
+def get_effective_local_asr_model(active_config: ActiveMediaTranscriptConfig, settings) -> str:
+    if active_config.enabled and active_config.local_asr_model:
+        return active_config.local_asr_model
+    val = str(getattr(settings, "media_transcript_local_asr_model", "") or "").strip()
+    if val:
+        return val
+    return os.environ.get("MEDIA_TRANSCRIPT_LOCAL_ASR_MODEL", "").strip() or "small"
+
+
+def get_effective_local_asr_device(active_config: ActiveMediaTranscriptConfig, settings) -> str:
+    if active_config.enabled and active_config.local_asr_device:
+        return active_config.local_asr_device
+    val = str(getattr(settings, "media_transcript_local_asr_device", "") or "").strip()
+    if val:
+        return val
+    return os.environ.get("MEDIA_TRANSCRIPT_LOCAL_ASR_DEVICE", "").strip() or "auto"
+
+
+def get_effective_local_asr_compute_type(active_config: ActiveMediaTranscriptConfig, settings) -> str:
+    if active_config.enabled and active_config.local_asr_compute_type:
+        return active_config.local_asr_compute_type
+    val = str(getattr(settings, "media_transcript_local_asr_compute_type", "") or "").strip()
+    if val:
+        return val
+    return os.environ.get("MEDIA_TRANSCRIPT_LOCAL_ASR_COMPUTE_TYPE", "").strip() or "int8"
+
+
+def get_effective_local_asr_auto_start(active_config: ActiveMediaTranscriptConfig, settings) -> bool:
+    if active_config.enabled:
+        return active_config.local_asr_auto_start
+    val = getattr(settings, "media_transcript_local_asr_auto_start", None)
+    if val is not None:
+        return bool(val)
+    env_val = os.environ.get("MEDIA_TRANSCRIPT_LOCAL_ASR_AUTO_START", "").strip().lower()
+    if env_val:
+        return env_val in ("true", "1", "yes")
+    return True
+
+
+def get_effective_local_asr_timeout_seconds(active_config: ActiveMediaTranscriptConfig, settings) -> float:
+    if active_config.enabled:
+        return active_config.local_asr_timeout_seconds
+    val = float(getattr(settings, "media_transcript_local_asr_timeout_seconds", 0) or 0)
+    if val > 0:
+        return val
+    env_val = os.environ.get("MEDIA_TRANSCRIPT_LOCAL_ASR_TIMEOUT_SECONDS", "").strip()
+    if env_val:
+        try:
+            return float(env_val)
+        except ValueError:
+            pass
+    return 120.0

@@ -29,6 +29,13 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
     return citation.section_title || citation.section || null;
   };
 
+  const getDerivedBadge = (citation: CitationItem): { label: string; kind: string } | null => {
+    if (!citation.is_derived) return null;
+    const kind = citation.derived_kind || '';
+    const label = kind === 'media_summary' ? 'Summary' : kind === 'media_outline' ? 'Outline' : 'Derived';
+    return { label, kind };
+  };
+
   const getCitationPreview = (citation: CitationItem): string | null => {
     return citation.evidence_preview || citation.snippet || null;
   };
@@ -144,8 +151,8 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
                 {getCitationTitle(c)}
               </div>
 
-              {/* Label (page / section) */}
-              {getCitationLabel(c) && (
+              {/* Label (page / section) + Derived badge */}
+              {(getCitationLabel(c) || getDerivedBadge(c)) && (
                 <div style={{
                   fontSize: labelSize,
                   color: 'var(--color-text-tertiary)',
@@ -154,8 +161,37 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
                 }}>
-                  {getCitationLabel(c)}
+                  {getCitationLabel(c) && (
+                    <span>{getCitationLabel(c)}</span>
+                  )}
+                  {getDerivedBadge(c) && (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      background: '#f5f3ff',
+                      color: '#7c3aed',
+                      padding: '1px 7px',
+                      borderRadius: 'var(--radius-full)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      border: '1px solid #ddd6fe',
+                      flexShrink: 0,
+                    }}>
+                      <span style={{
+                        width: '5px',
+                        height: '5px',
+                        borderRadius: '50%',
+                        background: '#a78bfa',
+                        flexShrink: 0,
+                      }} />
+                      {getDerivedBadge(c)!.label} · Derived from transcript
+                    </span>
+                  )}
                 </div>
               )}
 

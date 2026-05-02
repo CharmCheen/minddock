@@ -160,11 +160,37 @@ def format_evidence_block(context: ContextBlock) -> str:
     return context.to_text()
 
 
+def _derived_metadata(hit: RetrievedChunk) -> dict[str, object]:
+    """Extract derived chunk provenance from extra_metadata."""
+    meta = hit.extra_metadata
+    is_derived = str(meta.get("is_derived") or "").strip().lower() == "true"
+    if not is_derived:
+        return {
+            "is_derived": False,
+            "derived_kind": None,
+            "derived_from": None,
+            "derived_basis": None,
+            "evidence_basis": None,
+            "transcript_provider": _metadata_text(hit, "transcript_provider"),
+            "retrieval_basis": _metadata_text(hit, "retrieval_basis"),
+        }
+    return {
+        "is_derived": True,
+        "derived_kind": _metadata_text(hit, "derived_kind"),
+        "derived_from": _metadata_text(hit, "derived_from"),
+        "derived_basis": _metadata_text(hit, "derived_basis"),
+        "evidence_basis": _metadata_text(hit, "evidence_basis"),
+        "transcript_provider": _metadata_text(hit, "transcript_provider"),
+        "retrieval_basis": _metadata_text(hit, "retrieval_basis"),
+    }
+
+
 def build_citation(hit: RetrievedChunk) -> CitationRecord:
     """Build a traceable citation record from a retrieved chunk."""
 
     text = hit.citation_text().strip().replace("\n", " ")
     window_metadata = _citation_window_metadata(hit, text=text)
+    derived = _derived_metadata(hit)
     return CitationRecord(
         doc_id=hit.doc_id,
         chunk_id=hit.chunk_id,
@@ -177,6 +203,7 @@ def build_citation(hit: RetrievedChunk) -> CitationRecord:
         location=hit.location or None,
         ref=hit.ref or hit.title or hit.source or None,
         **window_metadata,
+        **derived,
     )
 
 
@@ -186,6 +213,7 @@ def build_evidence(hit: RetrievedChunk) -> EvidenceObject:
     text = hit.citation_text().strip().replace("\n", " ")
     score = hit.rerank_score if hit.rerank_score is not None else hit.distance
     window_metadata = _citation_window_metadata(hit, text=text)
+    derived = _derived_metadata(hit)
     return EvidenceObject(
         doc_id=hit.doc_id,
         chunk_id=hit.chunk_id,
@@ -197,6 +225,7 @@ def build_evidence(hit: RetrievedChunk) -> EvidenceObject:
         source_version=_metadata_text(hit, "source_version"),
         content_hash=_metadata_text(hit, "content_hash") or _metadata_text(hit, "hash"),
         **window_metadata,
+        **derived,
     )
 
 

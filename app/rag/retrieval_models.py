@@ -85,6 +85,14 @@ class CitationRecord:
     window_chunk_count: int = 0
     hit_in_window: bool = False
     evidence_window_reason: str | None = None
+    # Derived chunk provenance (populated from extra_metadata for media/image derived chunks)
+    is_derived: bool = False
+    derived_kind: str | None = None
+    derived_from: str | None = None
+    derived_basis: str | None = None
+    evidence_basis: str | None = None
+    transcript_provider: str | None = None
+    retrieval_basis: str | None = None
 
     def to_api_dict(self) -> dict[str, object]:
         return {
@@ -115,6 +123,13 @@ class CitationRecord:
             "window_chunk_count": self.window_chunk_count,
             "hit_in_window": self.hit_in_window,
             "evidence_window_reason": self.evidence_window_reason,
+            "is_derived": self.is_derived,
+            "derived_kind": self.derived_kind,
+            "derived_from": self.derived_from,
+            "derived_basis": self.derived_basis,
+            "evidence_basis": self.evidence_basis,
+            "transcript_provider": self.transcript_provider,
+            "retrieval_basis": self.retrieval_basis,
         }
 
 
@@ -175,6 +190,14 @@ class EvidenceObject:
     window_chunk_count: int = 0
     hit_in_window: bool = False
     evidence_window_reason: str | None = None
+    # Derived chunk provenance
+    is_derived: bool = False
+    derived_kind: str | None = None
+    derived_from: str | None = None
+    derived_basis: str | None = None
+    evidence_basis: str | None = None
+    transcript_provider: str | None = None
+    retrieval_basis: str | None = None
 
     def to_api_dict(self) -> dict[str, object]:
         return {
@@ -205,6 +228,13 @@ class EvidenceObject:
             "window_chunk_count": self.window_chunk_count,
             "hit_in_window": self.hit_in_window,
             "evidence_window_reason": self.evidence_window_reason,
+            "is_derived": self.is_derived,
+            "derived_kind": self.derived_kind,
+            "derived_from": self.derived_from,
+            "derived_basis": self.derived_basis,
+            "evidence_basis": self.evidence_basis,
+            "transcript_provider": self.transcript_provider,
+            "retrieval_basis": self.retrieval_basis,
         }
 
 

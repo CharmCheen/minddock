@@ -198,6 +198,13 @@ class CitationItem(BaseModel):
     window_chunk_count: int = 0
     hit_in_window: bool = False
     evidence_window_reason: str | None = None
+    is_derived: bool = False
+    derived_kind: str | None = None
+    derived_from: str | None = None
+    derived_basis: str | None = None
+    evidence_basis: str | None = None
+    transcript_provider: str | None = None
+    retrieval_basis: str | None = None
 
     @classmethod
     def from_record(cls, record: CitationRecord | Mapping[str, object]) -> "CitationItem":
@@ -236,6 +243,13 @@ class EvidenceItem(BaseModel):
     window_chunk_count: int = 0
     hit_in_window: bool = False
     evidence_window_reason: str | None = None
+    is_derived: bool = False
+    derived_kind: str | None = None
+    derived_from: str | None = None
+    derived_basis: str | None = None
+    evidence_basis: str | None = None
+    transcript_provider: str | None = None
+    retrieval_basis: str | None = None
 
     @classmethod
     def from_record(cls, record: EvidenceObject | Mapping[str, object] | CitationRecord) -> "EvidenceItem":

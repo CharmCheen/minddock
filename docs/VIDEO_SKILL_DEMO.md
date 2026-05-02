@@ -2,6 +2,46 @@
 
 MindDock supports media transcript ingestion (ASR) by indexing transcript sidecar files or calling an OpenAI-style audio transcription API. This is **video transcript / audio transcription**, not video frame understanding. No browser rendering, ffmpeg, Whisper local model, or video player is included.
 
+## Local ASR Demo Startup
+
+For the Local ASR demo, use two environments:
+
+- `minddock` for the MindDock backend, RAG, Chroma, and ingest commands.
+- `local-asr` for `tools/local_asr_server` and `faster-whisper`.
+
+Install Local ASR with:
+
+```bash
+conda create -n local-asr python=3.10 -y
+conda activate local-asr
+pip install -r tools/local_asr_server/requirements.txt
+```
+
+`start.bat` starts Local ASR, starts the backend, saves Local ASR config,
+preloads the selected model, starts the frontend, and opens the browser. It
+does not run ingest, does not call `/v1/audio/transcriptions`, and does not
+verify search/chat/citations.
+
+Use `run_demo_ingest.bat` after `start.bat` reaches Model Ready. It checks the
+backend, Local ASR health, and model status before running
+`python -m app.demo ingest`.
+
+To avoid accidental online model download during a demo, set:
+
+```bat
+set LOCAL_ASR_MODEL_BASE_PATH=D:\models\faster-whisper-base
+```
+
+The companion server also supports `LOCAL_ASR_MODEL_SMALL_PATH` and
+`LOCAL_ASR_MODEL_MEDIUM_PATH`. A valid local path is used by both model preload
+and transcription. If a configured path is invalid, the server reports it and
+falls back to normal model-name resolution.
+
+For a first real ASR smoke test, prefer a valid `.wav` or `.mp3` without a
+sidecar transcript. Use `.mp4` only after audio smoke passes. This demo is
+transcript-only ASR; it is not video frame understanding, OCR, frame
+extraction, multimodal embedding, or LLM summary.
+
 ## Provider Modes
 
 Set via `MEDIA_TRANSCRIPT_PROVIDER` (default: `mock`):

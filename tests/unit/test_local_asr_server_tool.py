@@ -77,7 +77,7 @@ class TestModelPreloadConcurrency:
 
         assert result["status"] == "loading"
         assert len(started_threads) == 1
-        key = ("small", "auto", "int8")
+        key = ("small", "auto", "int8", "small")
         assert _server.MODEL_STATES.get(key, {}).get("status") == "loading"
 
     def test_duplicate_preload_does_not_spawn_second_thread(self):
@@ -113,10 +113,12 @@ class TestModelPreloadConcurrency:
         """If already ready, preload returns ready and never starts a thread."""
         import server as _server
 
-        key = ("small", "auto", "int8")
+        key = ("small", "auto", "int8", "small")
         _server.MODEL_STATES[key] = {
             "status": "ready",
             "model": "small",
+            "resolved_model": "small",
+            "model_path": "",
             "requested_device": "auto",
             "actual_device": "cuda",
             "compute_type": "int8",
@@ -144,10 +146,12 @@ class TestModelPreloadConcurrency:
         """If previously failed, a new preload is allowed to start."""
         import server as _server
 
-        key = ("small", "auto", "int8")
+        key = ("small", "auto", "int8", "small")
         _server.MODEL_STATES[key] = {
             "status": "failed",
             "model": "small",
+            "resolved_model": "small",
+            "model_path": "",
             "requested_device": "auto",
             "actual_device": "",
             "compute_type": "int8",
@@ -185,7 +189,7 @@ class TestDoPreload:
 
         _server._do_preload("small", "auto", "int8")
 
-        key = ("small", "auto", "int8")
+        key = ("small", "auto", "int8", "small")
         assert _server.MODEL_STATES[key]["status"] == "ready"
         assert _server.MODEL_CACHE[key] is fake_model
 
@@ -196,7 +200,7 @@ class TestDoPreload:
         _server._HAS_FASTER_WHISPER = False
         _server._do_preload("small", "auto", "int8")
 
-        key = ("small", "auto", "int8")
+        key = ("small", "auto", "int8", "small")
         assert _server.MODEL_STATES[key]["status"] == "failed"
         assert "not installed" in _server.MODEL_STATES[key]["message"].lower()
 
@@ -209,6 +213,69 @@ class TestDoPreload:
 
         _server._do_preload("small", "auto", "int8")
 
-        key = ("small", "auto", "int8")
+        key = ("small", "auto", "int8", "small")
         assert _server.MODEL_STATES[key]["status"] == "failed"
         assert "OOM" in _server.MODEL_STATES[key]["message"]
+
+
+class TestModelPathResolution:
+    """Verify local model directory overrides are explicit and offline-safe."""
+
+    def test_resolve_model_path_uses_valid_base_env(self, monkeypatch, tmp_path: Path):
+        import server as _server
+
+        model_dir = tmp_path / "faster-whisper-base"
+        model_dir.mkdir()
+        monkeypatch.setenv("LOCAL_ASR_MODEL_BASE_PATH", str(model_dir))
+
+        resolved, message = _server.resolve_model_path("base")
+
+        assert resolved == str(model_dir)
+        assert "LOCAL_ASR_MODEL_BASE_PATH" in message
+
+    def test_resolve_model_path_invalid_env_falls_back_without_creating(self, monkeypatch, tmp_path: Path):
+        import server as _server
+
+        missing_dir = tmp_path / "missing-model"
+        monkeypatch.setenv("LOCAL_ASR_MODEL_BASE_PATH", str(missing_dir))
+
+        resolved, message = _server.resolve_model_path("base")
+
+        assert resolved == "base"
+        assert "Invalid local model path" in message
+        assert not missing_dir.exists()
+
+    def test_preload_passes_resolved_local_path_to_whisper(self, monkeypatch, tmp_path: Path):
+        import server as _server
+
+        model_dir = tmp_path / "faster-whisper-base"
+        model_dir.mkdir()
+        monkeypatch.setenv("LOCAL_ASR_MODEL_BASE_PATH", str(model_dir))
+
+        fake_model = MagicMock()
+        _server.WhisperModel = MagicMock(return_value=fake_model)
+        _server._HAS_FASTER_WHISPER = True
+
+        _server._do_preload("base", "auto", "int8")
+
+        _server.WhisperModel.assert_called_once()
+        assert _server.WhisperModel.call_args.args[0] == str(model_dir)
+        key = ("base", "auto", "int8", str(model_dir))
+        assert _server.MODEL_CACHE[key] is fake_model
+        assert _server.MODEL_STATES[key]["resolved_model"] == str(model_dir)
+        assert _server.MODEL_STATES[key]["model_path"] == str(model_dir)
+
+    def test_status_reports_invalid_local_path_without_loading(self, monkeypatch, tmp_path: Path):
+        import server as _server
+
+        missing_dir = tmp_path / "missing-model"
+        monkeypatch.setenv("LOCAL_ASR_MODEL_BASE_PATH", str(missing_dir))
+
+        result = asyncio.run(
+            _server.model_status(model="base", device="auto", compute_type="int8")
+        )
+
+        assert result["status"] == "not_loaded"
+        assert result["resolved_model"] == "base"
+        assert result["model_path"] == ""
+        assert "Invalid local model path" in result["message"]

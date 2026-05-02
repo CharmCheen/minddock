@@ -7,6 +7,7 @@ and model management endpoints for preload and status checks.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -33,9 +34,9 @@ logger = logging.getLogger(__name__)
 # Global model cache and state
 # ---------------------------------------------------------------------------
 
-MODEL_CACHE: dict[tuple[str, str, str], Any] = {}
-MODEL_STATES: dict[tuple[str, str, str], dict[str, Any]] = {}
-MODEL_LOCKS: dict[tuple[str, str, str], threading.Lock] = {}
+MODEL_CACHE: dict[tuple[str, str, str, str], Any] = {}
+MODEL_STATES: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+MODEL_LOCKS: dict[tuple[str, str, str, str], threading.Lock] = {}
 
 _STATE_NOT_LOADED = "not_loaded"
 _STATE_LOADING = "loading"
@@ -43,11 +44,46 @@ _STATE_READY = "ready"
 _STATE_FAILED = "failed"
 
 
-def _cache_key(model: str, device: str, compute_type: str) -> tuple[str, str, str]:
-    return (model, device, compute_type)
+_MODEL_PATH_ENV = {
+    "base": "LOCAL_ASR_MODEL_BASE_PATH",
+    "small": "LOCAL_ASR_MODEL_SMALL_PATH",
+    "medium": "LOCAL_ASR_MODEL_MEDIUM_PATH",
+}
 
 
-def _get_lock(key: tuple[str, str, str]) -> threading.Lock:
+def resolve_model_path(model: str) -> tuple[str, str]:
+    """Resolve a model name to a local directory override when configured.
+
+    Returns (resolved_model, message). If no override is configured, the
+    resolved model remains the original model name. If an override is present
+    but invalid, the original model is used and the message explains why.
+    """
+    normalized = model.strip() or "base"
+    env_name = _MODEL_PATH_ENV.get(normalized.lower())
+    if env_name is None:
+        return normalized, ""
+
+    configured = os.environ.get(env_name, "").strip()
+    if not configured:
+        return normalized, ""
+
+    path = Path(configured)
+    if path.is_dir():
+        return str(path), f"Using local model path from {env_name}: {path}"
+
+    return normalized, f"Invalid local model path in {env_name}: {configured}. Falling back to model name '{normalized}'."
+
+
+def _cache_key(model: str, device: str, compute_type: str) -> tuple[str, str, str, str]:
+    resolved_model, _ = resolve_model_path(model)
+    return (model, device, compute_type, resolved_model)
+
+
+def _resolved_model_path(model: str, resolved_model: str) -> str:
+    return resolved_model if resolved_model != model and Path(resolved_model).is_dir() else ""
+
+
+def _get_lock(key: tuple[str, str, str, str]) -> threading.Lock:
     if key not in MODEL_LOCKS:
         MODEL_LOCKS[key] = threading.Lock()
     return MODEL_LOCKS[key]
@@ -79,24 +115,27 @@ def _do_preload(model: str, device: str, compute_type: str) -> None:
     """
     key = _cache_key(model, device, compute_type)
     lock = _get_lock(key)
+    resolved_model, model_path_message = resolve_model_path(model)
 
     try:
         if not _HAS_FASTER_WHISPER:
             raise RuntimeError("faster-whisper is not installed in this environment.")
 
         actual_device, actual_compute = _resolve_device(device)
-        logger.info("Loading faster-whisper model=%s device=%s compute_type=%s", model, actual_device, actual_compute)
-        wmodel = WhisperModel(model, device=actual_device, compute_type=actual_compute)
+        logger.info("Loading faster-whisper model=%s device=%s compute_type=%s", resolved_model, actual_device, actual_compute)
+        wmodel = WhisperModel(resolved_model, device=actual_device, compute_type=actual_compute)
 
         with lock:
             MODEL_CACHE[key] = wmodel
             MODEL_STATES[key] = {
                 "status": _STATE_READY,
                 "model": model,
+                "resolved_model": resolved_model,
+                "model_path": _resolved_model_path(model, resolved_model),
                 "requested_device": device,
                 "actual_device": actual_device,
                 "compute_type": actual_compute,
-                "message": "Model is loaded and ready.",
+                "message": "Model is loaded and ready." if not model_path_message else f"Model is loaded and ready. {model_path_message}",
                 "timestamp": time.time(),
             }
         logger.info("Model %s loaded successfully on %s.", model, actual_device)
@@ -107,10 +146,12 @@ def _do_preload(model: str, device: str, compute_type: str) -> None:
             MODEL_STATES[key] = {
                 "status": _STATE_FAILED,
                 "model": model,
+                "resolved_model": resolved_model,
+                "model_path": _resolved_model_path(model, resolved_model),
                 "requested_device": device,
                 "actual_device": device,
                 "compute_type": compute_type,
-                "message": f"Model load failed: {exc}",
+                "message": f"Model load failed: {exc}" if not model_path_message else f"{model_path_message} Model load failed: {exc}",
                 "timestamp": time.time(),
             }
 
@@ -156,20 +197,25 @@ async def model_status(
     """
     key = _cache_key(model, device, compute_type)
     state = MODEL_STATES.get(key)
+    resolved_model, model_path_message = resolve_model_path(model)
 
     if state is None:
         return {
             "status": _STATE_NOT_LOADED,
             "model": model,
+            "resolved_model": resolved_model,
+            "model_path": _resolved_model_path(model, resolved_model),
             "requested_device": device,
             "actual_device": "",
             "compute_type": compute_type,
-            "message": "Model has not been loaded yet.",
+            "message": "Model has not been loaded yet." if not model_path_message else f"Model has not been loaded yet. {model_path_message}",
         }
 
     return {
         "status": state["status"],
         "model": state["model"],
+        "resolved_model": state.get("resolved_model", state["model"]),
+        "model_path": state.get("model_path", ""),
         "requested_device": state["requested_device"],
         "actual_device": state.get("actual_device", ""),
         "compute_type": state["compute_type"],
@@ -190,6 +236,7 @@ async def model_preload(body: PreloadRequest) -> dict[str, Any]:
     """
     key = _cache_key(body.model, body.device, body.compute_type)
     lock = _get_lock(key)
+    resolved_model, model_path_message = resolve_model_path(body.model)
 
     with lock:
         state = MODEL_STATES.get(key)
@@ -198,6 +245,8 @@ async def model_preload(body: PreloadRequest) -> dict[str, Any]:
             return {
                 "status": _STATE_READY,
                 "model": state["model"],
+                "resolved_model": state.get("resolved_model", state["model"]),
+                "model_path": state.get("model_path", ""),
                 "requested_device": state["requested_device"],
                 "actual_device": state.get("actual_device", ""),
                 "compute_type": state["compute_type"],
@@ -208,6 +257,8 @@ async def model_preload(body: PreloadRequest) -> dict[str, Any]:
             return {
                 "status": _STATE_LOADING,
                 "model": state["model"],
+                "resolved_model": state.get("resolved_model", state["model"]),
+                "model_path": state.get("model_path", ""),
                 "requested_device": state["requested_device"],
                 "actual_device": state.get("actual_device", ""),
                 "compute_type": state["compute_type"],
@@ -219,10 +270,12 @@ async def model_preload(body: PreloadRequest) -> dict[str, Any]:
         MODEL_STATES[key] = {
             "status": _STATE_LOADING,
             "model": body.model,
+            "resolved_model": resolved_model,
+            "model_path": _resolved_model_path(body.model, resolved_model),
             "requested_device": body.device,
             "actual_device": "",
             "compute_type": body.compute_type,
-            "message": "Model preload started in background.",
+            "message": "Model preload started in background." if not model_path_message else f"Model preload started in background. {model_path_message}",
             "timestamp": time.time(),
         }
 
@@ -237,10 +290,12 @@ async def model_preload(body: PreloadRequest) -> dict[str, Any]:
     return {
         "status": _STATE_LOADING,
         "model": body.model,
+        "resolved_model": resolved_model,
+        "model_path": _resolved_model_path(body.model, resolved_model),
         "requested_device": body.device,
         "actual_device": "",
         "compute_type": body.compute_type,
-        "message": "Model preload started in background.",
+        "message": "Model preload started in background." if not model_path_message else f"Model preload started in background. {model_path_message}",
     }
 
 
@@ -251,7 +306,7 @@ async def model_preload(body: PreloadRequest) -> dict[str, Any]:
 @app.post("/v1/audio/transcriptions")
 async def transcribe(
     file: UploadFile,
-    model: str = Form("small"),
+    model: str = Form("base"),
     response_format: str = Form("json"),
     language: str = Form(""),
 ) -> dict[str, Any]:
@@ -267,11 +322,15 @@ async def transcribe(
     compute_type = "int8"
     key = _cache_key(model, device, compute_type)
     state = MODEL_STATES.get(key)
+    resolved_model, model_path_message = resolve_model_path(model)
 
     if state is None or state["status"] != _STATE_READY:
+        detail = f"Model '{model}' is not ready. Status: {state['status'] if state else 'not_loaded'}. Please preload first."
+        if model_path_message:
+            detail = f"{detail} {model_path_message}"
         raise HTTPException(
             status_code=503,
-            detail=f"Model '{model}' is not ready. Status: {state['status'] if state else 'not_loaded'}. Please preload first.",
+            detail=detail,
         )
 
     wmodel = MODEL_CACHE.get(key)

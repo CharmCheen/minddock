@@ -148,12 +148,29 @@ class DisabledMediaTranscriptionClient:
 
 
 @dataclass(frozen=True)
+class LocalAsrFailedTranscriptionClient:
+    """Transcription client used when Local ASR cannot be reached."""
+
+    warning: str = "local_asr_failed"
+
+    def transcribe(
+        self,
+        path: Path,
+        media_type: Literal["audio", "video"],
+    ) -> MediaTranscriptResult:
+        return MediaTranscriptResult(
+            text="",
+            provider="local",
+            warnings=_dedupe(("local_asr_failed", self.warning)),
+        )
+
+
+@dataclass(frozen=True)
 class OptionalApiMediaTranscriptionClient:
     """Optional API provider that calls an OpenAI-style audio transcription endpoint.
 
-    When configuration is missing, HTTP/network errors occur, or the API returns
-    empty text, this client falls back to mock and records appropriate warnings
-    without exposing the API key.
+    Remote API mode falls back to mock on failures. Local ASR mode disables
+    mock fallback so demo ingest cannot silently index placeholder transcripts.
     """
 
     fallback: MediaTranscriptionClient = MockMediaTranscriptionClient()
@@ -161,6 +178,9 @@ class OptionalApiMediaTranscriptionClient:
     api_base_url: str = ""
     model: str = ""
     timeout_seconds: float = 0.0
+    result_provider: str = "api"
+    fallback_to_mock: bool = True
+    warning_prefix: str = "transcript_api"
 
     def transcribe(
         self,
@@ -170,6 +190,12 @@ class OptionalApiMediaTranscriptionClient:
         api_key = self.api_key.strip()
         api_base_url = self.api_base_url.strip()
         if not api_key or not api_base_url:
+            if not self.fallback_to_mock:
+                logger.warning("Local ASR provider selected but not configured for %s", path.name)
+                return _api_failure_result(
+                    provider=self.result_provider,
+                    warnings=(f"{self.warning_prefix}_unconfigured",),
+                )
             logger.warning(
                 "Media API provider selected but not configured (missing api_key or base_url). "
                 "Falling back to mock for %s",
@@ -205,26 +231,46 @@ class OptionalApiMediaTranscriptionClient:
                 text = (payload.get("text", "") or "").strip()
         except httpx.HTTPStatusError:
             logger.warning("ASR API returned HTTP error for %s", path.name)
-            return _api_fallback(self.fallback, path, media_type, "transcript_api_http_error")
+            return _api_failure_or_fallback(self, path, media_type, f"{self.warning_prefix}_http_error")
         except httpx.TimeoutException:
             logger.warning("ASR API request timed out for %s", path.name)
-            return _api_fallback(self.fallback, path, media_type, "transcript_api_timeout")
+            return _api_failure_or_fallback(self, path, media_type, f"{self.warning_prefix}_timeout")
         except (httpx.NetworkError, httpx.ConnectError):
             logger.warning("ASR API network error for %s", path.name)
-            return _api_fallback(self.fallback, path, media_type, "transcript_api_network_error")
+            return _api_failure_or_fallback(self, path, media_type, f"{self.warning_prefix}_network_error")
         except (_json.JSONDecodeError, AttributeError):
             logger.warning("ASR API returned unparseable response for %s", path.name)
-            return _api_fallback(self.fallback, path, media_type, "transcript_api_parse_error")
+            return _api_failure_or_fallback(self, path, media_type, f"{self.warning_prefix}_parse_error")
 
         if not text:
             logger.warning("ASR API returned empty transcript for %s", path.name)
-            return _api_fallback(self.fallback, path, media_type, "transcript_api_empty")
+            empty_reason = "transcript_api_empty" if self.warning_prefix == "transcript_api" else f"{self.warning_prefix}_empty_transcript"
+            return _api_failure_or_fallback(self, path, media_type, empty_reason)
 
         return MediaTranscriptResult(
             text=text,
-            provider="api",
+            provider=self.result_provider,
             segments=tuple(TranscriptSegment(line) for line in text.splitlines() if line.strip()),
         )
+
+
+def _api_failure_or_fallback(
+    client: OptionalApiMediaTranscriptionClient,
+    path: Path,
+    media_type: Literal["audio", "video"],
+    reason: str,
+) -> MediaTranscriptResult:
+    if client.fallback_to_mock:
+        return _api_fallback(client.fallback, path, media_type, reason)
+    return _api_failure_result(provider=client.result_provider, warnings=(reason,))
+
+
+def _api_failure_result(*, provider: str, warnings: tuple[str, ...]) -> MediaTranscriptResult:
+    return MediaTranscriptResult(
+        text="",
+        provider=provider,
+        warnings=_dedupe(("local_asr_failed", *warnings)),
+    )
 
 
 def _api_fallback(
@@ -398,12 +444,14 @@ def build_media_transcription_client() -> MediaTranscriptionClient:
                     api_base_url=result.base_url,
                     model=resolved.local_asr_model,
                     timeout_seconds=resolved.local_asr_timeout_seconds,
+                    result_provider="local",
+                    fallback_to_mock=False,
+                    warning_prefix="local_asr",
                 )
             logger.warning("Local ASR bootstrap failed: %s", result.message)
         except Exception:
             logger.exception("Local ASR bootstrap error.")
-        # Fallback to mock on any bootstrap failure
-        return MockMediaTranscriptionClient()
+        return LocalAsrFailedTranscriptionClient("local_asr_bootstrap_failed")
     if resolved.provider == "disabled":
         return DisabledMediaTranscriptionClient()
     return MockMediaTranscriptionClient()

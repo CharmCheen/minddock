@@ -134,3 +134,72 @@ python -m pytest tests/integration/test_media_transcript_config_api.py -x --tb=s
 - **显存限制**：4GB 显存只能用 `small` 或 `base`；`medium` 可能 OOM。
 - **Auto Start 依赖 conda**：默认启动命令使用 `conda run -n local-asr`，需预先创建环境并安装依赖。
 - **Test Config 不转录**：前端 "Test Config" 只检查配置完整性，不会真实上传文件做 ASR。
+## Demo Startup Runbook
+
+Use two Python environments:
+
+- `minddock`: MindDock backend, RAG, Chroma, `python -m app.demo serve`, and `python -m app.demo ingest`.
+- `local-asr`: the companion server under `tools/local_asr_server`, including `faster-whisper`, `ctranslate2`, and `uvicorn`.
+
+Install the Local ASR environment with:
+
+```bash
+conda create -n local-asr python=3.10 -y
+conda activate local-asr
+pip install -r tools/local_asr_server/requirements.txt
+```
+
+`start.bat` is the demo startup script. It does:
+
+1. Start Local ASR.
+2. Start the MindDock backend.
+3. Save the Local ASR provider config.
+4. Preload the configured model.
+5. Start the frontend.
+
+`start.bat` does not:
+
+- Run ingest.
+- Call `/v1/audio/transcriptions`.
+- Perform real transcription.
+- Verify search, chat, or citations.
+
+After `start.bat` reaches Model Ready, run `run_demo_ingest.bat` to perform
+the real ingest step. That script checks backend health, Local ASR health, and
+model readiness before running `python -m app.demo ingest`.
+
+## Local Model Directory
+
+To avoid accidental online model download during a demo, configure a local
+model directory before starting Local ASR:
+
+```bat
+set LOCAL_ASR_MODEL_BASE_PATH=D:\models\faster-whisper-base
+```
+
+Supported overrides:
+
+- `LOCAL_ASR_MODEL_BASE_PATH` for `model=base`
+- `LOCAL_ASR_MODEL_SMALL_PATH` for `model=small`
+- `LOCAL_ASR_MODEL_MEDIUM_PATH` for `model=medium`
+
+If the configured path exists, `local_asr_server` uses it for both preload and
+transcription. If the path is invalid, the server reports the invalid path and
+falls back to the model name; that fallback may use the normal HuggingFace
+resolution behavior.
+
+## Failure Semantics
+
+For `provider=local`, MindDock no longer falls back to mock transcripts on ASR
+failure. Local ASR failures produce an empty transcript with `local_asr_*`
+warnings so the demo does not index fake placeholder text.
+
+For `provider=mock`, mock transcripts are still explicit and intentional. For
+`provider=api`, the existing remote API mock fallback behavior is preserved.
+
+## Smoke Test Advice
+
+Use a valid `.wav` or `.mp3` file for the first real ASR smoke test. Try `.mp4`
+only after audio smoke passes, and avoid damaged media files. Local ASR is
+transcript-only: it does not do video frame understanding, OCR, frame
+extraction, multimodal embedding, or LLM summary.

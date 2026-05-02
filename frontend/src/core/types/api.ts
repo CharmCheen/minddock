@@ -267,6 +267,8 @@ export interface LocalAsrStatusResponse {
 export interface LocalAsrModelStatusResponse {
   status: string;
   model?: string;
+  resolved_model?: string;
+  model_path?: string;
   requested_device?: string;
   actual_device?: string;
   compute_type?: string;

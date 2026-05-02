@@ -122,6 +122,23 @@ Update it before every push.
 
 ### Fixed
 
+- **Local ASR demo workflow stabilization**
+  - `local_asr_server` now supports local model directory overrides:
+    `LOCAL_ASR_MODEL_BASE_PATH`, `LOCAL_ASR_MODEL_SMALL_PATH`, and
+    `LOCAL_ASR_MODEL_MEDIUM_PATH`.
+  - Model preload and transcription now share the same model/device/compute
+    cache key, with demo defaults aligned to `base` / `auto` / `int8`.
+  - Local ASR failures no longer fall back to mock transcripts; failures return
+    an empty local transcript with `local_asr_*` warnings so demo ingest does
+    not index placeholder text as real ASR.
+  - `start.bat` now fails fast when Local ASR, backend, config save, preload, or
+    model readiness fails; frontend build is skipped by default for faster demo
+    startup.
+  - Added `run_demo_ingest.bat` as a separate explicit ingest step after Local
+    ASR is Ready.
+  - Documentation clarifies the two-environment setup, local model path
+    behavior, startup responsibilities, and wav/mp3-first smoke test guidance.
+
 - **Media Transcript Config: base_url round-trip** (`P1`):
   - `MediaTranscriptConfigResponse` now includes `base_url: str` so the frontend can round-trip the configured URL.
   - `GET /frontend/media-transcript-config` returns the effective base URL (ui_override or environment).

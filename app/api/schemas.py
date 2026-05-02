@@ -2202,6 +2202,8 @@ class LocalAsrModelStatusResponse(BaseModel):
 
     status: str = Field(description="Status: not_loaded, loading, ready, failed, not_running, not_configured, not_local_provider")
     model: str = Field(default="", description="Configured ASR model name")
+    resolved_model: str = Field(default="", description="Resolved model name or local model path")
+    model_path: str = Field(default="", description="Local model directory path when an override is active")
     requested_device: str = Field(default="", description="Requested device strategy")
     actual_device: str = Field(default="", description="Actual device used")
     compute_type: str = Field(default="", description="Compute type")

@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MindDock — 面向个人知识库的 Agentic RAG 系统</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --color-background-primary:#0a0e17;
+  --color-background-secondary:#111827;
+  --color-background-tertiary:#1a2234;
+  --color-background-tertiary-hover:#1f2a40;
+  --color-text-primary:#e8ecf4;
+  --color-text-secondary:#94a3b8;
+  --color-text-muted:#64748b;
+  --color-border-tertiary:#2a3550;
+  --color-accent:#6366f1;
+  --color-accent-light:#818cf8;
+  --color-accent-glow:rgba(99,102,241,.25);
+  --color-green:#34d399;
+  --color-amber:#fbbf24;
+  --color-rose:#f87171;
+  --color-cyan:#22d3ee;
+  --color-purple:#a855f7;
+  --radius:12px;
+  --radius-sm:8px;
+  --font-sans:'Noto Sans SC',system-ui,-apple-system,sans-serif;
+  --font-mono:'JetBrains Mono','Fira Code',monospace;
+}
+html{scroll-behavior:smooth;font-size:16px}
+body{
+  font-family:var(--font-sans);
+  background:var(--color-background-primary);
+  color:var(--color-text-primary);
+  line-height:1.7;
+  overflow-x:hidden;
+}
+a{color:var(--color-accent-light);text-decoration:none;transition:color .2s}
+a:hover{color:#a5b4fc}
+::selection{background:var(--color-accent);color:#fff}
+
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--color-border-tertiary)}
+::-webkit-scrollbar-thumb{background:var(--color-text-muted);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--color-text-secondary)}
+
+.container{max-width:1120px;margin:0 auto;padding:0 24px}
+
+.nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  background:rgba(10,14,23,.82);
+  backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--color-border-tertiary);
+}
+.nav .container{
+  display:flex;align-items:center;justify-content:space-between;
+  height:60px;
+}
+.nav-brand{font-weight:500;font-size:1.15rem;letter-spacing:-.02em}
+.nav-brand span{color:var(--color-accent-light)}
+.nav-links{display:flex;gap:28px;font-size:.875rem}
+.nav-links a{color:var(--color-text-secondary);transition:color .2s}
+.nav-links a:hover{color:var(--color-text-primary)}
+.nav-toggle{display:none;background:none;border:none;cursor:pointer;padding:4px}
+.nav-toggle svg{width:24px;height:24px;stroke:var(--color-text-secondary)}
+
+.hero{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:120px 24px 80px;position:relative;
+  overflow:hidden;
+}
+.hero::before{
+  content:'';position:absolute;top:-40%;left:50%;transform:translateX(-50%);
+  width:800px;height:800px;
+  background:radial-gradient(circle,var(--color-accent-glow) 0%,transparent 70%);
+  pointer-events:none;
+}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);
+  border-radius:999px;padding:6px 18px;font-size:.8rem;color:var(--color-accent-light);
+  margin-bottom:28px;
+}
+.hero-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--color-green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.hero h1{
+  font-size:clamp(2.4rem,6vw,4.2rem);font-weight:900;
+  letter-spacing:-.03em;line-height:1.15;margin-bottom:20px;
+}
+.hero h1 .gradient{
+  background:linear-gradient(135deg,var(--color-accent-light),var(--color-cyan));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.hero .tagline{
+  font-size:clamp(1rem,2.2vw,1.3rem);color:var(--color-text-secondary);
+  max-width:680px;margin:0 auto 16px;font-weight:400;
+}
+.hero .one-liner{
+  font-size:.95rem;color:var(--color-text-muted);max-width:720px;margin:0 auto 40px;
+  line-height:1.8;
+}
+.hero-actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:12px 28px;border-radius:var(--radius-sm);font-size:.9rem;
+  font-weight:500;transition:all .25s;cursor:pointer;border:none;
+  font-family:var(--font-sans);
+}
+.btn-primary{background:var(--color-accent);color:#fff;box-shadow:0 0 20px var(--color-accent-glow)}
+.btn-primary:hover{background:var(--color-accent-light);box-shadow:0 0 30px var(--color-accent-glow);transform:translateY(-1px)}
+.btn-outline{background:transparent;color:var(--color-text-secondary);border:1px solid var(--color-border-tertiary)}
+.btn-outline:hover{border-color:var(--color-accent);color:var(--color-accent-light)}
+
+.section{padding:100px 0}
+.section-header{text-align:center;margin-bottom:60px}
+.section-label{
+  font-size:.75rem;text-transform:uppercase;letter-spacing:.15em;
+  color:var(--color-accent-light);margin-bottom:10px;font-weight:500;
+}
+.section-title{
+  font-size:clamp(1.6rem,3.5vw,2.2rem);font-weight:500;
+  letter-spacing:-.02em;margin-bottom:14px;
+}
+.section-desc{color:var(--color-text-secondary);max-width:600px;margin:0 auto;font-size:.95rem}
+
+.features-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:20px;
+}
+.feature-card{
+  background:var(--color-background-tertiary);border:1px solid var(--color-border-tertiary);
+  border-radius:var(--radius);padding:32px 28px;
+  transition:all .3s;position:relative;overflow:hidden;
+}
+.feature-card:hover{
+  border-color:var(--color-accent);background:var(--color-background-tertiary-hover);
+  transform:translateY(-3px);box-shadow:0 8px 30px rgba(0,0,0,.3);
+}
+.feature-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--color-accent),var(--color-cyan));
+  opacity:0;transition:opacity .3s;
+}
+.feature-card:hover::before{opacity:1}
+.feature-icon{
+  width:44px;height:44px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:18px;font-size:1.3rem;
+}
+.feature-card:nth-child(1) .feature-icon{background:rgba(99,102,241,.15);color:var(--color-accent-light)}
+.feature-card:nth-child(2) .feature-icon{background:rgba(34,211,238,.15);color:var(--color-cyan)}
+.feature-card:nth-child(3) .feature-icon{background:rgba(251,191,36,.15);color:var(--color-amber)}
+.feature-card:nth-child(4) .feature-icon{background:rgba(52,211,153,.15);color:var(--color-green)}
+.feature-card:nth-child(5) .feature-icon{background:rgba(248,113,113,.15);color:var(--color-rose)}
+.feature-card:nth-child(6) .feature-icon{background:rgba(168,85,247,.15);color:var(--color-purple)}
+.feature-card h3{font-size:1.05rem;font-weight:500;margin-bottom:10px;letter-spacing:-.01em}
+.feature-card p{font-size:.875rem;color:var(--color-text-secondary);line-height:1.7}
+.feature-tag{
+  display:inline-block;margin-top:14px;font-size:.72rem;
+  padding:3px 10px;border-radius:999px;font-weight:500;
+  font-family:var(--font-mono);
+}
+.feature-card:nth-child(1) .feature-tag{background:rgba(99,102,241,.12);color:var(--color-accent-light)}
+.feature-card:nth-child(2) .feature-tag{background:rgba(34,211,238,.12);color:var(--color-cyan)}
+.feature-card:nth-child(3) .feature-tag{background:rgba(251,191,36,.12);color:var(--color-amber)}
+.feature-card:nth-child(4) .feature-tag{background:rgba(52,211,153,.12);color:var(--color-green)}
+.feature-card:nth-child(5) .feature-tag{background:rgba(248,113,113,.12);color:var(--color-rose)}
+.feature-card:nth-child(6) .feature-tag{background:rgba(168,85,247,.12);color:var(--color-purple)}
+
+.arch-wrapper{
+  background:var(--color-background-tertiary);border:1px solid var(--color-border-tertiary);
+  border-radius:var(--radius);padding:40px 32px;overflow-x:auto;
+}
+.arch-flow{display:flex;flex-direction:column;align-items:center;gap:0}
+.arch-node{
+  padding:12px 24px;border-radius:var(--radius-sm);
+  font-size:.85rem;font-weight:500;text-align:center;
+  min-width:200px;position:relative;white-space:nowrap;
+}
+.arch-node.primary{background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);color:var(--color-accent-light)}
+.arch-node.process{background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.35);color:var(--color-cyan)}
+.arch-node.decision{background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);color:var(--color-amber)}
+.arch-node.output{background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.35);color:var(--color-green)}
+.arch-node.retry{background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:var(--color-rose)}
+.arch-arrow{
+  width:2px;height:28px;background:var(--color-border-tertiary);position:relative;
+}
+.arch-arrow::after{
+  content:'';position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);
+  border-left:5px solid transparent;border-right:5px solid transparent;
+  border-top:6px solid var(--color-border-tertiary);
+}
+.arch-branch-row{
+  display:flex;gap:40px;align-items:flex-start;position:relative;
+  width:100%;justify-content:center;
+}
+.arch-branch-col{display:flex;flex-direction:column;align-items:center;gap:0}
+.arch-branch-label{
+  font-size:.72rem;color:var(--color-text-muted);margin-bottom:4px;
+  font-family:var(--font-mono);
+}
+.arch-hline{
+  width:2px;height:20px;background:var(--color-border-tertiary);
+}
+.arch-side-label{
+  position:absolute;right:-80px;top:50%;transform:translateY(-50%);
+  font-size:.7rem;color:var(--color-text-muted);font-family:var(--font-mono);
+  white-space:nowrap;
+}
+.arch-retry-loop{
+  display:flex;align-items:center;gap:12px;
+  padding:8px 16px;border-radius:var(--radius-sm);
+  background:rgba(248,113,113,.08);border:1px dashed rgba(248,113,113,.3);
+  font-size:.78rem;color:var(--color-rose);margin:4px 0;
+}
+
+.tech-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.tech-card{
+  background:var(--color-background-tertiary);border:1px solid var(--color-border-tertiary);
+  border-radius:var(--radius);padding:28px 24px;
+}
+.tech-card h4{
+  font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--color-text-muted);margin-bottom:16px;font-weight:500;
+}
+.tech-list{display:flex;flex-wrap:wrap;gap:8px}
+.tech-tag{
+  padding:6px 14px;border-radius:999px;font-size:.8rem;
+  background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.2);
+  color:var(--color-text-secondary);font-family:var(--font-mono);
+  transition:all .2s;
+}
+.tech-tag:hover{border-color:var(--color-accent);color:var(--color-accent-light)}
+
+.limitations{
+  background:var(--color-background-tertiary);border:1px solid var(--color-border-tertiary);
+  border-radius:var(--radius);padding:40px 36px;
+}
+.limitations h3{font-size:1.1rem;font-weight:500;margin-bottom:20px;color:var(--color-amber)}
+.limit-list{list-style:none;display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.limit-list li{
+  display:flex;align-items:flex-start;gap:10px;
+  font-size:.88rem;color:var(--color-text-secondary);line-height:1.6;
+}
+.limit-list li .icon{color:var(--color-amber);flex-shrink:0;margin-top:2px;font-size:.9rem}
+
+.footer{
+  border-top:1px solid var(--color-border-tertiary);padding:48px 0;
+  text-align:center;
+}
+.footer-desc{font-size:.88rem;color:var(--color-text-secondary);margin-bottom:6px}
+.footer p{font-size:.82rem;color:var(--color-text-muted);margin-bottom:16px}
+.footer-links{display:flex;gap:24px;justify-content:center;font-size:.85rem}
+
+.reveal{opacity:0;transform:translateY(24px);transition:all .6s cubic-bezier(.16,1,.3,1)}
+.reveal.visible{opacity:1;transform:translateY(0)}
+
+@media(max-width:900px){
+  .features-grid{grid-template-columns:repeat(2,1fr)}
+  .tech-grid{grid-template-columns:repeat(2,1fr)}
+  .limit-list{grid-template-columns:1fr}
+  .arch-branch-row{gap:20px}
+  .arch-side-label{display:none}
+}
+@media(max-width:640px){
+  .features-grid{grid-template-columns:1fr}
+  .tech-grid{grid-template-columns:1fr}
+  .nav-links{display:none}
+  .nav-links.open{
+    display:flex;flex-direction:column;position:absolute;
+    top:60px;left:0;right:0;
+    background:var(--color-background-secondary);
+    border-bottom:1px solid var(--color-border-tertiary);
+    border-top:1px solid var(--color-border-tertiary);
+    padding:16px 24px;gap:16px;
+  }
+  .nav-toggle{display:block}
+  .hero{padding:80px 20px 60px}
+  .hero .one-liner{font-size:.95rem}
+  .section{padding:60px 0}
+  .arch-wrapper{padding:24px 16px}
+  .arch-node{min-width:0;width:100%;font-size:.78rem;padding:10px 16px;white-space:normal}
+  .arch-branch-row{
+    flex-direction:column;gap:0;align-items:center;
+  }
+  .arch-branch-col{
+    width:100%;align-items:center;
+    padding-bottom:8px;
+  }
+  .arch-branch-col .arch-branch-label{
+    margin-bottom:6px;
+  }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="container">
+    <div class="nav-brand">Mind<span>Dock</span></div>
+    <div class="nav-links" id="navLinks">
+      <a href="#features">核心功能</a>
+      <a href="#architecture">系统架构</a>
+      <a href="#techstack">技术栈</a>
+      <a href="#limitations">局限性</a>
+    </div>
+    <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+        <line x1="3" y1="6" x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+    </button>
+  </div>
+</nav>
+
+<section class="hero">
+  <div>
+    <div class="hero-badge"><span class="dot"></span> Agentic RAG System</div>
+    <h1><span class="gradient">MindDock</span></h1>
+    <p class="tagline">面向个人知识库的 Agentic RAG 系统</p>
+    <p class="one-liner">
+      基于 LangGraph 编排的知识问答系统，支持意图自动感知、检索质量反思与有界重试、source-scoped 对比规划，以及完整的工作流可观测性。
+    </p>
+    <div class="hero-actions">
+      <!-- TODO: verify repo URL is correct -->
+      <a href="https://github.com/CharmCheen/V0.1" class="btn btn-primary" id="githubBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.387.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.73.083-.73 1.205.085 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        GitHub 仓库
+      </a>
+      <a href="#features" class="btn btn-outline">了解更多 ↓</a>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="features">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Core Features</div>
+      <h2 class="section-title">核心功能</h2>
+      <p class="section-desc">六大核心能力，构建智能知识问答闭环</p>
+    </div>
+    <div class="features-grid">
+
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        </div>
+        <h3>意图感知层</h3>
+        <p>规则关键词匹配，自动识别 Chat / Summarize / Compare 三类任务，置信度分三档：0.9 / 0.65 / 0.5，低置信度走默认 Chat 路由。</p>
+        <span class="feature-tag">IntentClassifier</span>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </div>
+        <h3>LangGraph 检索编排</h3>
+        <p>有向图工作流：retrieve → rerank → compress → quality_check，条件边支持分支路由，stream 接口逐节点输出事件流。</p>
+        <span class="feature-tag">LangGraph DAG</span>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        </div>
+        <h3>反思层 / Bounded Retry</h3>
+        <p>quality_check 节点判断证据质量，不足时触发 query_expand 扩展查询，max_retries=1 防止无限循环，兼顾效果与效率。</p>
+        <span class="feature-tag">max_retries=1</span>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        </div>
+        <h3>Source-scoped Compare 规划</h3>
+        <p>对两个指定来源分别独立检索压缩，left / right evidence 严格归属对应文档，避免证据交叉污染。</p>
+        <span class="feature-tag">Source-scoped</span>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+        </div>
+        <h3>LLM-backed 结构化对比</h3>
+        <p>输出 common_points / differences / conflicts，每个对比点附带 left_evidence + right_evidence，JSON 解析失败时自动回退启发式对比。</p>
+        <span class="feature-tag">Structured Compare</span>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <h3>工作流可观测性</h3>
+        <p>workflow_trace 记录意图、重试次数、质量判断、引用数，前端实时展示每个节点的决策依据与执行状态。</p>
+        <span class="feature-tag">workflow_trace</span>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="section" id="architecture">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Architecture</div>
+      <h2 class="section-title">系统架构</h2>
+      <p class="section-desc">从用户输入到最终输出的完整工作流</p>
+    </div>
+    <div class="arch-wrapper reveal">
+      <div class="arch-flow" id="archFlow">
+
+        <div class="arch-node primary">用户输入</div>
+        <div class="arch-arrow"></div>
+
+        <div class="arch-node primary">意图感知层 &nbsp; IntentClassifier</div>
+        <div class="arch-arrow"></div>
+
+        <div class="arch-node process">LangGraph 检索图</div>
+        <div class="arch-arrow"></div>
+
+        <div class="arch-node process" style="font-family:var(--font-mono);font-size:.78rem">
+          retrieve → rerank → compress → quality_check
+        </div>
+        <div class="arch-arrow"></div>
+
+        <div class="arch-retry-loop">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+          质量不足 → query_expand → 重试（max 1 次）
+        </div>
+        <div class="arch-arrow"></div>
+
+        <div class="arch-node decision">任务路由</div>
+        <div class="arch-arrow"></div>
+
+        <div class="arch-branch-row">
+          <div class="arch-branch-col">
+            <div class="arch-branch-label">Chat</div>
+            <div class="arch-node output">grounded generation</div>
+          </div>
+          <div class="arch-branch-col">
+            <div class="arch-branch-label">Summarize</div>
+            <div class="arch-node output">grounded generation</div>
+          </div>
+          <div class="arch-branch-col">
+            <div class="arch-branch-label">Compare</div>
+            <div class="arch-node output">source-scoped planning</div>
+            <div class="arch-arrow"></div>
+            <div class="arch-node output">LLM-backed compare</div>
+          </div>
+        </div>
+
+        <div class="arch-arrow" style="margin-top:16px"></div>
+
+        <div class="arch-node primary">workflow_trace + citation output</div>
+        <div class="arch-arrow"></div>
+
+        <div class="arch-node primary">前端展示</div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="techstack">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Tech Stack</div>
+      <h2 class="section-title">技术栈</h2>
+      <p class="section-desc">精心选型，各司其职</p>
+    </div>
+    <div class="tech-grid reveal">
+      <div class="tech-card">
+        <h4>后端</h4>
+        <div class="tech-list">
+          <span class="tech-tag">Python</span>
+          <span class="tech-tag">FastAPI</span>
+          <span class="tech-tag">LangGraph</span>
+          <span class="tech-tag">ChromaDB</span>
+          <span class="tech-tag">Qwen3-Embedding-0.6B</span>
+        </div>
+      </div>
+      <div class="tech-card">
+        <h4>前端</h4>
+        <div class="tech-list">
+          <span class="tech-tag">React</span>
+          <span class="tech-tag">TypeScript</span>
+          <span class="tech-tag">Zustand</span>
+        </div>
+      </div>
+      <div class="tech-card">
+        <h4>LLM</h4>
+        <div class="tech-list">
+          <span class="tech-tag">OpenAI-compatible API</span>
+          <span class="tech-tag">MiniMax (tested)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="limitations">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Limitations &amp; Future Work</div>
+      <h2 class="section-title">局限性与未来方向</h2>
+      <p class="section-desc">坦诚面对不足，持续迭代改进</p>
+    </div>
+    <div class="limitations reveal">
+      <h3>⚠ 已知局限</h3>
+      <ul class="limit-list">
+        <li>
+          <span class="icon">▸</span>
+          <span>意图识别基于规则关键词匹配，无法处理隐式意图或复杂语义理解</span>
+        </li>
+        <li>
+          <span class="icon">▸</span>
+          <span>仅支持两来源对比，暂不支持多来源并行对比分析</span>
+        </li>
+        <li>
+          <span class="icon">▸</span>
+          <span>证据粒度为 chunk 级别，无法精确到句子或段落级别</span>
+        </li>
+        <li>
+          <span class="icon">▸</span>
+          <span>本地部署方案，无云端服务支持，扩展性受限</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <p class="footer-desc">毕业设计项目 · 基于 LangGraph 的 Agentic RAG 知识助手</p>
+    <p>MindDock — 面向个人知识库的 Agentic RAG 系统</p>
+    <div class="footer-links">
+      <!-- TODO: verify repo URL is correct -->
+      <a href="https://github.com/CharmCheen/V0.1">GitHub</a>
+      <a href="#features">功能</a>
+      <a href="#architecture">架构</a>
+      <a href="#techstack">技术栈</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var toggle=document.getElementById('navToggle');
+  var links=document.getElementById('navLinks');
+  toggle.addEventListener('click',function(){
+    links.classList.toggle('open');
+  });
+  links.querySelectorAll('a').forEach(function(a){
+    a.addEventListener('click',function(){links.classList.remove('open')});
+  });
+
+  var reveals=document.querySelectorAll('.reveal');
+  var observer=new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if(entry.isIntersecting){
+        entry.target.classList.add('visible');
+      }
+    });
+  },{threshold:0.1,rootMargin:'0px 0px -40px 0px'});
+  reveals.forEach(function(el){observer.observe(el)});
+
+  var nav=document.querySelector('.nav');
+  window.addEventListener('scroll',function(){
+    if(window.scrollY>20){
+      nav.style.boxShadow='0 4px 20px rgba(0,0,0,.3)';
+    }else{
+      nav.style.boxShadow='none';
+    }
+  });
+})();
+</script>
+</body>
+</html>

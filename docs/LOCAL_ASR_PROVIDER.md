@@ -47,16 +47,49 @@ MindDock 的 Media Transcript Provider 支持 **Local ASR** 模式，通过本�
 
 Local ASR 模式不需要填写真实 API key。后端内部使用占位 key `local-dev-key` 访问本地服务接口。
 
-## 启动流程
+## 推荐操作流程
 
-1. 用户选择 `Local ASR` 并保存。
-2. ingest 无 sidecar 视频时，`media_loader` 发现 `provider=local`。
-3. 调用 `ensure_local_asr_if_enabled`：
+```text
+Start Local ASR → Check Status → Preload Model → Ready → ingest
+```
+
+1. **选择 `Local ASR` 并 Save** — 保存配置到 `data/active_media_transcript.json`。
+2. **Start Local ASR** — 启动本地 ASR 服务进程（若已运行则显示 Already Running）。
+3. **Check Status** — 检查服务是否响应 `/health`。
+4. **Preload Model** — 触发后台模型加载。首次会下载 faster-whisper 模型到 `~/.cache/huggingface`。
+5. **Wait until Ready** — 通过 Check Model 查看模型状态变为 `ready`。
+6. **Run ingest** — 上传视频/音频，MindDock 调用 `/v1/audio/transcriptions` 转录。
+
+**注意**：Preload Model 只加载模型，不转录。Check Status / Check Model 也不转录。只有 ingest 才会真实转录。
+
+## 启动与模型加载
+
+### local_asr_server 接口
+
+- `GET /health` — 服务健康检查
+- `GET /v1/models/status?model=small&device=auto&compute_type=int8` — 查询模型加载状态
+- `POST /v1/models/preload` — 后台触发模型预加载
+- `POST /v1/audio/transcriptions` — OpenAI-compatible 转录（需模型已 ready）
+
+### 模型状态
+
+| 状态 | 含义 |
+|------|------|
+| `not_loaded` | 模型尚未加载 |
+| `loading` | 正在后台加载（首次可能下载） |
+| `ready` | 模型已加载，可以转录 |
+| `failed` | 加载失败 |
+
+### ingest 流程
+
+ingest 无 sidecar 视频时，`media_loader` 发现 `provider=local`：
+
+1. 调用 `ensure_local_asr_if_enabled`：
    - 若 `auto_start=true` 且服务未运行，使用 `subprocess.Popen` 启动。
    - 轮询 `/health` 直到就绪。
    - 构造本地 base_url：`http://127.0.0.1:9001/v1`。
-4. 使用 OpenAI-compatible 接口上传音频并获取 transcript。
-5. 若启动失败，回退到 `mock` 并记录 warning。
+2. 使用 OpenAI-compatible 接口上传音频并获取 transcript。
+3. 若启动失败，回退到 `mock` 并记录 warning。
 
 ## 环境变量
 

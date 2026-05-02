@@ -9,6 +9,7 @@ import {
   MediaTranscriptConfigUpdateRequest,
   MediaTranscriptConfigTestResponse,
   LocalAsrStatusResponse,
+  LocalAsrModelStatusResponse,
   SourceSkillItem,
   SourceSkillValidationResponse,
 } from '../../core/types/api';
@@ -529,6 +530,9 @@ function MediaTranscriptEditor() {
   const [localAsrStatus, setLocalAsrStatus] = useState<LocalAsrStatusResponse | null>(null);
   const [checkingLocalAsr, setCheckingLocalAsr] = useState(false);
   const [startingLocalAsr, setStartingLocalAsr] = useState(false);
+  const [localModelStatus, setLocalModelStatus] = useState<LocalAsrModelStatusResponse | null>(null);
+  const [checkingLocalModel, setCheckingLocalModel] = useState(false);
+  const [preloadingLocalModel, setPreloadingLocalModel] = useState(false);
 
   const [form, setForm] = useState<MediaTranscriptFormValues>({
     provider: 'mock',
@@ -588,6 +592,7 @@ function MediaTranscriptEditor() {
     setSuccessMessage(null);
     setTestResult(null);
     setLocalAsrStatus(null);
+    setLocalModelStatus(null);
   };
 
   const handleCheckLocalAsr = async () => {
@@ -631,6 +636,42 @@ function MediaTranscriptEditor() {
       });
     } finally {
       setStartingLocalAsr(false);
+    }
+  };
+
+  const handleCheckLocalModel = async () => {
+    setCheckingLocalModel(true);
+    setError(null);
+    setLocalModelStatus(null);
+    try {
+      const result = await MediaTranscriptConfigService.checkLocalModelStatus();
+      setLocalModelStatus(result);
+    } catch (err: unknown) {
+      setLocalModelStatus({
+        status: 'failed',
+        model: form.local_asr_model,
+        message: err instanceof Error ? err.message : 'Model status check failed.',
+      });
+    } finally {
+      setCheckingLocalModel(false);
+    }
+  };
+
+  const handlePreloadLocalModel = async () => {
+    setPreloadingLocalModel(true);
+    setError(null);
+    setLocalModelStatus(null);
+    try {
+      const result = await MediaTranscriptConfigService.preloadLocalModel();
+      setLocalModelStatus(result);
+    } catch (err: unknown) {
+      setLocalModelStatus({
+        status: 'failed',
+        model: form.local_asr_model,
+        message: err instanceof Error ? err.message : 'Model preload failed.',
+      });
+    } finally {
+      setPreloadingLocalModel(false);
     }
   };
 
@@ -1054,6 +1095,117 @@ function MediaTranscriptEditor() {
                   {localAsrStatus.model && (
                     <div style={{ fontSize: '11px', opacity: 0.85 }}>
                       Model: {localAsrStatus.model}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.5, padding: '6px 0' }}>
+                <strong>Recommended flow:</strong><br />
+                1. Save settings<br />
+                2. Start Local ASR<br />
+                3. Check Status<br />
+                4. Preload Model<br />
+                5. Wait until Ready<br />
+                6. Run ingest<br />
+                <em>Save changes before checking or preloading the model.</em>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => void handleCheckLocalModel()}
+                  disabled={checkingLocalModel}
+                  style={{
+                    padding: '9px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-subtle)',
+                    background: 'var(--color-canvas-subtle)',
+                    color: 'var(--color-text-secondary)',
+                    cursor: checkingLocalModel ? 'not-allowed' : 'pointer',
+                    opacity: checkingLocalModel ? 0.55 : 1,
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    transition: 'all var(--transition-fast)',
+                  }}
+                >
+                  {checkingLocalModel ? 'Checking…' : 'Check Model'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handlePreloadLocalModel()}
+                  disabled={preloadingLocalModel}
+                  style={{
+                    padding: '9px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: 'none',
+                    background: preloadingLocalModel ? 'var(--color-canvas)' : 'var(--color-brand-600)',
+                    color: preloadingLocalModel ? 'var(--color-text-tertiary)' : '#fff',
+                    cursor: preloadingLocalModel ? 'not-allowed' : 'pointer',
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    transition: 'all var(--transition-fast)',
+                    boxShadow: preloadingLocalModel ? 'none' : 'var(--shadow-md)',
+                  }}
+                >
+                  {preloadingLocalModel ? 'Preloading…' : 'Preload Model'}
+                </button>
+              </div>
+
+              {localModelStatus && (
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    background: localModelStatus.status === 'ready'
+                      ? 'var(--color-success-bg)'
+                      : localModelStatus.status === 'loading'
+                        ? 'var(--color-warning-bg)'
+                        : 'var(--color-error-bg)',
+                    border: `1px solid ${localModelStatus.status === 'ready'
+                      ? 'var(--color-success-border)'
+                      : localModelStatus.status === 'loading'
+                        ? 'var(--color-warning-border)'
+                        : 'var(--color-error-border)'}`,
+                    color: localModelStatus.status === 'ready'
+                      ? 'var(--color-success-text)'
+                      : localModelStatus.status === 'loading'
+                        ? 'var(--color-warning-text)'
+                        : 'var(--color-error-text)',
+                    fontSize: '13px',
+                  }}
+                >
+                  <strong>
+                    {localModelStatus.status === 'ready' && 'Ready'}
+                    {localModelStatus.status === 'loading' && 'Loading'}
+                    {localModelStatus.status === 'not_loaded' && 'Not Loaded'}
+                    {localModelStatus.status === 'failed' && 'Failed'}
+                    {localModelStatus.status === 'not_running' && 'Server Not Running'}
+                    {localModelStatus.status === 'not_configured' && 'Not Configured'}
+                    {localModelStatus.status === 'not_local_provider' && 'Not Local Provider'}
+                    {!['ready', 'loading', 'not_loaded', 'failed', 'not_running', 'not_configured', 'not_local_provider'].includes(localModelStatus.status) && localModelStatus.status}
+                  </strong>
+                  <div style={{ marginTop: '3px' }}>{localModelStatus.message}</div>
+                  {localModelStatus.model && (
+                    <div style={{ marginTop: '3px', fontSize: '11px', opacity: 0.85 }}>
+                      Model: {localModelStatus.model}
+                    </div>
+                  )}
+                  {localModelStatus.requested_device && (
+                    <div style={{ fontSize: '11px', opacity: 0.85 }}>
+                      Device: {localModelStatus.requested_device}
+                      {localModelStatus.actual_device && localModelStatus.actual_device !== localModelStatus.requested_device
+                        ? ` → ${localModelStatus.actual_device}` : ''}
+                    </div>
+                  )}
+                  {localModelStatus.compute_type && (
+                    <div style={{ fontSize: '11px', opacity: 0.85 }}>
+                      Compute Type: {localModelStatus.compute_type}
+                    </div>
+                  )}
+                  {localModelStatus.base_url && (
+                    <div style={{ fontSize: '11px', opacity: 0.85 }}>
+                      Base URL: {localModelStatus.base_url}
                     </div>
                   )}
                 </div>

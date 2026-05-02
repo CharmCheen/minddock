@@ -159,3 +159,63 @@ def ensure_local_asr_if_enabled(
         message=f"Local ASR server started but health check timed out ({host}:{port}).",
         base_url=base_url,
     )
+
+
+def get_local_asr_status(
+    provider: str,
+    server_path: str,
+    host: str,
+    port: int,
+    model: str,
+    enabled: bool,
+) -> dict[str, str]:
+    """Return a plain dict with local ASR status suitable for the frontend.
+
+    The dict is intentionally loosely-typed so it can be passed directly into
+    LocalAsrStatusResponse(**result).
+    """
+    base_url = f"http://{host}:{port}/v1"
+    h_url = _health_url(host, port)
+
+    if provider != "local":
+        return {
+            "status": "not_local_provider",
+            "provider": provider,
+            "enabled": str(enabled).lower(),
+            "base_url": base_url,
+            "health_url": h_url,
+            "model": model,
+            "message": f"Provider is '{provider}', not 'local'.",
+        }
+
+    if not _is_valid_host(host) or not _is_valid_port(port):
+        return {
+            "status": "not_configured",
+            "provider": provider,
+            "enabled": str(enabled).lower(),
+            "base_url": base_url,
+            "health_url": h_url,
+            "model": model,
+            "message": f"Invalid local ASR host/port: {host}:{port}.",
+        }
+
+    if check_local_asr_health(host, port, timeout=2.0):
+        return {
+            "status": "connected",
+            "provider": provider,
+            "enabled": str(enabled).lower(),
+            "base_url": base_url,
+            "health_url": h_url,
+            "model": model,
+            "message": f"Local ASR server is running at {host}:{port}.",
+        }
+
+    return {
+        "status": "not_running",
+        "provider": provider,
+        "enabled": str(enabled).lower(),
+        "base_url": base_url,
+        "health_url": h_url,
+        "model": model,
+        "message": f"Local ASR server is not running at {host}:{port}.",
+    }

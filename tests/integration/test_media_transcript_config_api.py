@@ -15,6 +15,7 @@ Covers:
 
 import json
 import os
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -614,3 +615,245 @@ class TestLocalAsrConfigUpdate:
         body = json.dumps(response.json())
         assert "sk-should-not-appear" not in body
         assert "sk-should-not-leak" not in body
+
+
+class TestLocalAsrStatusEndpoint:
+    """Tests for GET /frontend/media-transcript-config/local/status."""
+
+    def test_status_returns_not_local_when_provider_is_api(self, client, temp_config_file):
+        client.put(
+            "/frontend/media-transcript-config",
+            json={"provider": "api", "enabled": True, "base_url": "https://api.example.com/v1", "model": "whisper-1"},
+        )
+        response = client.get("/frontend/media-transcript-config/local/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "not_local_provider"
+        assert data["provider"] == "api"
+
+    def test_status_returns_connected_when_health_ok(self, client, temp_config_file, monkeypatch):
+        import httpx
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"status": "ok"}
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: response)
+
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        response = client.get("/frontend/media-transcript-config/local/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "connected"
+        assert data["provider"] == "local"
+        assert data["enabled"] is True
+        assert data["base_url"] == "http://127.0.0.1:9001/v1"
+        assert data["health_url"] == "http://127.0.0.1:9001/health"
+        assert data["model"] == "small"
+
+    def test_status_returns_not_running_when_health_down(self, client, temp_config_file, monkeypatch):
+        import httpx
+        response = MagicMock()
+        response.status_code = 503
+        response.json.return_value = {"status": "down"}
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: response)
+
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        response = client.get("/frontend/media-transcript-config/local/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "not_running"
+        assert "not running" in data["message"].lower()
+
+    def test_status_no_persistence(self, client, temp_config_file):
+        """Status check must not modify the config file."""
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_model": "small",
+            },
+        )
+        before = temp_config_file.read_text()
+        client.get("/frontend/media-transcript-config/local/status")
+        after = temp_config_file.read_text()
+        assert before == after
+
+    def test_status_response_has_no_api_key(self, client, temp_config_file, monkeypatch):
+        """Security: status response must not leak api_key."""
+        monkeypatch.setenv("MEDIA_TRANSCRIPT_API_KEY", "sk-secret")
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "api_key": "sk-secret",
+                "local_asr_server_path": "/local/asr",
+                "local_asr_model": "small",
+            },
+        )
+        response = client.get("/frontend/media-transcript-config/local/status")
+        body = json.dumps(response.json())
+        assert "sk-secret" not in body
+
+
+class TestLocalAsrStartEndpoint:
+    """Tests for POST /frontend/media-transcript-config/local/start."""
+
+    def test_start_returns_not_local_when_provider_is_api(self, client, temp_config_file):
+        client.put(
+            "/frontend/media-transcript-config",
+            json={"provider": "api", "enabled": True, "base_url": "https://api.example.com/v1", "model": "whisper-1"},
+        )
+        response = client.post("/frontend/media-transcript-config/local/start")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "not_local_provider"
+        assert data["provider"] == "api"
+
+    def test_start_returns_already_running_when_health_ok(self, client, temp_config_file, monkeypatch):
+        import httpx
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"status": "ok"}
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: response)
+
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        response = client.post("/frontend/media-transcript-config/local/start")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "already_running"
+        assert data["base_url"] == "http://127.0.0.1:9001/v1"
+
+    def test_start_attempts_spawn_when_not_running(self, client, temp_config_file, monkeypatch, tmp_path):
+        import httpx
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("refused")))
+        monkeypatch.setattr("app.runtime.local_asr_bootstrap._HEALTH_POLL_INTERVAL", 0.01)
+        monkeypatch.setattr("app.runtime.local_asr_bootstrap._HEALTH_MAX_WAIT", 0.05)
+
+        server_dir = tmp_path / "local_asr_server"
+        server_dir.mkdir()
+
+        popen_calls = []
+        def _fake_popen(cmd, cwd, shell, stdout, stderr):
+            popen_calls.append((cmd, shell))
+            return MagicMock()
+        monkeypatch.setattr("subprocess.Popen", _fake_popen)
+
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": str(server_dir),
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+                "local_asr_auto_start": True,
+            },
+        )
+        response = client.post("/frontend/media-transcript-config/local/start")
+        assert response.status_code == 200
+        data = response.json()
+        # Health never becomes ready in this mock, so it should be failed/not_running
+        assert data["status"] in ("failed", "not_running")
+        assert len(popen_calls) == 1
+        assert isinstance(popen_calls[0][0], list)
+        assert popen_calls[0][1] is False
+
+    def test_start_skipped_when_auto_start_false(self, client, temp_config_file, monkeypatch):
+        import httpx
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("refused")))
+
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+                "local_asr_auto_start": False,
+            },
+        )
+        response = client.post("/frontend/media-transcript-config/local/start")
+        assert response.status_code == 200
+        data = response.json()
+        # auto_start false → ensure_local_asr returns skipped → we map to not_running
+        assert data["status"] == "not_running"
+
+    def test_start_no_persistence(self, client, temp_config_file, monkeypatch):
+        """Start endpoint must not modify the config file."""
+        import httpx
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"status": "ok"}
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: response)
+
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_model": "small",
+            },
+        )
+        before = temp_config_file.read_text()
+        client.post("/frontend/media-transcript-config/local/start")
+        after = temp_config_file.read_text()
+        assert before == after
+
+    def test_start_response_has_no_api_key(self, client, temp_config_file, monkeypatch):
+        """Security: start response must not leak api_key."""
+        import httpx
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"status": "ok"}
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: response)
+
+        monkeypatch.setenv("MEDIA_TRANSCRIPT_API_KEY", "sk-secret")
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "api_key": "sk-secret",
+                "local_asr_server_path": "/local/asr",
+                "local_asr_model": "small",
+            },
+        )
+        response = client.post("/frontend/media-transcript-config/local/start")
+        body = json.dumps(response.json())
+        assert "sk-secret" not in body

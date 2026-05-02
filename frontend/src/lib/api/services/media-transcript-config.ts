@@ -3,6 +3,7 @@ import {
   MediaTranscriptConfigResponse,
   MediaTranscriptConfigUpdateRequest,
   MediaTranscriptConfigTestResponse,
+  LocalAsrStatusResponse,
 } from '../../../core/types/api';
 
 export interface MediaTranscriptServiceOptions {
@@ -45,6 +46,23 @@ export const MediaTranscriptConfigService = {
     const response = await apiClient.post<MediaTranscriptConfigTestResponse>(
       '/frontend/media-transcript-config/test',
       payload,
+      { signal: options?.signal },
+    );
+    return response.data;
+  },
+
+  async checkLocalStatus(options?: MediaTranscriptServiceOptions): Promise<LocalAsrStatusResponse> {
+    const response = await apiClient.get<LocalAsrStatusResponse>(
+      '/frontend/media-transcript-config/local/status',
+      { signal: options?.signal },
+    );
+    return response.data;
+  },
+
+  async startLocalAsr(options?: MediaTranscriptServiceOptions): Promise<LocalAsrStatusResponse> {
+    const response = await apiClient.post<LocalAsrStatusResponse>(
+      '/frontend/media-transcript-config/local/start',
+      {},
       { signal: options?.signal },
     );
     return response.data;

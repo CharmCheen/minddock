@@ -17,6 +17,7 @@ import pytest
 from app.runtime.local_asr_bootstrap import (
     check_local_asr_health,
     ensure_local_asr_if_enabled,
+    get_local_asr_status,
 )
 
 
@@ -252,3 +253,88 @@ class TestEnsureLocalAsrIfEnabled:
             auto_start=False,
         )
         assert result.base_url == "http://localhost:8080/v1"
+
+
+class TestGetLocalAsrStatus:
+    def test_not_local_provider(self):
+        result = get_local_asr_status(
+            provider="api",
+            server_path="/some/path",
+            host="127.0.0.1",
+            port=9001,
+            model="small",
+            enabled=True,
+        )
+        assert result["status"] == "not_local_provider"
+        assert result["provider"] == "api"
+        assert result["enabled"] == "true"
+        assert "not 'local'" in result["message"]
+
+    def test_connected_when_health_ok(self, monkeypatch):
+        _monkeypatch_httpx_get(monkeypatch, ok=True)
+        result = get_local_asr_status(
+            provider="local",
+            server_path="/some/path",
+            host="127.0.0.1",
+            port=9001,
+            model="small",
+            enabled=True,
+        )
+        assert result["status"] == "connected"
+        assert result["base_url"] == "http://127.0.0.1:9001/v1"
+        assert result["health_url"] == "http://127.0.0.1:9001/health"
+        assert result["model"] == "small"
+        assert result["enabled"] == "true"
+        assert "running" in result["message"].lower()
+
+    def test_not_running_when_health_down(self, monkeypatch):
+        _monkeypatch_httpx_get(monkeypatch, ok=False)
+        result = get_local_asr_status(
+            provider="local",
+            server_path="/some/path",
+            host="127.0.0.1",
+            port=9001,
+            model="small",
+            enabled=True,
+        )
+        assert result["status"] == "not_running"
+        assert result["base_url"] == "http://127.0.0.1:9001/v1"
+        assert "not running" in result["message"].lower()
+
+    def test_not_configured_for_invalid_host(self):
+        result = get_local_asr_status(
+            provider="local",
+            server_path="/some/path",
+            host="evil.com",
+            port=9001,
+            model="small",
+            enabled=False,
+        )
+        assert result["status"] == "not_configured"
+        assert "Invalid" in result["message"]
+
+    def test_not_configured_for_invalid_port(self):
+        result = get_local_asr_status(
+            provider="local",
+            server_path="/some/path",
+            host="127.0.0.1",
+            port=99999,
+            model="small",
+            enabled=False,
+        )
+        assert result["status"] == "not_configured"
+        assert "Invalid" in result["message"]
+
+    def test_includes_all_fields(self, monkeypatch):
+        _monkeypatch_httpx_get(monkeypatch, ok=True)
+        result = get_local_asr_status(
+            provider="local",
+            server_path="/some/path",
+            host="localhost",
+            port=8080,
+            model="base",
+            enabled=False,
+        )
+        assert set(result.keys()) == {"status", "provider", "enabled", "base_url", "health_url", "model", "message"}
+        assert result["enabled"] == "false"
+        assert result["provider"] == "local"

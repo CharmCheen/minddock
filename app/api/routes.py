@@ -49,6 +49,7 @@ from app.api.schemas import (
     MediaTranscriptConfigResponse,
     MediaTranscriptConfigTestResponse,
     MediaTranscriptConfigUpdateRequest,
+    LocalAsrStatusResponse,
     SearchRequest,
     SearchResponse,
     SkillDetailResponse,
@@ -652,6 +653,109 @@ def test_media_transcript_config(body: MediaTranscriptConfigUpdateRequest) -> Me
     return MediaTranscriptConfigTestResponse(
         success=True,
         message=f"Configuration is complete. Provider 'api' with model '{effective_model}' is ready.",
+    )
+
+
+@router.get(
+    "/frontend/media-transcript-config/local/status",
+    response_model=LocalAsrStatusResponse,
+    summary="Check local ASR server status",
+)
+def get_local_asr_status_endpoint() -> LocalAsrStatusResponse:
+    """Check whether the local ASR companion server is currently running.
+
+    Reads the persisted media transcript configuration and probes the
+    configured host/port. No external API calls are made.
+    """
+    from app.runtime.local_asr_bootstrap import get_local_asr_status as _get_local_asr_status
+    from app.runtime.media_transcript_active_config import get_active_media_transcript_config
+
+    active = get_active_media_transcript_config()
+    result = _get_local_asr_status(
+        provider=active.provider,
+        server_path=active.local_asr_server_path or "",
+        host=active.local_asr_host or "127.0.0.1",
+        port=active.local_asr_port or 8001,
+        model=active.local_asr_model or "",
+        enabled=active.enabled,
+    )
+    # Coerce 'enabled' back to a Python bool for Pydantic
+    result["enabled"] = result.get("enabled", "false").lower() == "true"
+    return LocalAsrStatusResponse(**result)
+
+
+@router.post(
+    "/frontend/media-transcript-config/local/start",
+    response_model=LocalAsrStatusResponse,
+    summary="Start local ASR server if configured",
+)
+def post_local_asr_start() -> LocalAsrStatusResponse:
+    """Attempt to start the local ASR companion server.
+
+    Reads the persisted media transcript configuration, validates it is set
+    to provider == 'local', and invokes the bootstrap helper. No shell=True
+    is used; argv list with conda run is spawned directly.
+    """
+    from app.runtime.local_asr_bootstrap import ensure_local_asr_if_enabled
+    from app.runtime.media_transcript_active_config import get_active_media_transcript_config
+
+    active = get_active_media_transcript_config()
+    if active.provider != "local":
+        return LocalAsrStatusResponse(
+            status="not_local_provider",
+            provider=active.provider,
+            enabled=active.enabled,
+            base_url="",
+            health_url="",
+            model=active.local_asr_model or "",
+            message=f"Provider is '{active.provider}', not 'local'.",
+        )
+
+    host = active.local_asr_host or "127.0.0.1"
+    port = active.local_asr_port or 8001
+    base_url = f"http://{host}:{port}/v1"
+    health_url = f"http://{host}:{port}/health"
+
+    result = ensure_local_asr_if_enabled(
+        provider=active.provider,
+        server_path=active.local_asr_server_path or "",
+        host=host,
+        port=port,
+        auto_start=active.local_asr_auto_start,
+        timeout_seconds=active.local_asr_timeout_seconds or 120.0,
+    )
+
+    if result.status == "already_running":
+        return LocalAsrStatusResponse(
+            status="already_running",
+            provider=active.provider,
+            enabled=active.enabled,
+            base_url=result.base_url or base_url,
+            health_url=health_url,
+            model=active.local_asr_model or "",
+            message=result.message,
+        )
+
+    if result.status == "started":
+        return LocalAsrStatusResponse(
+            status="started",
+            provider=active.provider,
+            enabled=active.enabled,
+            base_url=result.base_url or base_url,
+            health_url=health_url,
+            model=active.local_asr_model or "",
+            message=result.message,
+        )
+
+    # skipped or failed
+    return LocalAsrStatusResponse(
+        status="failed" if result.status == "failed" else "not_running",
+        provider=active.provider,
+        enabled=active.enabled,
+        base_url=base_url,
+        health_url=health_url,
+        model=active.local_asr_model or "",
+        message=result.message,
     )
 
 

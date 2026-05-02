@@ -10,7 +10,8 @@ Set via `MEDIA_TRANSCRIPT_PROVIDER` (default: `mock`):
 |------------|----------|
 | `sidecar`  | Always takes priority when a matching transcript sidecar exists next to the media file |
 | `mock`     | Returns deterministic placeholder transcripts; no external dependency |
-| `api`      | Calls an OpenAI-style audio transcription endpoint (`/audio/transcriptions`) |
+| `api`      | Calls a remote OpenAI-style audio transcription endpoint (`/audio/transcriptions`) |
+| `local`    | Manages a local faster-whisper ASR companion service (auto-start + health-check) |
 | `disabled` | Returns empty text with warning; no media ingestion |
 
 ## Supported Media
@@ -54,7 +55,7 @@ When a recognized sidecar exists next to a matching media file, it **always take
 
 ### Option 1: Frontend (Recommended)
 
-Open **Settings → Runtime → Media Transcript Provider**, select `api` as the provider, fill in the base URL, API key, model, and timeout, then click **Save**. The API key is stored only in `os.environ`; other fields are persisted to `data/active_media_transcript.json`.
+Open **Settings → Runtime → Media Transcript Provider**, select `api` or `local` as the provider, fill in the fields, then click **Save**. The API key is stored only in `os.environ`; other fields are persisted to `data/active_media_transcript.json`.
 
 ### Option 2: Environment Variables
 
@@ -138,23 +139,21 @@ These are deterministic/extractive — no LLM calls, no video frame analysis.
 
 ### Eligibility
 
-Only media sources with `transcript_provider` of `sidecar` or `api` are eligible. Mock and disabled providers are skipped. If the transcript is too short, derived chunks are not generated.
+Only media sources with `transcript_provider` of `sidecar`, `api`, or `local` are eligible. Mock and disabled providers are skipped. If the transcript is too short, derived chunks are not generated.
 
 ## Frontend Visibility
 
 Open **Settings → Runtime** to see the editable **Media Transcript Provider** editor. It shows:
 
-- Provider selector (`api`, `mock`, `disabled`)
+- Provider selector (`api`, `local`, `mock`, `disabled`)
 - Enabled toggle
-- Base URL field
-- API Key field (password input, never displayed after save)
-- Model field
-- Timeout field
+- Remote API fields: Base URL, API Key, Model, Timeout
+- Local ASR fields: Server Path, Host, Port, Model, Device, Compute Type, Auto Start, Timeout
 - Capability: **Transcript-only ASR**
 - Limitations: no frame understanding, no multimodal embedding
 - Config source: `ui_override` (when saved via frontend) or `environment` (when using env vars only)
 
-**Save** persists non-secret fields to `data/active_media_transcript.json`; the API key is stored only in `os.environ`. **Reset** removes the active config file and clears UI-set env vars. Note: Reset clears the UI override and current backend-session key. If you rely on shell environment variables (`MEDIA_TRANSCRIPT_API_KEY` etc.), restart the backend or reconfigure as needed. **Test Config** validates the current form values against the ASR endpoint.
+**Save** persists non-secret fields to `data/active_media_transcript.json`; the API key is stored only in `os.environ`. **Reset** removes the active config file and clears UI-set env vars. Note: Reset clears the UI override and current backend-session key. If you rely on shell environment variables (`MEDIA_TRANSCRIPT_API_KEY` etc.), restart the backend or reconfigure as needed. **Test Config** validates the current form values for completeness; it does not perform a real transcription.
 
 The effective config priority is: **UI active config > Settings > os.environ > defaults**. Sidecar transcripts always take priority regardless of provider setting.
 

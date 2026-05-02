@@ -221,15 +221,31 @@ export interface MediaTranscriptConfigResponse {
   capability: string;
   limitations: string[];
   config_source: string;
+  local_asr_server_path: string;
+  local_asr_host: string;
+  local_asr_port: number;
+  local_asr_model: string;
+  local_asr_device: string;
+  local_asr_compute_type: string;
+  local_asr_auto_start: boolean;
+  local_asr_timeout_seconds: number;
 }
 
 export interface MediaTranscriptConfigUpdateRequest {
-  provider: "mock" | "api" | "disabled";
+  provider: "mock" | "api" | "local" | "disabled";
   base_url?: string;
   api_key?: string | null;
   model?: string;
   timeout_seconds?: number;
   enabled?: boolean;
+  local_asr_server_path?: string;
+  local_asr_host?: string;
+  local_asr_port?: number;
+  local_asr_model?: string;
+  local_asr_device?: string;
+  local_asr_compute_type?: string;
+  local_asr_auto_start?: boolean;
+  local_asr_timeout_seconds?: number;
 }
 
 export interface MediaTranscriptConfigTestResponse {

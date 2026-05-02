@@ -33,6 +33,14 @@ def client(temp_config_file, monkeypatch):
         "MEDIA_TRANSCRIPT_TIMEOUT_SECONDS",
         "MEDIA_TRANSCRIPT_PROVIDER",
         "MEDIA_TRANSCRIPT_ENABLED",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_SERVER_PATH",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_HOST",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_PORT",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_MODEL",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_DEVICE",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_COMPUTE_TYPE",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_AUTO_START",
+        "MEDIA_TRANSCRIPT_LOCAL_ASR_TIMEOUT_SECONDS",
     ):
         monkeypatch.delenv(key, raising=False)
     return TestClient(app)
@@ -458,4 +466,151 @@ class TestTestMediaTranscriptConfig:
             },
         )
         body = json.dumps(response.json())
+        assert "sk-should-not-leak" not in body
+
+    def test_local_provider_missing_server_path_returns_error(self, client, temp_config_file):
+        response = client.post(
+            "/frontend/media-transcript-config/test",
+            json={
+                "provider": "local",
+                "local_asr_server_path": "",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_kind"] == "missing_local_asr_server_path"
+
+    def test_local_provider_missing_model_returns_error(self, client, temp_config_file):
+        response = client.post(
+            "/frontend/media-transcript-config/test",
+            json={
+                "provider": "local",
+                "local_asr_server_path": "/some/path",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_kind"] == "missing_model"
+
+    def test_local_provider_config_complete_success(self, client, temp_config_file):
+        response = client.post(
+            "/frontend/media-transcript-config/test",
+            json={
+                "provider": "local",
+                "local_asr_server_path": "/some/path",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+
+
+class TestLocalAsrConfigUpdate:
+    """Tests for PUT /frontend/media-transcript-config with local provider."""
+
+    def test_save_local_provider_fields(self, client, temp_config_file):
+        response = client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+                "local_asr_device": "auto",
+                "local_asr_compute_type": "int8",
+                "local_asr_auto_start": True,
+                "local_asr_timeout_seconds": 120.0,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["provider"] == "local"
+        assert data["enabled"] is True
+        assert data["local_asr_server_path"] == "/local/asr"
+        assert data["local_asr_model"] == "small"
+
+    def test_local_fields_persisted_to_disk(self, client, temp_config_file):
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+                "local_asr_device": "auto",
+                "local_asr_compute_type": "int8",
+                "local_asr_auto_start": True,
+                "local_asr_timeout_seconds": 120.0,
+            },
+        )
+        stored = json.loads(temp_config_file.read_text())
+        assert stored["provider"] == "local"
+        assert stored["local_asr_server_path"] == "/local/asr"
+        assert stored["local_asr_model"] == "small"
+        assert "api_key" not in stored
+
+    def test_get_returns_local_fields(self, client, temp_config_file):
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/local/asr",
+                "local_asr_host": "127.0.0.1",
+                "local_asr_port": 9001,
+                "local_asr_model": "small",
+                "local_asr_device": "auto",
+                "local_asr_compute_type": "int8",
+                "local_asr_auto_start": True,
+                "local_asr_timeout_seconds": 120.0,
+            },
+        )
+        response = client.get("/frontend/media-transcript-config")
+        data = response.json()
+        assert data["provider"] == "local"
+        assert data["local_asr_server_path"] == "/local/asr"
+        assert data["local_asr_model"] == "small"
+        assert data["local_asr_auto_start"] is True
+
+    def test_reset_clears_local_env_vars(self, client, temp_config_file, monkeypatch):
+        monkeypatch.setenv("MEDIA_TRANSCRIPT_LOCAL_ASR_SERVER_PATH", "/some/path")
+        client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "local_asr_server_path": "/some/path",
+            },
+        )
+        client.post("/frontend/media-transcript-config/reset")
+        assert "MEDIA_TRANSCRIPT_LOCAL_ASR_SERVER_PATH" not in os.environ
+
+    def test_no_api_key_in_local_response(self, client, temp_config_file):
+        """Security: local provider responses must not leak remote api_key."""
+        response = client.put(
+            "/frontend/media-transcript-config",
+            json={
+                "provider": "local",
+                "enabled": True,
+                "api_key": "sk-should-not-appear",
+                "local_asr_server_path": "/local/asr",
+            },
+        )
+        body = json.dumps(response.json())
+        assert "sk-should-not-appear" not in body
         assert "sk-should-not-leak" not in body

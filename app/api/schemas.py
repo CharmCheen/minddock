@@ -2097,7 +2097,7 @@ class MediaTranscriptConfigResponse(BaseModel):
     """
 
     enabled: bool = Field(description="Whether media transcript ingestion is enabled")
-    provider: str = Field(description="Active provider kind (api, mock, disabled)")
+    provider: str = Field(description="Active provider kind (api, local, mock, disabled)")
     api_key_configured: bool = Field(description="Whether an API key is present")
     base_url: str = Field(default="", description="Configured ASR API base URL (non-secret)")
     base_url_configured: bool = Field(description="Whether a base URL is configured")
@@ -2109,6 +2109,15 @@ class MediaTranscriptConfigResponse(BaseModel):
         description="Explicit limitations to avoid confusion with video understanding",
     )
     config_source: str = Field(default="environment", description="Where configuration is read from")
+    # Local ASR fields
+    local_asr_server_path: str = Field(default="", description="Path to the local ASR server directory")
+    local_asr_host: str = Field(default="", description="Local ASR server host")
+    local_asr_port: int = Field(default=9001, description="Local ASR server port")
+    local_asr_model: str = Field(default="small", description="Local ASR model name")
+    local_asr_device: str = Field(default="auto", description="Local ASR device (auto, cuda, cpu)")
+    local_asr_compute_type: str = Field(default="int8", description="Local ASR compute type")
+    local_asr_auto_start: bool = Field(default=True, description="Auto-start local ASR server")
+    local_asr_timeout_seconds: float = Field(default=120.0, description="Local ASR request timeout")
 
     @classmethod
     def from_settings(cls, settings) -> "MediaTranscriptConfigResponse":
@@ -2121,13 +2130,21 @@ class MediaTranscriptConfigResponse(BaseModel):
             base_url_configured=len(base_url) > 0,
             model=str(getattr(settings, "media_transcript_model", "whisper-1") or "whisper-1").strip(),
             timeout_seconds=float(getattr(settings, "media_transcript_timeout_seconds", 60.0) or 60.0),
+            local_asr_server_path=str(getattr(settings, "media_transcript_local_asr_server_path", "") or "").strip(),
+            local_asr_host=str(getattr(settings, "media_transcript_local_asr_host", "") or "").strip(),
+            local_asr_port=int(getattr(settings, "media_transcript_local_asr_port", 9001) or 9001),
+            local_asr_model=str(getattr(settings, "media_transcript_local_asr_model", "small") or "small").strip(),
+            local_asr_device=str(getattr(settings, "media_transcript_local_asr_device", "auto") or "auto").strip(),
+            local_asr_compute_type=str(getattr(settings, "media_transcript_local_asr_compute_type", "int8") or "int8").strip(),
+            local_asr_auto_start=bool(getattr(settings, "media_transcript_local_asr_auto_start", True)),
+            local_asr_timeout_seconds=float(getattr(settings, "media_transcript_local_asr_timeout_seconds", 120.0) or 120.0),
         )
 
 
 class MediaTranscriptConfigUpdateRequest(BaseModel):
     """Request body for updating the media transcript configuration."""
 
-    provider: Literal["mock", "api", "disabled"] = Field(default="mock", description="Provider kind")
+    provider: Literal["mock", "api", "local", "disabled"] = Field(default="mock", description="Provider kind")
     base_url: str = Field(default="", description="Base URL for the ASR API endpoint")
     api_key: str | None = Field(
         default=None,
@@ -2136,6 +2153,15 @@ class MediaTranscriptConfigUpdateRequest(BaseModel):
     model: str = Field(default="whisper-1", description="ASR model name")
     timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0, description="Request timeout in seconds")
     enabled: bool = Field(default=True, description="Enable this configuration")
+    # Local ASR fields
+    local_asr_server_path: str = Field(default="", description="Path to the local ASR server directory")
+    local_asr_host: str = Field(default="127.0.0.1", description="Local ASR server host")
+    local_asr_port: int = Field(default=9001, ge=1, le=65535, description="Local ASR server port")
+    local_asr_model: str = Field(default="small", description="Local ASR model name")
+    local_asr_device: str = Field(default="auto", description="Local ASR device (auto, cuda, cpu)")
+    local_asr_compute_type: str = Field(default="int8", description="Local ASR compute type")
+    local_asr_auto_start: bool = Field(default=True, description="Auto-start local ASR server")
+    local_asr_timeout_seconds: float = Field(default=120.0, ge=1.0, le=600.0, description="Local ASR request timeout")
 
     @field_validator("base_url")
     @classmethod
@@ -2155,7 +2181,7 @@ class MediaTranscriptConfigTestResponse(BaseModel):
     message: str = Field(description="Human-readable result message")
     error_kind: str | None = Field(
         default=None,
-        description="Structured error kind if failed: 'missing_api_key', 'missing_base_url', 'missing_model', 'ok'",
+        description="Structured error kind if failed: 'missing_api_key', 'missing_base_url', 'missing_model', 'missing_local_asr_server_path', 'invalid_local_asr_endpoint', 'ok'",
     )
 
 

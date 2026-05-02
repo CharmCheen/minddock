@@ -442,6 +442,14 @@ def get_media_transcript_config() -> MediaTranscriptConfigResponse:
         get_effective_media_transcript_model,
         get_effective_media_transcript_provider,
         get_effective_media_transcript_timeout,
+        get_effective_local_asr_server_path,
+        get_effective_local_asr_host,
+        get_effective_local_asr_port,
+        get_effective_local_asr_model,
+        get_effective_local_asr_device,
+        get_effective_local_asr_compute_type,
+        get_effective_local_asr_auto_start,
+        get_effective_local_asr_timeout_seconds,
     )
 
     settings = get_settings()
@@ -470,6 +478,14 @@ def get_media_transcript_config() -> MediaTranscriptConfigResponse:
         model=model,
         timeout_seconds=timeout,
         config_source=config_source,
+        local_asr_server_path=get_effective_local_asr_server_path(active, settings),
+        local_asr_host=get_effective_local_asr_host(active, settings),
+        local_asr_port=get_effective_local_asr_port(active, settings),
+        local_asr_model=get_effective_local_asr_model(active, settings),
+        local_asr_device=get_effective_local_asr_device(active, settings),
+        local_asr_compute_type=get_effective_local_asr_compute_type(active, settings),
+        local_asr_auto_start=get_effective_local_asr_auto_start(active, settings),
+        local_asr_timeout_seconds=get_effective_local_asr_timeout_seconds(active, settings),
     )
 
 
@@ -492,6 +508,14 @@ def update_media_transcript_config(body: MediaTranscriptConfigUpdateRequest) -> 
         model=body.model,
         timeout_seconds=body.timeout_seconds,
         enabled=body.enabled,
+        local_asr_server_path=body.local_asr_server_path,
+        local_asr_host=body.local_asr_host,
+        local_asr_port=body.local_asr_port,
+        local_asr_model=body.local_asr_model,
+        local_asr_device=body.local_asr_device,
+        local_asr_compute_type=body.local_asr_compute_type,
+        local_asr_auto_start=body.local_asr_auto_start,
+        local_asr_timeout_seconds=body.local_asr_timeout_seconds,
     )
 
     # Refresh settings cache so get_settings() picks up new env vars
@@ -532,6 +556,35 @@ def test_media_transcript_config(body: MediaTranscriptConfigUpdateRequest) -> Me
         return MediaTranscriptConfigTestResponse(
             success=True,
             message=f"Provider '{body.provider}' does not require additional configuration.",
+        )
+
+    if body.provider == "local":
+        # Local ASR completeness check
+        server_path = body.local_asr_server_path.strip()
+        if not server_path:
+            return MediaTranscriptConfigTestResponse(
+                success=False,
+                message="Local ASR server path is required for the local provider.",
+                error_kind="missing_local_asr_server_path",
+            )
+        host = body.local_asr_host.strip() or "127.0.0.1"
+        port = body.local_asr_port
+        if port < 1 or port > 65535:
+            return MediaTranscriptConfigTestResponse(
+                success=False,
+                message="Local ASR port must be between 1 and 65535.",
+                error_kind="invalid_local_asr_endpoint",
+            )
+        model = body.local_asr_model.strip()
+        if not model:
+            return MediaTranscriptConfigTestResponse(
+                success=False,
+                message="Model name is required for the local provider.",
+                error_kind="missing_model",
+            )
+        return MediaTranscriptConfigTestResponse(
+            success=True,
+            message=f"Local ASR configuration is complete. Server path: {server_path}, endpoint: {host}:{port}, model: {model}.",
         )
 
     # provider == "api" — check completeness

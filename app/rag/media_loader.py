@@ -24,6 +24,8 @@ import httpx
 from app.core.config import get_settings
 from app.rag.source_models import SourceDescriptor, SourceLoadResult
 
+_LOCAL_DEV_KEY = "local-dev-key"
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +40,13 @@ class ResolvedMediaTranscriptConfig:
     model: str
     timeout_seconds: float
     config_source: str
+    # Local ASR fields
+    local_asr_server_path: str = ""
+    local_asr_host: str = "127.0.0.1"
+    local_asr_port: int = 9001
+    local_asr_model: str = "small"
+    local_asr_auto_start: bool = True
+    local_asr_timeout_seconds: float = 120.0
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".webm"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
@@ -322,6 +331,12 @@ def _resolve_media_transcript_runtime_config() -> ResolvedMediaTranscriptConfig:
         get_effective_media_transcript_model,
         get_effective_media_transcript_provider,
         get_effective_media_transcript_timeout,
+        get_effective_local_asr_server_path,
+        get_effective_local_asr_host,
+        get_effective_local_asr_port,
+        get_effective_local_asr_model,
+        get_effective_local_asr_auto_start,
+        get_effective_local_asr_timeout_seconds,
     )
 
     settings = get_settings()
@@ -344,6 +359,12 @@ def _resolve_media_transcript_runtime_config() -> ResolvedMediaTranscriptConfig:
         model=get_effective_media_transcript_model(active, settings),
         timeout_seconds=get_effective_media_transcript_timeout(active, settings),
         config_source=get_effective_media_transcript_config_source(active, settings),
+        local_asr_server_path=get_effective_local_asr_server_path(active, settings),
+        local_asr_host=get_effective_local_asr_host(active, settings),
+        local_asr_port=get_effective_local_asr_port(active, settings),
+        local_asr_model=get_effective_local_asr_model(active, settings),
+        local_asr_auto_start=get_effective_local_asr_auto_start(active, settings),
+        local_asr_timeout_seconds=get_effective_local_asr_timeout_seconds(active, settings),
     )
 
 
@@ -359,6 +380,30 @@ def build_media_transcription_client() -> MediaTranscriptionClient:
             model=resolved.model,
             timeout_seconds=resolved.timeout_seconds,
         )
+    if resolved.provider == "local":
+        try:
+            from app.runtime.local_asr_bootstrap import ensure_local_asr_if_enabled
+
+            result = ensure_local_asr_if_enabled(
+                provider="local",
+                server_path=resolved.local_asr_server_path,
+                host=resolved.local_asr_host,
+                port=resolved.local_asr_port,
+                auto_start=resolved.local_asr_auto_start,
+                timeout_seconds=resolved.local_asr_timeout_seconds,
+            )
+            if result.status in ("already_running", "started"):
+                return OptionalApiMediaTranscriptionClient(
+                    api_key=_LOCAL_DEV_KEY,
+                    api_base_url=result.base_url,
+                    model=resolved.local_asr_model,
+                    timeout_seconds=resolved.local_asr_timeout_seconds,
+                )
+            logger.warning("Local ASR bootstrap failed: %s", result.message)
+        except Exception:
+            logger.exception("Local ASR bootstrap error.")
+        # Fallback to mock on any bootstrap failure
+        return MockMediaTranscriptionClient()
     if resolved.provider == "disabled":
         return DisabledMediaTranscriptionClient()
     return MockMediaTranscriptionClient()

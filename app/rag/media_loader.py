@@ -40,6 +40,13 @@ class ResolvedMediaTranscriptConfig:
     model: str
     timeout_seconds: float
     config_source: str
+    # Local ASR fields
+    local_asr_server_path: str = ""
+    local_asr_host: str = "127.0.0.1"
+    local_asr_port: int = 9001
+    local_asr_model: str = "small"
+    local_asr_auto_start: bool = True
+    local_asr_timeout_seconds: float = 120.0
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".webm"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
@@ -327,6 +334,7 @@ def _resolve_media_transcript_runtime_config() -> ResolvedMediaTranscriptConfig:
         get_effective_local_asr_server_path,
         get_effective_local_asr_host,
         get_effective_local_asr_port,
+        get_effective_local_asr_model,
         get_effective_local_asr_auto_start,
         get_effective_local_asr_timeout_seconds,
     )
@@ -354,6 +362,7 @@ def _resolve_media_transcript_runtime_config() -> ResolvedMediaTranscriptConfig:
         local_asr_server_path=get_effective_local_asr_server_path(active, settings),
         local_asr_host=get_effective_local_asr_host(active, settings),
         local_asr_port=get_effective_local_asr_port(active, settings),
+        local_asr_model=get_effective_local_asr_model(active, settings),
         local_asr_auto_start=get_effective_local_asr_auto_start(active, settings),
         local_asr_timeout_seconds=get_effective_local_asr_timeout_seconds(active, settings),
     )

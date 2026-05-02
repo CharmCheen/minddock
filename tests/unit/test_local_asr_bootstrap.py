@@ -132,7 +132,7 @@ class TestEnsureLocalAsrIfEnabled:
         popen_calls = []
 
         def _fake_popen(cmd, cwd, shell, stdout, stderr):
-            popen_calls.append((cmd, cwd))
+            popen_calls.append((cmd, shell))
             return MagicMock()
 
         monkeypatch.setattr("subprocess.Popen", _fake_popen)
@@ -147,6 +147,13 @@ class TestEnsureLocalAsrIfEnabled:
         assert result.status == "started"
         assert "ready" in result.message
         assert len(popen_calls) == 1
+        # argv list, not shell string
+        assert isinstance(popen_calls[0][0], list)
+        assert popen_calls[0][0][0] == "conda"
+        assert "--host" in popen_calls[0][0]
+        assert "9001" in popen_calls[0][0]
+        # shell=False
+        assert popen_calls[0][1] is False
 
     def test_failed_when_health_never_ready(self, monkeypatch, tmp_path):
         server_dir = tmp_path / "local_asr_server"
@@ -193,51 +200,55 @@ class TestEnsureLocalAsrIfEnabled:
         assert result.status == "failed"
         assert "cannot spawn" in result.message
 
-    def test_custom_start_command(self, monkeypatch, tmp_path):
+    def test_malicious_host_rejected(self, monkeypatch, tmp_path):
         server_dir = tmp_path / "local_asr_server"
         server_dir.mkdir()
-
-        call_count = [0]
-
-        def _toggle(*args, **kwargs):
-            call_count[0] += 1
-            response = MagicMock()
-            response.status_code = 200 if call_count[0] > 1 else 503
-            response.json.return_value = {"status": "ok" if call_count[0] > 1 else "down"}
-            return response
-
-        import httpx
-
-        monkeypatch.setattr(httpx, "get", _toggle)
-        monkeypatch.setattr("app.runtime.local_asr_bootstrap._HEALTH_POLL_INTERVAL", 0.01)
-        monkeypatch.setattr("app.runtime.local_asr_bootstrap._HEALTH_MAX_WAIT", 1.0)
-
-        popen_calls = []
-
-        def _fake_popen(cmd, cwd, shell, stdout, stderr):
-            popen_calls.append(cmd)
-            return MagicMock()
-
-        monkeypatch.setattr("subprocess.Popen", _fake_popen)
 
         result = ensure_local_asr_if_enabled(
             provider="local",
             server_path=str(server_dir),
-            host="0.0.0.0",
-            port=9999,
+            host="127.0.0.1 & calc",
+            port=9001,
             auto_start=True,
-            start_command_template="python -m myserver --host {host} --port {port}",
         )
-        assert result.status == "started"
-        assert popen_calls[0] == "python -m myserver --host 0.0.0.0 --port 9999"
+        assert result.status == "failed"
+        assert "Invalid local ASR host" in result.message
 
-    def test_base_url_always_returned(self, monkeypatch):
+    def test_invalid_port_rejected(self, monkeypatch, tmp_path):
+        server_dir = tmp_path / "local_asr_server"
+        server_dir.mkdir()
+
+        result = ensure_local_asr_if_enabled(
+            provider="local",
+            server_path=str(server_dir),
+            host="127.0.0.1",
+            port=99999,
+            auto_start=True,
+        )
+        assert result.status == "failed"
+        assert "Invalid local ASR port" in result.message
+
+    def test_negative_port_rejected(self, monkeypatch, tmp_path):
+        server_dir = tmp_path / "local_asr_server"
+        server_dir.mkdir()
+
+        result = ensure_local_asr_if_enabled(
+            provider="local",
+            server_path=str(server_dir),
+            host="127.0.0.1",
+            port=-1,
+            auto_start=True,
+        )
+        assert result.status == "failed"
+        assert "Invalid local ASR port" in result.message
+
+    def test_base_url_always_returned_for_valid_host(self, monkeypatch):
         _monkeypatch_httpx_get(monkeypatch, ok=True)
         result = ensure_local_asr_if_enabled(
             provider="local",
             server_path="/some/path",
-            host="192.168.1.10",
+            host="localhost",
             port=8080,
             auto_start=False,
         )
-        assert result.base_url == "http://192.168.1.10:8080/v1"
+        assert result.base_url == "http://localhost:8080/v1"

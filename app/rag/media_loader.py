@@ -396,7 +396,7 @@ def build_media_transcription_client() -> MediaTranscriptionClient:
                 return OptionalApiMediaTranscriptionClient(
                     api_key=_LOCAL_DEV_KEY,
                     api_base_url=result.base_url,
-                    model=resolved.model,
+                    model=resolved.local_asr_model,
                     timeout_seconds=resolved.local_asr_timeout_seconds,
                 )
             logger.warning("Local ASR bootstrap failed: %s", result.message)

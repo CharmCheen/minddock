@@ -18,9 +18,9 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _LOCAL_DEV_KEY = "local-dev-key"
-_DEFAULT_START_COMMAND_TEMPLATE = "conda run -n local-asr uvicorn server:app --host {host} --port {port}"
 _HEALTH_POLL_INTERVAL = 0.5
 _HEALTH_MAX_WAIT = 30.0
+_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 @dataclass(frozen=True)
@@ -30,8 +30,29 @@ class LocalAsrBootstrapResult:
     base_url: str = ""
 
 
+def _is_valid_host(host: str) -> bool:
+    return host.strip() in _ALLOWED_HOSTS
+
+
+def _is_valid_port(port: int) -> bool:
+    return isinstance(port, int) and 1 <= port <= 65535
+
+
 def _health_url(host: str, port: int) -> str:
     return f"http://{host}:{port}/health"
+
+
+def _build_start_argv(host: str, port: int) -> list[str]:
+    """Return argv list for starting the local ASR server.
+
+    Uses shell=False to prevent command injection.
+    """
+    return [
+        "conda", "run", "-n", "local-asr",
+        "uvicorn", "server:app",
+        "--host", host,
+        "--port", str(port),
+    ]
 
 
 def check_local_asr_health(host: str, port: int, timeout: float = 2.0) -> bool:
@@ -50,7 +71,6 @@ def ensure_local_asr_if_enabled(
     port: int,
     auto_start: bool,
     timeout_seconds: float = 120.0,
-    start_command_template: str | None = None,
 ) -> LocalAsrBootstrapResult:
     """Ensure the local ASR companion service is running when provider == 'local'.
 
@@ -64,6 +84,18 @@ def ensure_local_asr_if_enabled(
         return LocalAsrBootstrapResult(
             status="skipped",
             message="Provider is not 'local'.",
+        )
+
+    if not _is_valid_host(host):
+        return LocalAsrBootstrapResult(
+            status="failed",
+            message=f"Invalid local ASR host: {host}. Allowed: {sorted(_ALLOWED_HOSTS)}",
+        )
+
+    if not _is_valid_port(port):
+        return LocalAsrBootstrapResult(
+            status="failed",
+            message=f"Invalid local ASR port: {port}. Must be 1–65535.",
         )
 
     base_url = f"http://{host}:{port}/v1"
@@ -90,16 +122,14 @@ def ensure_local_asr_if_enabled(
             base_url=base_url,
         )
 
-    template = start_command_template or _DEFAULT_START_COMMAND_TEMPLATE
-    cmd = template.format(host=host, port=port)
+    argv = _build_start_argv(host, port)
 
-    logger.info("Starting local ASR server: %s in %s", cmd, server_dir)
+    logger.info("Starting local ASR server: %s in %s", argv, server_dir)
     try:
-        # On Windows, shell=True is generally required for conda run
         subprocess.Popen(
-            cmd,
+            argv,
             cwd=str(server_dir),
-            shell=True,
+            shell=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

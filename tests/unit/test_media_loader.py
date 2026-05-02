@@ -1108,3 +1108,64 @@ def test_sidecar_still_takes_priority_over_local_provider(monkeypatch, tmp_path:
     result = loader.load(descriptor)
     assert result.metadata["transcript_provider"] == "sidecar"
     assert "Sidecar transcript text." in result.text
+
+
+def test_local_provider_uses_local_asr_model_not_generic_model(monkeypatch) -> None:
+    """Provider=local must use local_asr_model, not the generic model field."""
+    from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
+    from app.runtime.local_asr_bootstrap import LocalAsrBootstrapResult
+
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
+        lambda: ActiveMediaTranscriptConfig(
+            enabled=True,
+            provider="local",
+            base_url="",
+            model="whisper-1",  # generic model should be ignored
+            timeout_seconds=120.0,
+            api_key_source="none",
+            local_asr_server_path="/local/asr",
+            local_asr_host="127.0.0.1",
+            local_asr_port=9001,
+            local_asr_model="small",  # this must be used
+            local_asr_device="auto",
+            local_asr_compute_type="int8",
+            local_asr_auto_start=True,
+            local_asr_timeout_seconds=120.0,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(),
+    )
+
+    # Capture what OptionalApiMediaTranscriptionClient receives
+    captured = {}
+
+    original_init = OptionalApiMediaTranscriptionClient.__init__
+
+    def _capturing_init(self, *, fallback=None, api_key="", api_base_url="", model="", timeout_seconds=0.0):
+        captured["model"] = model
+        captured["api_key"] = api_key
+        captured["api_base_url"] = api_base_url
+        return original_init(self, fallback=fallback, api_key=api_key, api_base_url=api_base_url, model=model, timeout_seconds=timeout_seconds)
+
+    monkeypatch.setattr(OptionalApiMediaTranscriptionClient, "__init__", _capturing_init)
+
+    def _fake_ensure(**kwargs):
+        return LocalAsrBootstrapResult(
+            status="already_running",
+            message="ok",
+            base_url="http://127.0.0.1:9001/v1",
+        )
+
+    monkeypatch.setattr(
+        "app.runtime.local_asr_bootstrap.ensure_local_asr_if_enabled",
+        _fake_ensure,
+    )
+
+    client = build_media_transcription_client()
+    assert isinstance(client, OptionalApiMediaTranscriptionClient)
+    assert captured["model"] == "small"
+    assert captured["model"] != "whisper-1"
+    assert captured["api_key"] == "local-dev-key"

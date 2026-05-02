@@ -86,24 +86,27 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
           width: '760px',
           maxWidth: '96vw',
           maxHeight: '92vh',
+          height: '92vh',
           overflow: 'hidden',
           background: 'var(--color-surface)',
           border: '1px solid var(--color-border-subtle)',
           borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-xl)',
           color: 'var(--color-text-primary)',
-          display: 'grid',
-          gridTemplateColumns: '200px 1fr',
+          display: 'flex',
           animation: 'scaleIn 200ms ease forwards',
         }}
       >
         <aside style={{
+          width: '200px',
+          flexShrink: 0,
           borderRight: '1px solid var(--color-border-subtle)',
           background: 'var(--color-canvas-subtle)',
           padding: density === 'compact' ? '14px' : '18px',
           display: 'flex',
           flexDirection: 'column',
           gap: '4px',
+          overflowY: 'auto',
         }}>
           <h2 id="settings-title" style={{ margin: '0 0 14px', fontSize: '16px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
             Settings
@@ -120,7 +123,7 @@ export const SettingsView: React.FC<{ onClose: () => void }> = ({ onClose }) => 
           ))}
         </aside>
 
-        <section style={{ padding: density === 'compact' ? '18px' : '22px', overflowY: 'auto', minHeight: '420px' }}>
+        <section style={{ padding: density === 'compact' ? '18px' : '22px', overflowY: 'auto', minHeight: 0, flex: 1 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', marginBottom: '18px' }}>
             <div>
               <h3 style={{ margin: '0 0 5px', fontSize: '18px', fontWeight: 700, color: 'var(--color-text-primary)' }}>

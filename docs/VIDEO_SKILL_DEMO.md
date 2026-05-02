@@ -1,6 +1,6 @@
 # Video Skill Demo
 
-MindDock supports media transcript ingestion (ASR) by indexing transcript sidecar files or calling an OpenAI-style audio transcription API. This is **video transcript / audio transcription**, not video frame understanding. No browser rendering, ffmpeg, Whisper local model, or video player is included.
+MindDock supports media transcript ingestion (ASR) by indexing transcript sidecar files, calling an OpenAI-style audio transcription API, or using the bundled local ASR companion server under `tools/local_asr_server`. This is **video transcript / audio transcription**, not video frame understanding. Faster-whisper model weights are not committed to the repository; users can preload/download them through the local ASR server or point the server to a manually downloaded model directory.
 
 ## Local ASR Demo Startup
 

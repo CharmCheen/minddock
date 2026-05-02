@@ -254,6 +254,16 @@ export interface MediaTranscriptConfigTestResponse {
   error_kind?: string | null;
 }
 
+export interface LocalAsrStatusResponse {
+  status: string;
+  provider: string;
+  enabled: boolean;
+  base_url: string;
+  health_url: string;
+  model: string;
+  message: string;
+}
+
 export interface RuntimeConfigUpdateRequest {
   provider: string;
   base_url: string;

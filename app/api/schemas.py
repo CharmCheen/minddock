@@ -2185,6 +2185,18 @@ class MediaTranscriptConfigTestResponse(BaseModel):
     )
 
 
+class LocalAsrStatusResponse(BaseModel):
+    """Response body for local ASR status check and start."""
+
+    status: str = Field(description="Status: connected, not_running, not_configured, not_local_provider, already_running, started, failed")
+    provider: str = Field(default="", description="Current provider kind")
+    enabled: bool = Field(default=False, description="Whether media transcript is enabled")
+    base_url: str = Field(default="", description="Local ASR base URL")
+    health_url: str = Field(default="", description="Local ASR health check URL")
+    model: str = Field(default="", description="Configured ASR model name")
+    message: str = Field(default="", description="Human-readable status message")
+
+
 def _client_event_payload_to_dict(payload) -> dict[str, Any]:
     if isinstance(payload, ClientRunStartedPayload):
         return {

@@ -8,6 +8,7 @@ import {
   MediaTranscriptConfigResponse,
   MediaTranscriptConfigUpdateRequest,
   MediaTranscriptConfigTestResponse,
+  LocalAsrStatusResponse,
   SourceSkillItem,
   SourceSkillValidationResponse,
 } from '../../core/types/api';
@@ -525,6 +526,9 @@ function MediaTranscriptEditor() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<MediaTranscriptConfigTestResponse | null>(null);
+  const [localAsrStatus, setLocalAsrStatus] = useState<LocalAsrStatusResponse | null>(null);
+  const [checkingLocalAsr, setCheckingLocalAsr] = useState(false);
+  const [startingLocalAsr, setStartingLocalAsr] = useState(false);
 
   const [form, setForm] = useState<MediaTranscriptFormValues>({
     provider: 'mock',
@@ -583,6 +587,51 @@ function MediaTranscriptEditor() {
     setForm((prev) => ({ ...prev, ...patch }));
     setSuccessMessage(null);
     setTestResult(null);
+    setLocalAsrStatus(null);
+  };
+
+  const handleCheckLocalAsr = async () => {
+    setCheckingLocalAsr(true);
+    setError(null);
+    setLocalAsrStatus(null);
+    try {
+      const result = await MediaTranscriptConfigService.checkLocalStatus();
+      setLocalAsrStatus(result);
+    } catch (err: unknown) {
+      setLocalAsrStatus({
+        status: 'failed',
+        provider: form.provider,
+        enabled: form.enabled,
+        base_url: '',
+        health_url: '',
+        model: form.local_asr_model,
+        message: err instanceof Error ? err.message : 'Status check failed.',
+      });
+    } finally {
+      setCheckingLocalAsr(false);
+    }
+  };
+
+  const handleStartLocalAsr = async () => {
+    setStartingLocalAsr(true);
+    setError(null);
+    setLocalAsrStatus(null);
+    try {
+      const result = await MediaTranscriptConfigService.startLocalAsr();
+      setLocalAsrStatus(result);
+    } catch (err: unknown) {
+      setLocalAsrStatus({
+        status: 'failed',
+        provider: form.provider,
+        enabled: form.enabled,
+        base_url: '',
+        health_url: '',
+        model: form.local_asr_model,
+        message: err instanceof Error ? err.message : 'Start request failed.',
+      });
+    } finally {
+      setStartingLocalAsr(false);
+    }
   };
 
   const handleSave = async () => {
@@ -927,6 +976,88 @@ function MediaTranscriptEditor() {
                 Local ASR runs a local OpenAI-compatible transcription service managed by MindDock.
                 It transcribes audio only and does not perform frame-level video understanding.
               </div>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => void handleCheckLocalAsr()}
+                  disabled={checkingLocalAsr}
+                  style={{
+                    padding: '9px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-subtle)',
+                    background: 'var(--color-canvas-subtle)',
+                    color: 'var(--color-text-secondary)',
+                    cursor: checkingLocalAsr ? 'not-allowed' : 'pointer',
+                    opacity: checkingLocalAsr ? 0.55 : 1,
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    transition: 'all var(--transition-fast)',
+                  }}
+                >
+                  {checkingLocalAsr ? 'Checking…' : 'Check Status'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleStartLocalAsr()}
+                  disabled={startingLocalAsr}
+                  style={{
+                    padding: '9px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: 'none',
+                    background: startingLocalAsr ? 'var(--color-canvas)' : 'var(--color-brand-600)',
+                    color: startingLocalAsr ? 'var(--color-text-tertiary)' : '#fff',
+                    cursor: startingLocalAsr ? 'not-allowed' : 'pointer',
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    transition: 'all var(--transition-fast)',
+                    boxShadow: startingLocalAsr ? 'none' : 'var(--shadow-md)',
+                  }}
+                >
+                  {startingLocalAsr ? 'Starting…' : 'Start Local ASR'}
+                </button>
+              </div>
+
+              {localAsrStatus && (
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    background: ['connected', 'already_running', 'started'].includes(localAsrStatus.status)
+                      ? 'var(--color-success-bg)'
+                      : 'var(--color-error-bg)',
+                    border: `1px solid ${['connected', 'already_running', 'started'].includes(localAsrStatus.status)
+                      ? 'var(--color-success-border)'
+                      : 'var(--color-error-border)'}`,
+                    color: ['connected', 'already_running', 'started'].includes(localAsrStatus.status)
+                      ? 'var(--color-success-text)'
+                      : 'var(--color-error-text)',
+                    fontSize: '13px',
+                  }}
+                >
+                  <strong>
+                    {localAsrStatus.status === 'connected' && 'Connected'}
+                    {localAsrStatus.status === 'already_running' && 'Already Running'}
+                    {localAsrStatus.status === 'started' && 'Started'}
+                    {localAsrStatus.status === 'not_running' && 'Not Running'}
+                    {localAsrStatus.status === 'not_configured' && 'Not Configured'}
+                    {localAsrStatus.status === 'not_local_provider' && 'Not Local Provider'}
+                    {localAsrStatus.status === 'failed' && 'Failed'}
+                    {!['connected', 'already_running', 'started', 'not_running', 'not_configured', 'not_local_provider', 'failed'].includes(localAsrStatus.status) && localAsrStatus.status}
+                  </strong>
+                  <div style={{ marginTop: '3px' }}>{localAsrStatus.message}</div>
+                  {localAsrStatus.base_url && (
+                    <div style={{ marginTop: '3px', fontSize: '11px', opacity: 0.85 }}>
+                      Base URL: {localAsrStatus.base_url}
+                    </div>
+                  )}
+                  {localAsrStatus.model && (
+                    <div style={{ fontSize: '11px', opacity: 0.85 }}>
+                      Model: {localAsrStatus.model}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 

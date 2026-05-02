@@ -48,6 +48,13 @@ export interface CitationItem {
   window_chunk_count?: number;
   hit_in_window?: boolean;
   evidence_window_reason?: string | null;
+  is_derived?: boolean;
+  derived_kind?: string | null;
+  derived_from?: string | null;
+  derived_basis?: string | null;
+  evidence_basis?: string | null;
+  transcript_provider?: string | null;
+  retrieval_basis?: string | null;
 }
 
 export interface ClientRunStartedPayload {

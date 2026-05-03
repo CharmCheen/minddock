@@ -17,6 +17,10 @@ Chroma. Preload Model loads the configured faster-whisper model only; Local
 ASR transcription is triggered only when the watcher or manual ingest needs to
 index a media file without a sidecar transcript.
 
+Before running `start.bat` for a demo, close old MindDock-Backend,
+MindDock-Frontend, and MindDock-Watcher windows to avoid stale processes or
+duplicate watchers.
+
 Use `run_demo_ingest.bat` after `start.bat` reports Ready. It checks backend
 health, Local ASR health, and model readiness, then asks for confirmation
 before running `python -m app.demo ingest`. Because demo ingest is a rebuild

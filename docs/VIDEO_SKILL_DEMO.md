@@ -14,6 +14,10 @@ so Settings can show Local ASR connected / model ready. Local ASR transcription
 is triggered only when the watcher or manual ingest indexes a media file that
 needs ASR.
 
+Before running `start.bat` for a demo, close old MindDock-Backend,
+MindDock-Frontend, and MindDock-Watcher windows to avoid stale processes or
+duplicate watchers.
+
 For normal demo use, drop files into `knowledge_base`. The watcher started by
 `start.bat` performs one startup non-rebuild sync and then keeps watching for
 new, modified, moved, or deleted files. Run `run_demo_ingest.bat` separately

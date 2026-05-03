@@ -7,13 +7,15 @@ checks the `minddock` and `local-asr` conda environments, verifies that
 `faster_whisper` imports in `local-asr`, verifies the local
 `models/faster-whisper-base` directory, starts Local ASR, starts the backend,
 saves the Local ASR provider config, triggers model preload, waits until the
-model status is `ready`, starts the frontend dev server, verifies that the
-frontend dev server can proxy backend API calls, and opens the browser.
+model status is `ready`, starts the incremental `knowledge_base` watcher,
+starts the frontend dev server, verifies that the frontend dev server can
+proxy backend API calls, and opens the browser.
 
-`start.bat` only brings the system to a usable Ready state. It does not run
-ingest, does not call `/v1/audio/transcriptions`, and does not perform real
-transcription. Preload Model loads the configured faster-whisper model only;
-ingest is the step that transcribes media.
+`start.bat` brings the system to a usable Ready state and starts automatic
+incremental ingestion. It does not run rebuild ingest and does not clear
+Chroma. Preload Model loads the configured faster-whisper model only; Local
+ASR transcription is triggered only when the watcher or manual ingest needs to
+index a media file without a sidecar transcript.
 
 Use `run_demo_ingest.bat` after `start.bat` reports Ready. It checks backend
 health, Local ASR health, and model readiness, then asks for confirmation
@@ -21,6 +23,10 @@ before running `python -m app.demo ingest`. Because demo ingest is a rebuild
 ingest, it recreates Chroma. If the backend is still running, it may hold
 `data/chroma/chroma.sqlite3` open. Close the `MindDock-Backend` window, or
 release port `8000` when the script asks, before continuing.
+
+For normal daily demo use, do not run rebuild ingest. Drop new or changed files
+into `knowledge_base`; the watcher started by `start.bat` runs an initial
+non-rebuild sync and then keeps watching for create/modify/delete events.
 
 For the first real smoke test, prefer a valid English-name `.wav` file without
 a same-name sidecar transcript, for example
@@ -209,9 +215,12 @@ pip install -r tools/local_asr_server/requirements.txt
 - Perform real transcription.
 - Verify search, chat, or citations.
 
-After `start.bat` reaches Model Ready, run `run_demo_ingest.bat` to perform
-the real ingest step. That script checks backend health, Local ASR health, and
-model readiness before running `python -m app.demo ingest`. It then warns that
+After `start.bat` reaches Model Ready, the watcher is also running. It uses the
+existing `python -m app.demo watch` path, performs a startup non-rebuild sync,
+then watches `knowledge_base` for new, modified, moved, or deleted files. Use
+`run_demo_ingest.bat` only when you intentionally want the manual rebuild
+workflow. That script checks backend health, Local ASR health, and model
+readiness before running `python -m app.demo ingest`. It then warns that
 rebuild ingest recreates Chroma and asks you to close the backend first. If
 port `8000` is still occupied, the script stops instead of running ingest.
 

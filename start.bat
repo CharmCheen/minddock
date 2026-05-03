@@ -22,6 +22,9 @@ set "ASR_COMPUTE=int8"
 set "ASR_TIMEOUT=120"
 set "ASR_DIR=%ROOT_DIR%\tools\local_asr_server"
 set "LOCAL_ASR_MODEL_BASE_PATH=%ROOT_DIR%\models\faster-whisper-base"
+set "WATCH_PATH=%ROOT_DIR%\knowledge_base"
+set "WATCHER_LOG_FILE=%LOG_DIR%\watcher.log"
+set "WATCHER_READY_FILE=%TEMP%\minddock_watcher_ready.json"
 set "BUILD_FRONTEND=0"
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>nul
@@ -35,7 +38,7 @@ if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>nul
 
 echo ============================================
 echo   MindDock One-click Startup
-echo   Local ASR + Backend + Frontend + Preload
+echo   Local ASR + Backend + Watcher + Frontend
 echo ============================================
 echo.
 echo Project root:
@@ -44,7 +47,7 @@ echo Log:
 echo   %LOG_FILE%
 echo.
 
-echo [1/9] Checking conda environments...
+echo [1/10] Checking conda environments...
 call conda env list >> "%LOG_FILE%" 2>&1
 if errorlevel 1 goto FAIL_CONDA_LIST
 
@@ -57,7 +60,7 @@ if errorlevel 1 goto FAIL_ASR_ENV
 echo   [OK] local-asr environment found
 
 echo.
-echo [2/9] Checking Local ASR server, faster-whisper import, and model files...
+echo [2/10] Checking Local ASR server, faster-whisper import, and model files...
 if not exist "%ASR_DIR%\server.py" goto FAIL_ASR_SERVER
 
 echo   Checking faster-whisper import in %ASR_ENV%...
@@ -72,7 +75,7 @@ if not exist "%LOCAL_ASR_MODEL_BASE_PATH%\vocabulary.txt" goto FAIL_MODEL_FILES
 echo   [OK] local model files found
 
 echo.
-echo [3/9] Starting Local ASR server...
+echo [3/10] Starting Local ASR server...
 call :CHECK_URL "http://%ASR_HOST%:%ASR_PORT%/health" 2
 if errorlevel 1 (
   echo   Starting Local ASR at http://%ASR_HOST%:%ASR_PORT% ...
@@ -86,7 +89,7 @@ if errorlevel 1 (
 echo   [OK] Local ASR /health ready
 
 echo.
-echo [4/9] Starting MindDock backend...
+echo [4/10] Starting MindDock backend...
 call :CHECK_URL "http://%BACKEND_HOST%:%BACKEND_PORT%/health" 2
 if errorlevel 1 (
   echo   Starting backend at http://%BACKEND_HOST%:%BACKEND_PORT% ...
@@ -103,7 +106,7 @@ if errorlevel 1 goto FAIL_BACKEND_API
 echo   [OK] Backend API Ready
 
 echo.
-echo [5/9] Saving Local ASR provider config...
+echo [5/10] Saving Local ASR provider config...
 set "CONFIG_JSON=%TEMP%\minddock_local_asr_config.json"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$cfg=[ordered]@{provider='local';enabled=$true;base_url='';api_key='';model='whisper-1';timeout_seconds=%ASR_TIMEOUT%;local_asr_server_path=$env:ASR_DIR;local_asr_host='%ASR_HOST%';local_asr_port=%ASR_PORT%;local_asr_model='%ASR_MODEL%';local_asr_device='%ASR_DEVICE%';local_asr_compute_type='%ASR_COMPUTE%';local_asr_auto_start=$true;local_asr_timeout_seconds=%ASR_TIMEOUT%}; $cfg | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $env:CONFIG_JSON -Encoding UTF8" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 goto FAIL_CONFIG_JSON
@@ -118,7 +121,7 @@ if errorlevel 1 goto FAIL_BACKEND_LOCAL_START
 echo   [OK] Backend Local ASR status checked
 
 echo.
-echo [6/9] Preloading Local ASR model and waiting for Ready...
+echo [6/10] Preloading Local ASR model and waiting for Ready...
 set "PRELOAD_JSON=%TEMP%\minddock_local_asr_preload.json"
 set "PRELOAD_STATUS=%TEMP%\minddock_local_asr_preload_status.txt"
 set "MODEL_STATUS_FILE=%TEMP%\minddock_local_asr_model_status.txt"
@@ -135,7 +138,30 @@ if errorlevel 1 goto FAIL_MODEL_READY
 echo   [OK] Model Ready: %ASR_MODEL% / %ASR_DEVICE% / %ASR_COMPUTE%
 
 echo.
-echo [7/9] Frontend build setting...
+echo [7/10] Starting knowledge_base watcher...
+if exist "%WATCHER_READY_FILE%" del "%WATCHER_READY_FILE%" >nul 2>nul
+call :CHECK_WATCHER_PROCESS
+if errorlevel 1 (
+  echo   Starting watcher for:
+  echo     %WATCH_PATH%
+  (
+    echo ============================================
+    echo MindDock watcher log
+    echo Time: %DATE% %TIME%
+    echo Root: %ROOT_DIR%
+    echo Watch path: %WATCH_PATH%
+    echo ============================================
+  ) > "%WATCHER_LOG_FILE%"
+  start "MindDock-Watcher" cmd /k "chcp 65001 >nul && cd /d ""%ROOT_DIR%"" && call conda activate %MINDDOCK_ENV% && python -m app.demo watch --path ""%WATCH_PATH%"" --ready-file ""%WATCHER_READY_FILE%"" --fail-on-sync-error >> ""%WATCHER_LOG_FILE%"" 2>&1"
+  call :WAIT_WATCHER_READY
+  if errorlevel 1 goto FAIL_WATCHER_READY
+) else (
+  echo   [OK] Watcher already running
+)
+echo   [OK] Watcher Ready
+
+echo.
+echo [8/10] Frontend build setting...
 if "%BUILD_FRONTEND%"=="1" (
   echo   BUILD_FRONTEND=1, running pnpm build...
   pushd "%ROOT_DIR%\frontend"
@@ -151,7 +177,7 @@ if "%BUILD_FRONTEND%"=="1" (
 )
 
 echo.
-echo [8/9] Starting frontend dev server...
+echo [9/10] Starting frontend dev server...
 call :CHECK_URL "http://%FRONTEND_HOST%:%FRONTEND_PORT%" 2
 if errorlevel 1 (
   echo   Starting frontend at http://%FRONTEND_HOST%:%FRONTEND_PORT% ...
@@ -167,7 +193,7 @@ if errorlevel 1 goto FAIL_FRONTEND_BACKEND_PROXY
 echo   [OK] Frontend -^> Backend API connectivity Ready
 
 echo.
-echo [9/9] Opening browser...
+echo [10/10] Opening browser...
 start "" "http://localhost:%FRONTEND_PORT%"
 
 echo.
@@ -175,17 +201,17 @@ echo ============================================
 echo   System started to usable state
 echo ============================================
 echo   Local ASR: Ready
-echo   Backend:   Ready
+echo   Backend API: Ready
+echo   Watcher:   Ready
 echo   Frontend:  Ready
 echo   Frontend -^> Backend API: Ready
 echo   Model:     %ASR_MODEL% / %ASR_DEVICE% / %ASR_COMPUTE% Ready
 echo.
-echo Next step for real validation:
-echo   Put a valid wav/mp3/mp4 without sidecar into knowledge_base
-echo   Then run:
+echo New or changed files under knowledge_base are handled by the watcher.
+echo Manual rebuild ingest remains available through:
 echo   run_demo_ingest.bat
 echo.
-echo start.bat does not run ingest and does not call /v1/audio/transcriptions.
+echo start.bat does not run rebuild ingest.
 echo.
 pause
 exit /b 0
@@ -243,6 +269,22 @@ if %FRONTEND_PROXY_WAIT_COUNT% GEQ 60 exit /b 1
 if %FRONTEND_PROXY_WAIT_COUNT%==1 echo   Waiting for frontend backend proxy ...
 powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
 goto WAIT_FRONTEND_BACKEND_PROXY_LOOP
+
+:CHECK_WATCHER_PROCESS
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'python(?:\\.exe)?\\s+-m\\s+app\\.demo\\s+watch' -and $_.CommandLine -notmatch '--once' } | Select-Object -First 1; if ($p) { exit 0 } else { exit 1 }" >> "%LOG_FILE%" 2>&1
+exit /b %ERRORLEVEL%
+
+:WAIT_WATCHER_READY
+set /a WATCHER_WAIT_COUNT=0
+:WAIT_WATCHER_READY_LOOP
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { if (!(Test-Path -LiteralPath $env:WATCHER_READY_FILE)) { exit 1 }; $r=Get-Content -Raw -LiteralPath $env:WATCHER_READY_FILE | ConvertFrom-Json; if ($r.status -eq 'ready') { exit 0 }; if ($r.status -eq 'failed') { exit 2 }; exit 1 } catch { exit 1 }" >> "%LOG_FILE%" 2>&1
+if not errorlevel 1 exit /b 0
+if errorlevel 2 exit /b 2
+set /a WATCHER_WAIT_COUNT+=1
+if %WATCHER_WAIT_COUNT% GEQ 600 exit /b 1
+if %WATCHER_WAIT_COUNT%==1 echo   Waiting for watcher initial sync and observer startup ...
+powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+goto WAIT_WATCHER_READY_LOOP
 
 :WAIT_MODEL_READY
 set /a MODEL_WAIT_COUNT=0
@@ -363,6 +405,15 @@ goto FAIL_COMMON
 :FAIL_FRONTEND_BUILD
 echo.
 echo [ERROR] Frontend build failed.
+goto FAIL_COMMON
+
+:FAIL_WATCHER_READY
+echo.
+echo [ERROR] Watcher did not become ready, or its initial incremental sync failed.
+echo Checked readiness marker:
+echo   %WATCHER_READY_FILE%
+echo Watcher log:
+echo   %WATCHER_LOG_FILE%
 goto FAIL_COMMON
 
 :FAIL_FRONTEND_HEALTH

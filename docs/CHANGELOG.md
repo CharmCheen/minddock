@@ -32,6 +32,13 @@ Update it before every push.
   `run_demo_ingest.bat`, and the first real ASR smoke test should use a fresh
   English-name `.wav` such as `knowledge_base/local_asr_smoke.wav` instead of
   very short, silent, damaged `.mp4` files or Chinese filenames.
+- Extended one-click startup to launch the existing `python -m app.demo watch`
+  incremental watcher after Local ASR model readiness. Startup now waits for a
+  watcher readiness marker, so the script only reports Ready after the initial
+  non-rebuild `knowledge_base` sync has completed and the observer is running.
+- Added watcher readiness signaling (`--ready-file`) and a startup-safe
+  `--fail-on-sync-error` option so demo startup does not silently ignore
+  failed incremental syncs.
 
 ### Added
 

@@ -49,7 +49,7 @@ class ResolvedMediaTranscriptConfig:
     local_asr_timeout_seconds: float = 120.0
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".webm"}
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 MEDIA_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
 _DEFAULT_MAX_CHARS = 30000
 SIDECAR_TRANSCRIPT_SUFFIXES = (

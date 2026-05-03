@@ -38,6 +38,8 @@ function hasUrlExtractionWarning(source: SourceItem | null): boolean {
 function mediaMetadata(source: SourceItem | null): {
   label: string;
   transcriptProvider: string;
+  transcriptStatus: string;
+  transcriptError: string;
   mediaFilename: string;
   sidecarFilename: string;
   loaderName: string;
@@ -54,6 +56,8 @@ function mediaMetadata(source: SourceItem | null): {
   return {
     label: sourceMedia === 'video' ? 'Video source' : 'Audio source',
     transcriptProvider: metadataString(metadata, 'transcript_provider'),
+    transcriptStatus: metadataString(metadata, 'transcript_status'),
+    transcriptError: metadataString(metadata, 'transcript_error'),
     mediaFilename: metadataString(metadata, 'media_filename'),
     sidecarFilename: metadataString(metadata, 'transcript_sidecar_filename'),
     loaderName: metadataString(metadata, 'loader_name'),
@@ -403,6 +407,24 @@ export const SourceDrawer: React.FC = () => {
                 Transcript: {selectedMediaMetadata.transcriptProvider}
               </span>
             )}
+            {selectedMediaMetadata.transcriptStatus && (() => {
+              const ts = selectedMediaMetadata.transcriptStatus;
+              const tsColor = ts === 'ready' ? 'var(--color-success-text)' : ts === 'failed' ? 'var(--color-error-text)' : ts === 'skipped' ? 'var(--color-warning-text)' : ts === 'transcribing' ? 'var(--color-info-text)' : 'var(--color-text-tertiary)';
+              const tsBg = ts === 'ready' ? 'var(--color-success-bg)' : ts === 'failed' ? 'var(--color-error-bg)' : ts === 'skipped' ? 'var(--color-warning-bg)' : ts === 'transcribing' ? 'var(--color-info-bg)' : 'var(--color-canvas-subtle)';
+              const tsBorder = ts === 'ready' ? 'var(--color-success-border)' : ts === 'failed' ? 'var(--color-error-border)' : ts === 'skipped' ? 'var(--color-warning-border)' : ts === 'transcribing' ? 'var(--color-info-border)' : 'var(--color-border-subtle)';
+              const tsLabel = ts === 'ready' ? 'Transcription ready' : ts === 'failed' ? 'Transcription failed' : ts === 'skipped' ? 'Transcription skipped' : ts === 'transcribing' ? 'Transcribing...' : `Transcription: ${ts}`;
+              return (
+                <span title={selectedMediaMetadata.transcriptError || undefined} style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  background: tsBg,
+                  color: tsColor,
+                  border: `1px solid ${tsBorder}`,
+                  borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '11px', fontWeight: 600,
+                }}>
+                  {tsLabel}
+                </span>
+              );
+            })()}
             {selectedMediaMetadata.retrievalBasis && (
               <span style={{ color: 'var(--color-text-tertiary)' }}>
                 Basis: {selectedMediaMetadata.retrievalBasis.replace(/_/g, ' ')}

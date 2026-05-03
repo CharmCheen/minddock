@@ -2193,7 +2193,15 @@ def test_unified_execute_stream_endpoint_emits_events_progressively(monkeypatch)
     )
 
 
-def test_media_transcript_config_endpoint_returns_read_only_status() -> None:
+def test_media_transcript_config_endpoint_returns_read_only_status(monkeypatch) -> None:
+    from app.runtime.media_transcript_active_config import CONFIG_FILE as _CONFIG_FILE
+    from pathlib import Path as _Path
+
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.CONFIG_FILE",
+        _Path("data/__nonexistent_integration_test_config__.json"),
+    )
+
     client = TestClient(app)
     response = client.get("/frontend/media-transcript-config")
 
@@ -2230,6 +2238,12 @@ def test_media_transcript_config_endpoint_returns_read_only_status() -> None:
 def test_media_transcript_config_reflects_environment_settings(monkeypatch) -> None:
     from app.api import routes
     from app.core.config import get_settings
+    from pathlib import Path as _Path
+
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.CONFIG_FILE",
+        _Path("data/__nonexistent_integration_test_config2__.json"),
+    )
 
     client = TestClient(app)
 

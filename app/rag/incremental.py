@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import stat
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +14,7 @@ from typing import Any, Protocol
 from app.core.config import get_settings
 from app.rag.embeddings import EmbeddingBackend, get_embedding_backend
 from app.rag.ingest import SUPPORTED_EXTENSIONS, build_payload_for_source
-from app.rag.media_loader import is_media_sidecar_transcript
+from app.rag.media_loader import MEDIA_EXTENSIONS, is_media_sidecar_transcript
 from app.rag.source_loader import SourceLoaderRegistry, build_file_descriptor
 from app.rag.source_models import IncrementalUpdateResult
 from app.rag.vectorstore import count_document_chunks, get_vectorstore
@@ -59,13 +60,17 @@ class HashStore:
         for source_path, entry in loaded.items():
             if not isinstance(entry, dict):
                 continue
-            normalized[str(source_path)] = {
+            record: dict[str, Any] = {
                 "doc_id": str(entry.get("doc_id") or ""),
                 "content_hash": str(entry.get("content_hash") or ""),
                 "status": str(entry.get("status") or "ready"),
                 "error": entry.get("error"),
                 "last_synced_at": entry.get("last_synced_at"),
             }
+            for key in ("transcript_status", "transcript_provider", "transcript_error"):
+                if key in entry:
+                    record[key] = entry[key]
+            normalized[str(source_path)] = record
         return normalized
 
     def save(self) -> None:
@@ -77,14 +82,30 @@ class HashStore:
     def get(self, source_path: str) -> dict[str, Any] | None:
         return self._data.get(source_path)
 
-    def set(self, source_path: str, doc_id: str, content_hash: str, *, status: str = "ready", error: str | None = None) -> None:
-        self._data[source_path] = {
+    def set(
+        self,
+        source_path: str,
+        doc_id: str,
+        content_hash: str,
+        *,
+        status: str = "ready",
+        error: str | None = None,
+        transcript_status: str = "",
+        transcript_provider: str = "",
+        transcript_error: str = "",
+    ) -> None:
+        entry: dict[str, Any] = {
             "doc_id": doc_id,
             "content_hash": content_hash,
             "status": status,
             "error": error,
             "last_synced_at": _utc_now_iso(),
         }
+        if transcript_status:
+            entry["transcript_status"] = transcript_status
+            entry["transcript_provider"] = transcript_provider
+            entry["transcript_error"] = transcript_error
+        self._data[source_path] = entry
         self.save()
 
     def mark_failed(self, source_path: str, doc_id: str, error: str) -> None:
@@ -178,15 +199,17 @@ class IncrementalIngestService:
 
             stored = self._hash_store.get(source)
             if stored and stored.get("content_hash") == content_hash and stored.get("status") == "ready":
-                results.append(
-                    IncrementalUpdateResult(
-                        descriptor=descriptor,
-                        event_type="sync",
-                        status="skipped",
-                        detail="content hash unchanged",
+                if not self._needs_media_transcript_retry(path, stored):
+                    results.append(
+                        IncrementalUpdateResult(
+                            descriptor=descriptor,
+                            event_type="sync",
+                            status="skipped",
+                            detail="content hash unchanged",
+                        )
                     )
-                )
-                continue
+                    continue
+                # Media file needs re-transcription; fall through to re-process
 
             event_type = "created" if stored is None else "modified"
             if dry_run:
@@ -283,6 +306,7 @@ class IncrementalIngestService:
             logger.debug("Watcher event ignored because file is outside watch path: %s", path)
             return self._skipped_result(path=path, event_type=event_type, detail="outside watch path")
 
+        self._clear_readonly_media_attribute(path)
         descriptor = self._build_descriptor(path)
         readable_error = self._readability_error(path)
         if readable_error is not None:
@@ -306,17 +330,34 @@ class IncrementalIngestService:
             )
         stored = self._hash_store.get(descriptor.source)
         if stored and stored.get("content_hash") == content_hash:
-            logger.debug(
-                "Hash unchanged, skipping rebuild: event=%s source=%s doc_id=%s",
-                event_type,
+            if not self._needs_media_transcript_retry(path, stored):
+                logger.debug(
+                    "Hash unchanged, skipping rebuild: event=%s source=%s doc_id=%s",
+                    event_type,
+                    descriptor.source,
+                    descriptor.doc_id,
+                )
+                return IncrementalUpdateResult(
+                    descriptor=descriptor,
+                    event_type=event_type,
+                    status="skipped",
+                    detail="content hash unchanged",
+                )
+            logger.info(
+                "Media transcript needs retry: source=%s stored_status=%s stored_provider=%s",
                 descriptor.source,
-                descriptor.doc_id,
+                stored.get("transcript_status"),
+                stored.get("transcript_provider"),
             )
-            return IncrementalUpdateResult(
-                descriptor=descriptor,
-                event_type=event_type,
-                status="skipped",
-                detail="content hash unchanged",
+
+        if self._is_media_file(path):
+            self._hash_store.set(
+                source_path=descriptor.source,
+                doc_id=descriptor.doc_id,
+                content_hash=content_hash,
+                transcript_status="transcribing",
+                transcript_provider="",
+                transcript_error="",
             )
 
         try:
@@ -329,7 +370,15 @@ class IncrementalIngestService:
                 metadatas=payload.metadatas,
                 embeddings=embeddings,
             )
-            self._hash_store.set(source_path=payload.descriptor.source, doc_id=payload.doc_id, content_hash=content_hash)
+            ts = _derive_transcript_status_from_payload(payload)
+            self._hash_store.set(
+                source_path=payload.descriptor.source,
+                doc_id=payload.doc_id,
+                content_hash=content_hash,
+                transcript_status=ts.get("transcript_status", ""),
+                transcript_provider=ts.get("transcript_provider", ""),
+                transcript_error=ts.get("transcript_error", ""),
+            )
         except Exception as exc:
             logger.exception(
                 "Incremental rebuild failed; existing chunks preserved: event=%s source=%s doc_id=%s",
@@ -337,7 +386,16 @@ class IncrementalIngestService:
                 descriptor.source,
                 descriptor.doc_id,
             )
-            self._hash_store.mark_failed(descriptor.source, descriptor.doc_id, str(exc))
+            self._hash_store.set(
+                source_path=descriptor.source,
+                doc_id=descriptor.doc_id,
+                content_hash=content_hash,
+                status="failed",
+                error=str(exc),
+                transcript_status="failed",
+                transcript_provider="",
+                transcript_error=str(exc),
+            )
             return IncrementalUpdateResult(
                 descriptor=descriptor,
                 event_type=event_type,
@@ -346,13 +404,14 @@ class IncrementalIngestService:
             )
 
         logger.info(
-            "Incremental rebuild completed: event=%s source=%s doc_id=%s hash_changed=true deleted_chunks=%s rebuilt_chunks=%s current_chunks=%s",
+            "Incremental rebuild completed: event=%s source=%s doc_id=%s hash_changed=true deleted_chunks=%s rebuilt_chunks=%s current_chunks=%s transcript_status=%s",
             event_type,
             payload.descriptor.source,
             payload.doc_id,
             replaced.deleted,
             replaced.upserted,
             self._count_document_chunks(payload.doc_id),
+            ts.get("transcript_status", ""),
         )
         return IncrementalUpdateResult(
             descriptor=payload.descriptor,
@@ -387,6 +446,55 @@ class IncrementalIngestService:
     def _compute_hash(self, path: Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
+    def _is_media_file(self, path: Path) -> bool:
+        return path.suffix.lower() in MEDIA_EXTENSIONS
+
+    def _clear_readonly_media_attribute(self, path: Path) -> None:
+        if not self._is_media_file(path) or not self._is_under_kb_dir(path):
+            return
+
+        try:
+            current_mode = path.stat().st_mode
+        except (OSError, PermissionError, FileNotFoundError) as exc:
+            logger.warning("Could not inspect media file attributes: %s (%s)", path.name, exc)
+            return
+
+        if current_mode & stat.S_IWRITE:
+            return
+
+        try:
+            path.chmod(current_mode | stat.S_IWRITE)
+            logger.info("Media file was read-only; cleared read-only attribute: %s", path.name)
+        except (OSError, PermissionError) as exc:
+            logger.warning(
+                "Media file was read-only but clearing the read-only attribute failed: %s (%s)",
+                path.name,
+                exc,
+            )
+
+    def _needs_media_transcript_retry(self, path: Path, stored: dict[str, Any]) -> bool:
+        """Return True if a media file needs re-transcription despite unchanged hash.
+
+        Retry conditions:
+        - Previous transcript_status is not 'ready' (failed, empty, or unknown)
+        - Previous transcript_provider differs from current effective provider
+        """
+        if not self._is_media_file(path):
+            return False
+        ts = stored.get("transcript_status", "")
+        if not ts:
+            # No transcript status recorded yet — this media file was likely
+            # ingested before transcript_status tracking was added, or the
+            # provider was mock/disabled at the time.
+            return True
+        if ts != "ready":
+            return True
+        stored_provider = stored.get("transcript_provider", "")
+        current_provider = _get_current_transcript_provider()
+        if stored_provider and current_provider and stored_provider != current_provider:
+            return True
+        return False
+
     def _readability_error(self, path: Path) -> str | None:
         try:
             if not path.exists():
@@ -418,3 +526,57 @@ class IncrementalIngestService:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _get_current_transcript_provider() -> str:
+    """Return the effective transcript provider without triggering transcription."""
+    try:
+        from app.rag.media_loader import _resolve_media_transcript_runtime_config
+
+        resolved = _resolve_media_transcript_runtime_config()
+        if not resolved.enabled:
+            return "disabled"
+        return resolved.provider
+    except Exception:
+        return ""
+
+
+def _derive_transcript_status_from_payload(payload) -> dict[str, str]:
+    """Extract transcript status fields from a DocumentPayload's chunk metadata.
+
+    Returns a dict with transcript_status, transcript_provider, transcript_error.
+    """
+    metadatas = payload.metadatas if payload.metadatas else []
+    if not metadatas:
+        return {}
+
+    first = metadatas[0]
+    loader_name = str(first.get("loader_name", ""))
+    if loader_name not in ("audio.transcribe", "video.transcribe"):
+        return {}
+
+    provider = str(first.get("transcript_provider", ""))
+    warnings_str = str(first.get("loader_warnings", ""))
+    warnings = [w.strip() for w in warnings_str.split(",") if w.strip()]
+
+    has_text = bool(payload.documents and any(d.strip() for d in payload.documents))
+
+    if provider in ("mock", "disabled") or "transcript_mock_fallback" in warnings:
+        return {
+            "transcript_status": "skipped",
+            "transcript_provider": provider,
+            "transcript_error": "Transcript was not generated (mock/disabled provider).",
+        }
+
+    if "transcript_empty" in warnings or not has_text:
+        return {
+            "transcript_status": "failed",
+            "transcript_provider": provider,
+            "transcript_error": "Transcription produced empty text.",
+        }
+
+    return {
+        "transcript_status": "ready",
+        "transcript_provider": provider,
+        "transcript_error": "",
+    }

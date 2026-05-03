@@ -30,7 +30,7 @@ set "ASR_TIMEOUT=120"
 set "ASR_DIR=%ROOT_DIR%\tools\local_asr_server"
 
 :: Local faster-whisper model path override
-set "LOCAL_ASR_MODEL_BASE_PATH=D:\models\faster-whisper-base"
+set "LOCAL_ASR_MODEL_BASE_PATH=%ROOT_DIR%\models\faster-whisper-base"
 
 :: Whether to build frontend before dev server: 1=yes, 0=no
 set "BUILD_FRONTEND=0"

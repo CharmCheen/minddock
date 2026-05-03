@@ -463,6 +463,9 @@ def test_cmd_watch_passes_once_dry_run_path_and_debounce(monkeypatch) -> None:
         "knowledge_base",
         "--debounce",
         "2.0",
+        "--ready-file",
+        "data/watch-ready.json",
+        "--fail-on-sync-error",
     ])
 
     assert captured == {
@@ -470,6 +473,8 @@ def test_cmd_watch_passes_once_dry_run_path_and_debounce(monkeypatch) -> None:
         "debounce_seconds": 2.0,
         "once": True,
         "dry_run": True,
+        "ready_file": "data/watch-ready.json",
+        "fail_on_sync_error": True,
     }
 
 

@@ -1,5 +1,48 @@
 # Video Skill Demo
 
+## Current Local ASR Demo Flow
+
+Run `start.bat` first. The startup script is responsible only for reaching a
+usable Ready state: Local ASR health ready, backend health ready, Local ASR
+provider config saved, faster-whisper model preloaded, model status `ready`,
+incremental watcher ready, frontend dev server ready, frontend-to-backend API
+connectivity ready, and browser opened.
+
+`start.bat` intentionally does not run rebuild ingest and does not clear
+Chroma. Model preload is not transcription; it only loads the configured model
+so Settings can show Local ASR connected / model ready. Local ASR transcription
+is triggered only when the watcher or manual ingest indexes a media file that
+needs ASR.
+
+Before running `start.bat` for a demo, close old MindDock-Backend,
+MindDock-Frontend, and MindDock-Watcher windows to avoid stale processes or
+duplicate watchers.
+
+For normal demo use, drop files into `knowledge_base`. The watcher started by
+`start.bat` performs one startup non-rebuild sync and then keeps watching for
+new, modified, moved, or deleted files. Run `run_demo_ingest.bat` separately
+only when you intentionally want the manual rebuild ingest tool. It checks
+backend health, Local ASR health, and backend model status before asking the
+user to confirm that `knowledge_base` contains a valid `.wav`, `.mp3`, or
+`.mp4` file without a same-name sidecar transcript. Prefer `.wav` or `.mp3` for
+the first real smoke test, then try `.mp4` after audio smoke passes.
+
+Demo ingest runs rebuild ingest, which recreates Chroma. If the backend is
+still running, Windows may keep `data/chroma/chroma.sqlite3` locked. When
+`run_demo_ingest.bat` asks, close the `MindDock-Backend` window or manually
+release port `8000` before continuing. The script shows:
+
+```bat
+netstat -ano | findstr :8000
+taskkill /PID <pid> /F
+```
+
+It does not kill the backend process automatically.
+
+Do not commit model weights or runtime data. Keep `models/`, `data/`, and
+`knowledge_base/` out of the commit unless a future task explicitly changes
+that policy.
+
 MindDock supports media transcript ingestion (ASR) by indexing transcript sidecar files, calling an OpenAI-style audio transcription API, or using the bundled local ASR companion server under `tools/local_asr_server`. This is **video transcript / audio transcription**, not video frame understanding. Faster-whisper model weights are not committed to the repository; users can preload/download them through the local ASR server or point the server to a manually downloaded model directory.
 
 ## Local ASR Demo Startup
@@ -18,13 +61,17 @@ pip install -r tools/local_asr_server/requirements.txt
 ```
 
 `start.bat` starts Local ASR, starts the backend, saves Local ASR config,
-preloads the selected model, starts the frontend, and opens the browser. It
-does not run ingest, does not call `/v1/audio/transcriptions`, and does not
-verify search/chat/citations.
+preloads the selected model, starts `python -m app.demo watch`, starts the
+frontend, verifies the frontend proxy, and opens the browser. It does not run
+rebuild ingest and does not verify chat/citation answer quality.
 
-Use `run_demo_ingest.bat` after `start.bat` reaches Model Ready. It checks the
-backend, Local ASR health, and model status before running
-`python -m app.demo ingest`.
+After `start.bat` reaches Model Ready, the watcher should also report Ready.
+New files in `knowledge_base` are handled by the watcher through incremental
+non-rebuild ingest. Use `run_demo_ingest.bat` only for the manual rebuild tool.
+It checks the backend, Local ASR health, and model status before running
+`python -m app.demo ingest`. Because that command rebuilds Chroma, close the
+backend first when the script prompts; if port `8000` is still occupied, the
+script stops before ingest.
 
 To avoid accidental online model download during a demo, set:
 
@@ -37,10 +84,18 @@ The companion server also supports `LOCAL_ASR_MODEL_SMALL_PATH` and
 and transcription. If a configured path is invalid, the server reports it and
 falls back to normal model-name resolution.
 
-For a first real ASR smoke test, prefer a valid `.wav` or `.mp3` without a
-sidecar transcript. Use `.mp4` only after audio smoke passes. This demo is
-transcript-only ASR; it is not video frame understanding, OCR, frame
-extraction, multimodal embedding, or LLM summary.
+For a first real ASR smoke test, prefer a valid English-name `.wav` file
+without a sidecar transcript, for example `knowledge_base/local_asr_smoke.wav`.
+Use `.mp3` next and `.mp4` only after audio smoke passes. Avoid very short,
+silent, damaged `.mp4` files and avoid Chinese filenames for the first smoke
+test. Recommended recording content:
+
+```text
+这是 MindDock 本地语音识别测试，系统应该把这段录音转录成文本并入库。
+```
+
+This demo is transcript-only ASR; it is not video frame understanding, OCR,
+frame extraction, multimodal embedding, or LLM summary.
 
 ## Provider Modes
 

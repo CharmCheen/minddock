@@ -1,25 +1,18 @@
 @echo off
 chcp 65001 >nul
-setlocal enabledelayedexpansion
+setlocal EnableExtensions DisableDelayedExpansion
 
-echo ============================================
-echo   MindDock One-click Startup
-echo   Local ASR + Backend + Frontend + Preload
-echo ============================================
-echo.
-
-:: =========================
-:: Config
-:: =========================
 set "ROOT_DIR=%~dp0"
 set "ROOT_DIR=%ROOT_DIR:~0,-1%"
+set "LOG_DIR=%ROOT_DIR%\logs"
+set "LOG_FILE=%LOG_DIR%\startup.log"
 
 set "BACKEND_HOST=127.0.0.1"
 set "BACKEND_PORT=8000"
 set "FRONTEND_HOST=127.0.0.1"
 set "FRONTEND_PORT=3000"
 
-set "ENABLE_LOCAL_ASR=1"
+set "MINDDOCK_ENV=minddock"
 set "ASR_ENV=local-asr"
 set "ASR_HOST=127.0.0.1"
 set "ASR_PORT=9001"
@@ -28,324 +21,418 @@ set "ASR_DEVICE=auto"
 set "ASR_COMPUTE=int8"
 set "ASR_TIMEOUT=120"
 set "ASR_DIR=%ROOT_DIR%\tools\local_asr_server"
-
-:: Local faster-whisper model path override
-set "LOCAL_ASR_MODEL_BASE_PATH=D:\models\faster-whisper-base"
-
-:: Whether to build frontend before dev server: 1=yes, 0=no
+set "LOCAL_ASR_MODEL_BASE_PATH=%ROOT_DIR%\models\faster-whisper-base"
+set "WATCH_PATH=%ROOT_DIR%\knowledge_base"
+set "WATCHER_LOG_FILE=%LOG_DIR%\watcher.log"
+set "WATCHER_READY_FILE=%TEMP%\minddock_watcher_ready.json"
 set "BUILD_FRONTEND=0"
 
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>nul
+(
+  echo ============================================
+  echo MindDock startup log
+  echo Time: %DATE% %TIME%
+  echo Root: %ROOT_DIR%
+  echo ============================================
+) > "%LOG_FILE%"
+
+echo ============================================
+echo   MindDock One-click Startup
+echo   Local ASR + Backend + Watcher + Frontend
+echo ============================================
+echo.
 echo Project root:
 echo   %ROOT_DIR%
+echo Log:
+echo   %LOG_FILE%
 echo.
 
-:: =========================
-:: Check conda envs
-:: =========================
-echo [1/9] Checking conda environments...
+echo [1/10] Checking conda environments...
+call conda env list >> "%LOG_FILE%" 2>&1
+if errorlevel 1 goto FAIL_CONDA_LIST
 
-conda env list | findstr /i "minddock" >nul
-if %errorlevel% neq 0 (
-    echo   [ERROR] minddock environment not found.
-    echo   Run: conda env create -f environment.yml
-    pause
-    exit /b 1
-)
+call conda env list | findstr /i "%MINDDOCK_ENV%" >nul
+if errorlevel 1 goto FAIL_MINDDOCK_ENV
 echo   [OK] minddock environment found
 
-if "%ENABLE_LOCAL_ASR%"=="1" (
-    conda env list | findstr /i "%ASR_ENV%" >nul
-    if !errorlevel! neq 0 (
-        echo   [ERROR] %ASR_ENV% environment not found.
-        echo   Please create it first:
-        echo   conda create -n local-asr python=3.10 -y
-        echo   conda activate local-asr
-        echo   pip install -r "%ASR_DIR%\requirements.txt"
-        pause
-        exit /b 1
-    )
-    echo   [OK] %ASR_ENV% environment found
-)
+call conda env list | findstr /i "%ASR_ENV%" >nul
+if errorlevel 1 goto FAIL_ASR_ENV
+echo   [OK] local-asr environment found
 
-:: =========================
-:: Check local ASR files and deps
-:: =========================
 echo.
-echo [2/9] Checking Local ASR files and model...
+echo [2/10] Checking Local ASR server, faster-whisper import, and model files...
+if not exist "%ASR_DIR%\server.py" goto FAIL_ASR_SERVER
 
-if "%ENABLE_LOCAL_ASR%"=="1" (
-    if not exist "%ASR_DIR%\server.py" (
-        echo   [ERROR] Local ASR server.py not found:
-        echo   %ASR_DIR%\server.py
-        pause
-        exit /b 1
-    )
-    echo   [OK] Local ASR server found
+echo   Checking faster-whisper import in %ASR_ENV%...
+call conda run -n %ASR_ENV% python -c "import sys; print(sys.executable); import faster_whisper; print('faster-whisper ok')" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 goto FAIL_FASTER_WHISPER
+echo   [OK] faster-whisper import ok
 
-    conda run -n %ASR_ENV% python -c "import faster_whisper; print('faster-whisper ok')" >nul 2>nul
-    if !errorlevel! neq 0 (
-        echo   [ERROR] faster-whisper is not installed in %ASR_ENV%.
-        echo   Run:
-        echo   conda activate %ASR_ENV%
-        echo   pip install -r "%ASR_DIR%\requirements.txt"
-        pause
-        exit /b 1
-    )
-    echo   [OK] faster-whisper import ok
+if not exist "%LOCAL_ASR_MODEL_BASE_PATH%\model.bin" goto FAIL_MODEL_FILES
+if not exist "%LOCAL_ASR_MODEL_BASE_PATH%\config.json" goto FAIL_MODEL_FILES
+if not exist "%LOCAL_ASR_MODEL_BASE_PATH%\tokenizer.json" goto FAIL_MODEL_FILES
+if not exist "%LOCAL_ASR_MODEL_BASE_PATH%\vocabulary.txt" goto FAIL_MODEL_FILES
+echo   [OK] local model files found
 
-    if not exist "%LOCAL_ASR_MODEL_BASE_PATH%\model.bin" (
-        echo   [WARN] Local base model not found or incomplete:
-        echo   %LOCAL_ASR_MODEL_BASE_PATH%
-        echo.
-        echo   Expected at least:
-        echo   - config.json
-        echo   - model.bin
-        echo   - tokenizer.json
-        echo   - vocabulary.txt
-        echo.
-        echo   Preload may try to download the model if no valid local path is found.
-        echo.
-    ) else (
-        echo   [OK] Local faster-whisper base model found
-    )
-)
-
-:: =========================
-:: Start Local ASR server
-:: =========================
 echo.
-echo [3/9] Starting Local ASR server...
-
-if "%ENABLE_LOCAL_ASR%"=="1" (
-    curl.exe -s http://%ASR_HOST%:%ASR_PORT%/health >nul 2>nul
-    if !errorlevel! equ 0 (
-        echo   [OK] Local ASR already running at http://%ASR_HOST%:%ASR_PORT%
-    ) else (
-        echo   Starting Local ASR at http://%ASR_HOST%:%ASR_PORT% ...
-        start "MindDock-Local-ASR" cmd /k "chcp 65001 >nul && set ""LOCAL_ASR_MODEL_BASE_PATH=%LOCAL_ASR_MODEL_BASE_PATH%"" && cd /d ""%ASR_DIR%"" && call conda activate %ASR_ENV% && uvicorn server:app --host %ASR_HOST% --port %ASR_PORT%"
-        timeout /t 5 /nobreak >nul
-
-        curl.exe -s http://%ASR_HOST%:%ASR_PORT%/health >nul 2>nul
-        if !errorlevel! equ 0 (
-            echo   [OK] Local ASR started
-        ) else (
-            echo   [WARN] Local ASR may still be starting.
-            echo   Waiting a bit more...
-            timeout /t 5 /nobreak >nul
-            curl.exe -s http://%ASR_HOST%:%ASR_PORT%/health >nul 2>nul
-            if !errorlevel! neq 0 (
-                echo   [ERROR] Local ASR did not become ready at http://%ASR_HOST%:%ASR_PORT%/health.
-                echo   Check the MindDock-Local-ASR window and fix it before continuing.
-                pause
-                exit /b 1
-            )
-            echo   [OK] Local ASR started
-        )
-    )
+echo [3/10] Starting Local ASR server...
+call :CHECK_URL "http://%ASR_HOST%:%ASR_PORT%/health" 2
+if errorlevel 1 (
+  echo   Starting Local ASR at http://%ASR_HOST%:%ASR_PORT% ...
+  echo Starting Local ASR window... >> "%LOG_FILE%" 2>&1
+  start "MindDock-Local-ASR" cmd /k "chcp 65001 >nul && set ""LOCAL_ASR_MODEL_BASE_PATH=%LOCAL_ASR_MODEL_BASE_PATH%"" && cd /d ""%ASR_DIR%"" && call conda activate %ASR_ENV% && uvicorn server:app --host %ASR_HOST% --port %ASR_PORT%"
+  call :WAIT_URL "http://%ASR_HOST%:%ASR_PORT%/health" 60 "Local ASR /health"
+  if errorlevel 1 goto FAIL_ASR_HEALTH
 ) else (
-    echo   [SKIP] Local ASR disabled
+  echo   [OK] Local ASR already running at http://%ASR_HOST%:%ASR_PORT%
 )
+echo   [OK] Local ASR /health ready
 
-:: =========================
-:: Start backend
-:: =========================
 echo.
-echo [4/9] Starting MindDock backend...
-
-curl.exe -s http://%BACKEND_HOST%:%BACKEND_PORT%/health >nul 2>nul
-if !errorlevel! equ 0 (
-    echo   [OK] Backend already running at http://%BACKEND_HOST%:%BACKEND_PORT%
+echo [4/10] Starting MindDock backend...
+call :CHECK_URL "http://%BACKEND_HOST%:%BACKEND_PORT%/health" 2
+if errorlevel 1 (
+  echo   Starting backend at http://%BACKEND_HOST%:%BACKEND_PORT% ...
+  echo Starting backend window... >> "%LOG_FILE%" 2>&1
+  start "MindDock-Backend" cmd /k "chcp 65001 >nul && cd /d ""%ROOT_DIR%"" && call conda run -n %MINDDOCK_ENV% python -m app.demo serve --port %BACKEND_PORT%"
+  call :WAIT_URL "http://%BACKEND_HOST%:%BACKEND_PORT%/health" 60 "Backend /health"
+  if errorlevel 1 goto FAIL_BACKEND_HEALTH
 ) else (
-    start "MindDock-Backend" cmd /k "chcp 65001 >nul && cd /d ""%ROOT_DIR%"" && call conda activate minddock && python -m app.demo serve --port %BACKEND_PORT%"
+  echo   [OK] Backend already running at http://%BACKEND_HOST%:%BACKEND_PORT%
 )
+echo   [OK] Backend /health ready
+call :WAIT_BACKEND_API
+if errorlevel 1 goto FAIL_BACKEND_API
+echo   [OK] Backend API Ready
 
-:: Wait for backend health
-echo   Waiting for backend /health...
-set /a BACKEND_WAIT=0
-:WAIT_BACKEND
-curl.exe -s http://%BACKEND_HOST%:%BACKEND_PORT%/health >nul 2>nul
-if !errorlevel! equ 0 (
-    echo   [OK] Backend is ready
-    goto BACKEND_READY
-)
-set /a BACKEND_WAIT+=1
-if !BACKEND_WAIT! geq 30 (
-    echo   [ERROR] Backend did not become ready within timeout.
-    echo   Stop here to avoid a false-success demo startup.
-    pause
-    exit /b 1
-)
-timeout /t 2 /nobreak >nul
-goto WAIT_BACKEND
-
-:BACKEND_READY
-
-:: =========================
-:: Auto-save Local ASR config
-:: =========================
 echo.
-echo [5/9] Saving Local ASR provider config to backend...
-
+echo [5/10] Saving Local ASR provider config...
 set "CONFIG_JSON=%TEMP%\minddock_local_asr_config.json"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$cfg=[ordered]@{provider='local';enabled=$true;base_url='';api_key='';model='whisper-1';timeout_seconds=%ASR_TIMEOUT%;local_asr_server_path=$env:ASR_DIR;local_asr_host='%ASR_HOST%';local_asr_port=%ASR_PORT%;local_asr_model='%ASR_MODEL%';local_asr_device='%ASR_DEVICE%';local_asr_compute_type='%ASR_COMPUTE%';local_asr_auto_start=$true;local_asr_timeout_seconds=%ASR_TIMEOUT%}; $cfg | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $env:CONFIG_JSON -Encoding UTF8" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 goto FAIL_CONFIG_JSON
 
-(
-echo {
-echo   "provider": "local",
-echo   "enabled": true,
-echo   "base_url": "",
-echo   "api_key": "",
-echo   "model": "whisper-1",
-echo   "timeout_seconds": %ASR_TIMEOUT%,
-echo   "local_asr_server_path": "%ASR_DIR:\=\\%",
-echo   "local_asr_host": "%ASR_HOST%",
-echo   "local_asr_port": %ASR_PORT%,
-echo   "local_asr_model": "%ASR_MODEL%",
-echo   "local_asr_device": "%ASR_DEVICE%",
-echo   "local_asr_compute_type": "%ASR_COMPUTE%",
-echo   "local_asr_auto_start": true,
-echo   "local_asr_timeout_seconds": %ASR_TIMEOUT%
-echo }
-) > "%CONFIG_JSON%"
-
-curl.exe -fsS -X PUT "http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config" ^
-  -H "Content-Type: application/json" ^
-  --data-binary "@%CONFIG_JSON%" >nul
-
-if !errorlevel! equ 0 (
-    echo   [OK] Local ASR config saved
-) else (
-    echo   [ERROR] Failed to save Local ASR config.
-    del "%CONFIG_JSON%" >nul 2>nul
-    pause
-    exit /b 1
-)
-
+curl.exe -fsS -X PUT "http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config" -H "Content-Type: application/json" --data-binary "@%CONFIG_JSON%" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 goto FAIL_CONFIG_SAVE
 del "%CONFIG_JSON%" >nul 2>nul
+echo   [OK] Local ASR config saved
 
-:: =========================
-:: Start/check ASR via backend + preload model
-:: =========================
+curl.exe -fsS -X POST "http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config/local/start" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 goto FAIL_BACKEND_LOCAL_START
+echo   [OK] Backend Local ASR status checked
+
 echo.
-echo [6/9] Starting/checking Local ASR through backend...
+echo [6/10] Preloading Local ASR model and waiting for Ready...
+set "PRELOAD_JSON=%TEMP%\minddock_local_asr_preload.json"
+set "PRELOAD_STATUS=%TEMP%\minddock_local_asr_preload_status.txt"
+set "MODEL_STATUS_FILE=%TEMP%\minddock_local_asr_model_status.txt"
+>"%PRELOAD_JSON%" echo {"model":"%ASR_MODEL%","device":"%ASR_DEVICE%","compute_type":"%ASR_COMPUTE%"}
 
-curl.exe -fsS -X POST "http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config/local/start" >nul 2>nul
-if !errorlevel! neq 0 (
-    echo   [ERROR] Backend failed to start/check Local ASR.
-    pause
-    exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r=Invoke-RestMethod -Method Post -Uri 'http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config/local/model/preload' -ContentType 'application/json' -InFile $env:PRELOAD_JSON; $r | ConvertTo-Json -Depth 6 | Tee-Object -FilePath $env:PRELOAD_STATUS } catch { $_ | Out-String | Tee-Object -FilePath $env:PRELOAD_STATUS; exit 1 }" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 goto FAIL_PRELOAD
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$r=Get-Content -Raw -LiteralPath $env:PRELOAD_STATUS | ConvertFrom-Json; if ($r.status -eq 'failed') { exit 2 }" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 goto FAIL_PRELOAD_FAILED
+del "%PRELOAD_JSON%" >nul 2>nul
+
+call :WAIT_MODEL_READY
+if errorlevel 1 goto FAIL_MODEL_READY
+echo   [OK] Model Ready: %ASR_MODEL% / %ASR_DEVICE% / %ASR_COMPUTE%
+
+echo.
+echo [7/10] Starting knowledge_base watcher...
+if exist "%WATCHER_READY_FILE%" del "%WATCHER_READY_FILE%" >nul 2>nul
+call :CHECK_WATCHER_PROCESS
+if errorlevel 1 (
+  echo   Starting watcher for:
+  echo     %WATCH_PATH%
+  (
+    echo ============================================
+    echo MindDock watcher log
+    echo Time: %DATE% %TIME%
+    echo Root: %ROOT_DIR%
+    echo Watch path: %WATCH_PATH%
+    echo ============================================
+  ) > "%WATCHER_LOG_FILE%"
+  start "MindDock-Watcher" cmd /k "chcp 65001 >nul && cd /d ""%ROOT_DIR%"" && call conda activate %MINDDOCK_ENV% && python -m app.demo watch --path ""%WATCH_PATH%"" --ready-file ""%WATCHER_READY_FILE%"" --fail-on-sync-error >> ""%WATCHER_LOG_FILE%"" 2>&1"
+  call :WAIT_WATCHER_READY
+  if errorlevel 1 goto FAIL_WATCHER_READY
+) else (
+  echo   [OK] Watcher already running
 )
-
-echo   Checking Local ASR status...
-curl.exe -s "http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config/local/status"
-echo.
+echo   [OK] Watcher Ready
 
 echo.
-echo   Triggering model preload: %ASR_MODEL% / %ASR_DEVICE% / %ASR_COMPUTE% ...
-curl.exe -s -X POST "http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config/local/model/preload" ^
-  -H "Content-Type: application/json" ^
-  -d "{}"
-echo.
-
-echo.
-echo   Waiting for model Ready status...
-set /a MODEL_WAIT=0
-set "MODEL_STATUS="
-
-:WAIT_MODEL
-for /f "usebackq delims=" %%S in (`powershell -NoProfile -Command "try { (Invoke-RestMethod -Uri 'http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config/local/model/status').status } catch { 'error' }"`) do set "MODEL_STATUS=%%S"
-
-echo   Model status: !MODEL_STATUS!
-
-if /i "!MODEL_STATUS!"=="ready" (
-    echo   [OK] Local ASR model is Ready
-    goto MODEL_READY
-)
-
-if /i "!MODEL_STATUS!"=="failed" (
-    echo   [ERROR] Model preload failed. Check MindDock-Local-ASR window.
-    pause
-    exit /b 1
-)
-
-set /a MODEL_WAIT+=1
-if !MODEL_WAIT! geq 60 (
-    echo   [ERROR] Model did not become Ready within timeout.
-    echo   Stop here to avoid a false-success demo startup.
-    pause
-    exit /b 1
-)
-
-timeout /t 5 /nobreak >nul
-goto WAIT_MODEL
-
-:MODEL_READY
-
-:: =========================
-:: Build frontend
-:: =========================
-echo.
-echo [7/9] Building frontend...
-
-cd /d "%ROOT_DIR%\frontend"
-
+echo [8/10] Frontend build setting...
 if "%BUILD_FRONTEND%"=="1" (
-    call pnpm build
-    if !errorlevel! neq 0 (
-        echo.
-        echo   [ERROR] Frontend build failed.
-        echo   Please check the error messages above.
-        pause
-        exit /b 1
-    )
-    echo   [OK] Frontend build completed
+  echo   BUILD_FRONTEND=1, running pnpm build...
+  pushd "%ROOT_DIR%\frontend"
+  call pnpm build >> "%LOG_FILE%" 2>&1
+  if errorlevel 1 (
+    popd
+    goto FAIL_FRONTEND_BUILD
+  )
+  popd
+  echo   [OK] Frontend build completed
 ) else (
-    echo   [SKIP] Frontend build skipped
+  echo   [SKIP] Frontend build skipped by default
 )
 
-:: =========================
-:: Start frontend
-:: =========================
 echo.
-echo [8/9] Starting frontend dev server...
-
-curl.exe -s http://%FRONTEND_HOST%:%FRONTEND_PORT% >nul 2>nul
-if !errorlevel! equ 0 (
-    echo   [OK] Frontend already running at http://%FRONTEND_HOST%:%FRONTEND_PORT%
+echo [9/10] Starting frontend dev server...
+call :CHECK_URL "http://%FRONTEND_HOST%:%FRONTEND_PORT%" 2
+if errorlevel 1 (
+  echo   Starting frontend at http://%FRONTEND_HOST%:%FRONTEND_PORT% ...
+  start "MindDock-Frontend" cmd /k "chcp 65001 >nul && cd /d ""%ROOT_DIR%\frontend"" && pnpm dev --host %FRONTEND_HOST% --port %FRONTEND_PORT%"
+  call :WAIT_URL "http://%FRONTEND_HOST%:%FRONTEND_PORT%" 60 "Frontend"
+  if errorlevel 1 goto FAIL_FRONTEND_HEALTH
 ) else (
-    start "MindDock-Frontend" cmd /k "chcp 65001 >nul && cd /d ""%ROOT_DIR%\frontend"" && pnpm dev --host %FRONTEND_HOST% --port %FRONTEND_PORT%"
+  echo   [OK] Frontend already running at http://%FRONTEND_HOST%:%FRONTEND_PORT%
 )
+echo   [OK] Frontend ready
+call :WAIT_FRONTEND_BACKEND_PROXY
+if errorlevel 1 goto FAIL_FRONTEND_BACKEND_PROXY
+echo   [OK] Frontend -^> Backend API connectivity Ready
 
-timeout /t 3 /nobreak >nul
+echo.
+echo [10/10] Opening browser...
+start "" "http://localhost:%FRONTEND_PORT%"
 
-:: =========================
-:: Done
-:: =========================
-echo.
-echo [9/9] Done!
-echo.
-echo   Local ASR:   http://%ASR_HOST%:%ASR_PORT%
-echo   Backend API: http://localhost:%BACKEND_PORT%
-echo   Frontend:    http://localhost:%FRONTEND_PORT%
-echo   API Docs:    http://localhost:%BACKEND_PORT%/docs
-echo.
-echo Frontend should now be directly usable:
-echo   Provider: Local ASR
-echo   Model: %ASR_MODEL%
-echo   Device: %ASR_DEVICE%
-echo   Compute Type: %ASR_COMPUTE%
-echo   Model Status should be Ready if preload succeeded.
-echo.
-echo Next manual step for real validation:
-echo   Put a valid wav/mp3/mp4 without sidecar into knowledge_base
-echo   Then run:
-echo   conda activate minddock
-echo   python -m app.demo ingest
 echo.
 echo ============================================
-echo   Press any key to open browser...
+echo   System started to usable state
 echo ============================================
+echo   Local ASR: Ready
+echo   Backend API: Ready
+echo   Watcher:   Ready
+echo   Frontend:  Ready
+echo   Frontend -^> Backend API: Ready
+echo   Model:     %ASR_MODEL% / %ASR_DEVICE% / %ASR_COMPUTE% Ready
+echo.
+echo New or changed files under knowledge_base are handled by the watcher.
+echo Manual rebuild ingest remains available through:
+echo   run_demo_ingest.bat
+echo.
+echo start.bat does not run rebuild ingest.
+echo.
+pause
+exit /b 0
 
-pause >nul
-start http://localhost:%FRONTEND_PORT%
+:CHECK_URL
+curl.exe -fsS --max-time %~2 "%~1" >nul 2>> "%LOG_FILE%"
+exit /b %ERRORLEVEL%
 
-endlocal
+:WAIT_URL
+set "WAIT_URL_TARGET=%~1"
+set "WAIT_URL_SECONDS=%~2"
+set "WAIT_URL_NAME=%~3"
+set /a WAIT_URL_COUNT=0
+:WAIT_URL_LOOP
+call :CHECK_URL "%WAIT_URL_TARGET%" 2
+if not errorlevel 1 exit /b 0
+set /a WAIT_URL_COUNT+=1
+if %WAIT_URL_COUNT% GEQ %WAIT_URL_SECONDS% exit /b 1
+if %WAIT_URL_COUNT%==1 echo   Waiting for %WAIT_URL_NAME% ...
+powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+goto WAIT_URL_LOOP
+
+:CHECK_BACKEND_API
+curl.exe -fsS --max-time 5 "http://%BACKEND_HOST%:%BACKEND_PORT%/sources" >nul 2>> "%LOG_FILE%"
+if errorlevel 1 exit /b 1
+curl.exe -fsS --max-time 5 "http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config" >nul 2>> "%LOG_FILE%"
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:WAIT_BACKEND_API
+set /a BACKEND_API_WAIT_COUNT=0
+:WAIT_BACKEND_API_LOOP
+call :CHECK_BACKEND_API
+if not errorlevel 1 exit /b 0
+set /a BACKEND_API_WAIT_COUNT+=1
+if %BACKEND_API_WAIT_COUNT% GEQ 60 exit /b 1
+if %BACKEND_API_WAIT_COUNT%==1 echo   Waiting for backend business APIs ...
+powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+goto WAIT_BACKEND_API_LOOP
+
+:CHECK_FRONTEND_BACKEND_PROXY
+curl.exe -fsS --max-time 5 "http://%FRONTEND_HOST%:%FRONTEND_PORT%/sources" >nul 2>> "%LOG_FILE%"
+if errorlevel 1 exit /b 1
+curl.exe -fsS --max-time 5 "http://%FRONTEND_HOST%:%FRONTEND_PORT%/frontend/media-transcript-config" >nul 2>> "%LOG_FILE%"
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:WAIT_FRONTEND_BACKEND_PROXY
+set /a FRONTEND_PROXY_WAIT_COUNT=0
+:WAIT_FRONTEND_BACKEND_PROXY_LOOP
+call :CHECK_FRONTEND_BACKEND_PROXY
+if not errorlevel 1 exit /b 0
+set /a FRONTEND_PROXY_WAIT_COUNT+=1
+if %FRONTEND_PROXY_WAIT_COUNT% GEQ 60 exit /b 1
+if %FRONTEND_PROXY_WAIT_COUNT%==1 echo   Waiting for frontend backend proxy ...
+powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+goto WAIT_FRONTEND_BACKEND_PROXY_LOOP
+
+:CHECK_WATCHER_PROCESS
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'python(?:\\.exe)?\\s+-m\\s+app\\.demo\\s+watch' -and $_.CommandLine -notmatch '--once' } | Select-Object -First 1; if ($p) { exit 0 } else { exit 1 }" >> "%LOG_FILE%" 2>&1
+exit /b %ERRORLEVEL%
+
+:WAIT_WATCHER_READY
+set /a WATCHER_WAIT_COUNT=0
+:WAIT_WATCHER_READY_LOOP
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { if (!(Test-Path -LiteralPath $env:WATCHER_READY_FILE)) { exit 1 }; $r=Get-Content -Raw -LiteralPath $env:WATCHER_READY_FILE | ConvertFrom-Json; if ($r.status -eq 'ready') { exit 0 }; if ($r.status -eq 'failed') { exit 2 }; exit 1 } catch { exit 1 }" >> "%LOG_FILE%" 2>&1
+if not errorlevel 1 exit /b 0
+if errorlevel 2 exit /b 2
+set /a WATCHER_WAIT_COUNT+=1
+if %WATCHER_WAIT_COUNT% GEQ 600 exit /b 1
+if %WATCHER_WAIT_COUNT%==1 echo   Waiting for watcher initial sync and observer startup ...
+powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+goto WAIT_WATCHER_READY_LOOP
+
+:WAIT_MODEL_READY
+set /a MODEL_WAIT_COUNT=0
+:WAIT_MODEL_LOOP
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r=Invoke-RestMethod -Uri 'http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config/local/model/status'; $r | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $env:MODEL_STATUS_FILE -Encoding UTF8; $r.status } catch { 'error' }" > "%TEMP%\minddock_model_status_value.txt" 2>> "%LOG_FILE%"
+set /p MODEL_STATUS=<"%TEMP%\minddock_model_status_value.txt"
+echo   Model status: %MODEL_STATUS%
+type "%MODEL_STATUS_FILE%" >> "%LOG_FILE%" 2>&1
+if /i "%MODEL_STATUS%"=="ready" exit /b 0
+if /i "%MODEL_STATUS%"=="failed" exit /b 2
+if /i "%MODEL_STATUS%"=="error" exit /b 3
+set /a MODEL_WAIT_COUNT+=5
+if %MODEL_WAIT_COUNT% GEQ 300 exit /b 1
+powershell -NoProfile -Command "Start-Sleep -Seconds 5" >nul 2>nul
+goto WAIT_MODEL_LOOP
+
+:FAIL_CONDA_LIST
+echo.
+echo [ERROR] Failed to run "conda env list".
+goto FAIL_COMMON
+
+:FAIL_MINDDOCK_ENV
+echo.
+echo [ERROR] minddock environment not found.
+echo Run: conda env create -f environment.yml
+goto FAIL_COMMON
+
+:FAIL_ASR_ENV
+echo.
+echo [ERROR] local-asr environment not found.
+echo Run:
+echo   conda create -n local-asr python=3.10 -y
+echo   conda activate local-asr
+echo   pip install -r "%ASR_DIR%\requirements.txt"
+goto FAIL_COMMON
+
+:FAIL_ASR_SERVER
+echo.
+echo [ERROR] Local ASR server.py not found:
+echo   %ASR_DIR%\server.py
+goto FAIL_COMMON
+
+:FAIL_FASTER_WHISPER
+echo.
+echo [ERROR] faster-whisper import failed in local-asr.
+echo Full error was written to:
+echo   %LOG_FILE%
+echo.
+echo To install dependencies, run:
+echo   conda run -n local-asr python -m pip install -r "%ASR_DIR%\requirements.txt"
+goto FAIL_COMMON
+
+:FAIL_MODEL_FILES
+echo.
+echo [ERROR] Local faster-whisper base model directory is missing required files.
+echo Required:
+echo   model.bin
+echo   config.json
+echo   tokenizer.json
+echo   vocabulary.txt
+echo.
+echo Please place faster-whisper-base model files under:
+echo   %LOCAL_ASR_MODEL_BASE_PATH%
+goto FAIL_COMMON
+
+:FAIL_ASR_HEALTH
+echo.
+echo [ERROR] Local ASR did not become ready at http://%ASR_HOST%:%ASR_PORT%/health within 60 seconds.
+goto FAIL_COMMON
+
+:FAIL_BACKEND_HEALTH
+echo.
+echo [ERROR] Backend did not become ready at http://%BACKEND_HOST%:%BACKEND_PORT%/health within 60 seconds.
+goto FAIL_COMMON
+
+:FAIL_BACKEND_API
+echo.
+echo [ERROR] Backend /health responded, but backend business APIs are not usable.
+echo Checked:
+echo   http://%BACKEND_HOST%:%BACKEND_PORT%/sources
+echo   http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config
+echo.
+echo A stale or wrong-environment backend may already be using port %BACKEND_PORT%.
+echo Close the old MindDock-Backend window or stop the process on port %BACKEND_PORT%, then run start.bat again.
+goto FAIL_COMMON
+
+:FAIL_CONFIG_JSON
+echo.
+echo [ERROR] Failed to write Local ASR config JSON.
+goto FAIL_COMMON
+
+:FAIL_CONFIG_SAVE
+echo.
+echo [ERROR] Failed to save Local ASR provider config through backend API.
+del "%CONFIG_JSON%" >nul 2>nul
+goto FAIL_COMMON
+
+:FAIL_BACKEND_LOCAL_START
+echo.
+echo [ERROR] Backend failed to check/start the configured Local ASR server.
+goto FAIL_COMMON
+
+:FAIL_PRELOAD
+echo.
+echo [ERROR] Failed to trigger Local ASR model preload.
+goto FAIL_COMMON
+
+:FAIL_PRELOAD_FAILED
+echo.
+echo [ERROR] Local ASR model preload returned failed.
+goto FAIL_COMMON
+
+:FAIL_MODEL_READY
+echo.
+echo [ERROR] Local ASR model did not reach Ready within 5 minutes, or status failed.
+goto FAIL_COMMON
+
+:FAIL_FRONTEND_BUILD
+echo.
+echo [ERROR] Frontend build failed.
+goto FAIL_COMMON
+
+:FAIL_WATCHER_READY
+echo.
+echo [ERROR] Watcher did not become ready, or its initial incremental sync failed.
+echo Checked readiness marker:
+echo   %WATCHER_READY_FILE%
+echo Watcher log:
+echo   %WATCHER_LOG_FILE%
+goto FAIL_COMMON
+
+:FAIL_FRONTEND_HEALTH
+echo.
+echo [ERROR] Frontend did not become ready at http://%FRONTEND_HOST%:%FRONTEND_PORT% within 60 seconds.
+goto FAIL_COMMON
+
+:FAIL_FRONTEND_BACKEND_PROXY
+echo.
+echo [ERROR] Frontend dev server is running, but frontend-to-backend API connectivity failed.
+echo Checked through Vite proxy:
+echo   http://%FRONTEND_HOST%:%FRONTEND_PORT%/sources
+echo   http://%FRONTEND_HOST%:%FRONTEND_PORT%/frontend/media-transcript-config
+goto FAIL_COMMON
+
+:FAIL_COMMON
+echo.
+echo See log:
+echo   %LOG_FILE%
+echo.
+pause
+exit /b 1

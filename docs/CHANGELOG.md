@@ -5,6 +5,41 @@ Update it before every push.
 
 ## Unreleased
 
+### Fixed
+
+- Reworked `start.bat` into a fail-fast one-click Local ASR demo launcher:
+  checks `minddock` and `local-asr`, verifies `faster_whisper` import, requires
+  local `models/faster-whisper-base` files, starts Local ASR and backend, saves
+  the Local ASR provider config, preloads `base / auto / int8`, waits for model
+  `ready`, starts the frontend, opens the browser, and writes startup logs.
+- Kept ingest out of `start.bat`; `run_demo_ingest.bat` remains the explicit
+  real-ingest workflow and checks backend health, Local ASR health, and model
+  readiness before asking for user confirmation.
+- Documented that Preload Model does not transcribe, ingest is the first real
+  transcription step, smoke tests should prefer `.wav`/`.mp3` before `.mp4`,
+  and faster-whisper model weights under `models/` must stay untracked.
+- Added startup connectivity checks so `start.bat` only reports ready after
+  backend business APIs and the frontend Vite proxy can reach `/sources` and
+  `/frontend/media-transcript-config`; expanded the Vite proxy to cover the
+  main chat/search/summarize/compare API routes.
+- Guarded `run_demo_ingest.bat` against rebuild ingest while the backend is
+  still listening on port `8000`, because the running backend can lock
+  `data/chroma/chroma.sqlite3`; the script now asks the user to close backend,
+  prints manual `netstat`/`taskkill` guidance, rechecks the port, and refuses to
+  ingest if the lock risk remains.
+- Clarified Local ASR smoke guidance: `start.bat` only starts the stack to
+  Ready, rebuild ingest recreates Chroma, backend should be closed before
+  `run_demo_ingest.bat`, and the first real ASR smoke test should use a fresh
+  English-name `.wav` such as `knowledge_base/local_asr_smoke.wav` instead of
+  very short, silent, damaged `.mp4` files or Chinese filenames.
+- Extended one-click startup to launch the existing `python -m app.demo watch`
+  incremental watcher after Local ASR model readiness. Startup now waits for a
+  watcher readiness marker, so the script only reports Ready after the initial
+  non-rebuild `knowledge_base` sync has completed and the observer is running.
+- Added watcher readiness signaling (`--ready-file`) and a startup-safe
+  `--fail-on-sync-error` option so demo startup does not silently ignore
+  failed incremental syncs.
+
 ### Added
 
 - ASR API provider for media transcript ingestion: `OptionalApiMediaTranscriptionClient` now calls an OpenAI-style `/audio/transcriptions` endpoint via `httpx`

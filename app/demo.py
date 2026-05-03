@@ -343,6 +343,8 @@ def cmd_watch(args: argparse.Namespace) -> None:
         debounce_seconds=args.debounce,
         once=args.once,
         dry_run=args.dry_run,
+        ready_file=args.ready_file,
+        fail_on_sync_error=args.fail_on_sync_error,
     )
 
 
@@ -763,6 +765,8 @@ def build_parser() -> argparse.ArgumentParser:
     watch_parser.add_argument("--dry-run", action="store_true", help="Preview sync changes without writing Chroma or HashStore")
     watch_parser.add_argument("--path", default=None, help="Knowledge base directory to watch")
     watch_parser.add_argument("--debounce", type=float, default=None, help="Debounce seconds for filesystem events")
+    watch_parser.add_argument("--ready-file", default=None, help="Write a JSON readiness marker after sync/observer startup")
+    watch_parser.add_argument("--fail-on-sync-error", action="store_true", help="Exit if the initial sync reports failed sources")
     watch_parser.set_defaults(func=cmd_watch)
 
     root_parser = subparsers.add_parser("root", help="Call GET /")

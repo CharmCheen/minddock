@@ -1,5 +1,60 @@
 # Local ASR Provider
 
+## One-click Local Demo Startup
+
+Use `start.bat` from the repository root for the local demo startup path. It
+checks the `minddock` and `local-asr` conda environments, verifies that
+`faster_whisper` imports in `local-asr`, verifies the local
+`models/faster-whisper-base` directory, starts Local ASR, starts the backend,
+saves the Local ASR provider config, triggers model preload, waits until the
+model status is `ready`, starts the incremental `knowledge_base` watcher,
+starts the frontend dev server, verifies that the frontend dev server can
+proxy backend API calls, and opens the browser.
+
+`start.bat` brings the system to a usable Ready state and starts automatic
+incremental ingestion. It does not run rebuild ingest and does not clear
+Chroma. Preload Model loads the configured faster-whisper model only; Local
+ASR transcription is triggered only when the watcher or manual ingest needs to
+index a media file without a sidecar transcript.
+
+Before running `start.bat` for a demo, close old MindDock-Backend,
+MindDock-Frontend, and MindDock-Watcher windows to avoid stale processes or
+duplicate watchers.
+
+Use `run_demo_ingest.bat` after `start.bat` reports Ready. It checks backend
+health, Local ASR health, and model readiness, then asks for confirmation
+before running `python -m app.demo ingest`. Because demo ingest is a rebuild
+ingest, it recreates Chroma. If the backend is still running, it may hold
+`data/chroma/chroma.sqlite3` open. Close the `MindDock-Backend` window, or
+release port `8000` when the script asks, before continuing.
+
+For normal daily demo use, do not run rebuild ingest. Drop new or changed files
+into `knowledge_base`; the watcher started by `start.bat` runs an initial
+non-rebuild sync and then keeps watching for create/modify/delete events.
+
+For the first real smoke test, prefer a valid English-name `.wav` file without
+a same-name sidecar transcript, for example
+`knowledge_base/local_asr_smoke.wav`. Try `.mp3` next and `.mp4` only after
+audio smoke passes. Avoid very short, silent, damaged `.mp4` files and avoid
+Chinese filenames for the first smoke test.
+
+Recommended recording content:
+
+```text
+这是 MindDock 本地语音识别测试，系统应该把这段录音转录成文本并入库。
+```
+
+Model weights are not committed to git. Keep `models/` untracked and place the
+base model files under:
+
+```text
+models/faster-whisper-base/
+  model.bin
+  config.json
+  tokenizer.json
+  vocabulary.txt
+```
+
 MindDock 的 Media Transcript Provider 支持 **Local ASR** 模式，通过本地独立运行的 OpenAI-compatible ASR 伴生服务实现语音转文字。
 
 ## 设计原则
@@ -164,9 +219,14 @@ pip install -r tools/local_asr_server/requirements.txt
 - Perform real transcription.
 - Verify search, chat, or citations.
 
-After `start.bat` reaches Model Ready, run `run_demo_ingest.bat` to perform
-the real ingest step. That script checks backend health, Local ASR health, and
-model readiness before running `python -m app.demo ingest`.
+After `start.bat` reaches Model Ready, the watcher is also running. It uses the
+existing `python -m app.demo watch` path, performs a startup non-rebuild sync,
+then watches `knowledge_base` for new, modified, moved, or deleted files. Use
+`run_demo_ingest.bat` only when you intentionally want the manual rebuild
+workflow. That script checks backend health, Local ASR health, and model
+readiness before running `python -m app.demo ingest`. It then warns that
+rebuild ingest recreates Chroma and asks you to close the backend first. If
+port `8000` is still occupied, the script stops instead of running ingest.
 
 ## Local Model Directory
 
@@ -199,7 +259,15 @@ For `provider=mock`, mock transcripts are still explicit and intentional. For
 
 ## Smoke Test Advice
 
-Use a valid `.wav` or `.mp3` file for the first real ASR smoke test. Try `.mp4`
-only after audio smoke passes, and avoid damaged media files. Local ASR is
+Use a valid English-name `.wav` file for the first real ASR smoke test, such
+as `knowledge_base/local_asr_smoke.wav`. `.mp3` is the next best option. Try
+`.mp4` only after audio smoke passes, and avoid very short, silent, damaged
+media files or Chinese filenames for the first smoke test. Local ASR is
 transcript-only: it does not do video frame understanding, OCR, frame
 extraction, multimodal embedding, or LLM summary.
+
+Demo ingest uses rebuild mode and recreates Chroma. If the backend is running,
+Windows may keep `data/chroma/chroma.sqlite3` locked. Close the backend window
+or release port `8000` before running `run_demo_ingest.bat`; the script prints
+`netstat -ano | findstr :8000` and `taskkill /PID <pid> /F` as manual
+diagnostic commands, but it does not kill processes automatically.

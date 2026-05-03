@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import time
 from pathlib import Path
@@ -51,6 +52,8 @@ def run_watcher(
     debounce_seconds: float | None = None,
     once: bool = False,
     dry_run: bool = False,
+    ready_file: str | Path | None = None,
+    fail_on_sync_error: bool = False,
 ) -> list:
     """Start the watchdog observer and block forever."""
 
@@ -73,13 +76,38 @@ def run_watcher(
     sync_results = service.sync_directory(dry_run=dry_run)
     for result in sync_results:
         print(_format_result(result))
+    failed_results = [result for result in sync_results if result.status == "failed"]
+    if failed_results and fail_on_sync_error:
+        _write_ready_file(
+            ready_file,
+            status="failed",
+            watch_path=watch_path,
+            sync_results=sync_results,
+            detail=f"{len(failed_results)} sync result(s) failed",
+        )
+        raise RuntimeError(f"Watcher sync failed for {len(failed_results)} source(s); see watcher log.")
     if once or dry_run:
+        _write_ready_file(
+            ready_file,
+            status="ready",
+            watch_path=watch_path,
+            sync_results=sync_results,
+            detail="sync completed",
+        )
         return sync_results
 
     handler = _WatchHandler(service).instance
     observer = Observer()
     observer.schedule(handler, str(watch_path), recursive=settings.watch_recursive)
     observer.start()
+    _write_ready_file(
+        ready_file,
+        status="ready",
+        watch_path=watch_path,
+        sync_results=sync_results,
+        detail="observer started",
+    )
+    print(f"Watcher Ready: {watch_path}", flush=True)
 
     logger.info(
         "Knowledge base watcher started: watch_path=%s recursive=%s debounce_seconds=%s log_dir=%s",
@@ -105,8 +133,17 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Preview sync changes without writing Chroma or HashStore")
     parser.add_argument("--path", default=None, help="Knowledge base directory to watch")
     parser.add_argument("--debounce", type=float, default=None, help="Debounce seconds for filesystem events")
+    parser.add_argument("--ready-file", default=None, help="Write a JSON readiness marker after sync/observer startup")
+    parser.add_argument("--fail-on-sync-error", action="store_true", help="Exit if the initial sync reports failed sources")
     args = parser.parse_args()
-    run_watcher(path=args.path, debounce_seconds=args.debounce, once=args.once, dry_run=args.dry_run)
+    run_watcher(
+        path=args.path,
+        debounce_seconds=args.debounce,
+        once=args.once,
+        dry_run=args.dry_run,
+        ready_file=args.ready_file,
+        fail_on_sync_error=args.fail_on_sync_error,
+    )
 
 
 def _format_result(result) -> str:
@@ -122,6 +159,31 @@ def _format_result(result) -> str:
     if result.detail:
         parts.append(result.detail)
     return " | ".join(parts)
+
+
+def _write_ready_file(
+    ready_file: str | Path | None,
+    *,
+    status: str,
+    watch_path: Path,
+    sync_results: list,
+    detail: str,
+) -> None:
+    if ready_file is None:
+        return
+    path = Path(ready_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "status": status,
+        "watch_path": str(watch_path),
+        "detail": detail,
+        "sync_total": len(sync_results),
+        "sync_failed": sum(1 for result in sync_results if result.status == "failed"),
+        "sync_updated": sum(1 for result in sync_results if result.status == "updated"),
+        "sync_removed": sum(1 for result in sync_results if result.status in {"deleted", "removed"}),
+        "sync_skipped": sum(1 for result in sync_results if result.status == "skipped"),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

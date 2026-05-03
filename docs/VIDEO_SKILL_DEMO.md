@@ -19,6 +19,18 @@ confirm that `knowledge_base` contains a valid `.wav`, `.mp3`, or `.mp4` file
 without a same-name sidecar transcript. Prefer `.wav` or `.mp3` for the first
 real smoke test, then try `.mp4` after audio smoke passes.
 
+Demo ingest runs rebuild ingest, which recreates Chroma. If the backend is
+still running, Windows may keep `data/chroma/chroma.sqlite3` locked. When
+`run_demo_ingest.bat` asks, close the `MindDock-Backend` window or manually
+release port `8000` before continuing. The script shows:
+
+```bat
+netstat -ano | findstr :8000
+taskkill /PID <pid> /F
+```
+
+It does not kill the backend process automatically.
+
 Do not commit model weights or runtime data. Keep `models/`, `data/`, and
 `knowledge_base/` out of the commit unless a future task explicitly changes
 that policy.
@@ -47,7 +59,9 @@ verify search/chat/citations.
 
 Use `run_demo_ingest.bat` after `start.bat` reaches Model Ready. It checks the
 backend, Local ASR health, and model status before running
-`python -m app.demo ingest`.
+`python -m app.demo ingest`. Because that command rebuilds Chroma, close the
+backend first when the script prompts; if port `8000` is still occupied, the
+script stops before ingest.
 
 To avoid accidental online model download during a demo, set:
 
@@ -60,10 +74,18 @@ The companion server also supports `LOCAL_ASR_MODEL_SMALL_PATH` and
 and transcription. If a configured path is invalid, the server reports it and
 falls back to normal model-name resolution.
 
-For a first real ASR smoke test, prefer a valid `.wav` or `.mp3` without a
-sidecar transcript. Use `.mp4` only after audio smoke passes. This demo is
-transcript-only ASR; it is not video frame understanding, OCR, frame
-extraction, multimodal embedding, or LLM summary.
+For a first real ASR smoke test, prefer a valid English-name `.wav` file
+without a sidecar transcript, for example `knowledge_base/local_asr_smoke.wav`.
+Use `.mp3` next and `.mp4` only after audio smoke passes. Avoid very short,
+silent, damaged `.mp4` files and avoid Chinese filenames for the first smoke
+test. Recommended recording content:
+
+```text
+这是 MindDock 本地语音识别测试，系统应该把这段录音转录成文本并入库。
+```
+
+This demo is transcript-only ASR; it is not video frame understanding, OCR,
+frame extraction, multimodal embedding, or LLM summary.
 
 ## Provider Modes
 

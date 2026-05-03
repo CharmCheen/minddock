@@ -17,10 +17,22 @@ ingest is the step that transcribes media.
 
 Use `run_demo_ingest.bat` after `start.bat` reports Ready. It checks backend
 health, Local ASR health, and model readiness, then asks for confirmation
-before running `python -m app.demo ingest`.
+before running `python -m app.demo ingest`. Because demo ingest is a rebuild
+ingest, it recreates Chroma. If the backend is still running, it may hold
+`data/chroma/chroma.sqlite3` open. Close the `MindDock-Backend` window, or
+release port `8000` when the script asks, before continuing.
 
-For the first real smoke test, prefer a valid `.wav` or `.mp3` file without a
-same-name sidecar transcript. Try `.mp4` only after audio smoke passes.
+For the first real smoke test, prefer a valid English-name `.wav` file without
+a same-name sidecar transcript, for example
+`knowledge_base/local_asr_smoke.wav`. Try `.mp3` next and `.mp4` only after
+audio smoke passes. Avoid very short, silent, damaged `.mp4` files and avoid
+Chinese filenames for the first smoke test.
+
+Recommended recording content:
+
+```text
+这是 MindDock 本地语音识别测试，系统应该把这段录音转录成文本并入库。
+```
 
 Model weights are not committed to git. Keep `models/` untracked and place the
 base model files under:
@@ -199,7 +211,9 @@ pip install -r tools/local_asr_server/requirements.txt
 
 After `start.bat` reaches Model Ready, run `run_demo_ingest.bat` to perform
 the real ingest step. That script checks backend health, Local ASR health, and
-model readiness before running `python -m app.demo ingest`.
+model readiness before running `python -m app.demo ingest`. It then warns that
+rebuild ingest recreates Chroma and asks you to close the backend first. If
+port `8000` is still occupied, the script stops instead of running ingest.
 
 ## Local Model Directory
 
@@ -232,7 +246,15 @@ For `provider=mock`, mock transcripts are still explicit and intentional. For
 
 ## Smoke Test Advice
 
-Use a valid `.wav` or `.mp3` file for the first real ASR smoke test. Try `.mp4`
-only after audio smoke passes, and avoid damaged media files. Local ASR is
+Use a valid English-name `.wav` file for the first real ASR smoke test, such
+as `knowledge_base/local_asr_smoke.wav`. `.mp3` is the next best option. Try
+`.mp4` only after audio smoke passes, and avoid very short, silent, damaged
+media files or Chinese filenames for the first smoke test. Local ASR is
 transcript-only: it does not do video frame understanding, OCR, frame
 extraction, multimodal embedding, or LLM summary.
+
+Demo ingest uses rebuild mode and recreates Chroma. If the backend is running,
+Windows may keep `data/chroma/chroma.sqlite3` locked. Close the backend window
+or release port `8000` before running `run_demo_ingest.bat`; the script prints
+`netstat -ano | findstr :8000` and `taskkill /PID <pid> /F` as manual
+diagnostic commands, but it does not kill processes automatically.

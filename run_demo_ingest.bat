@@ -56,13 +56,40 @@ echo Before continuing, make sure:
 echo   1. knowledge_base contains a valid wav/mp3/mp4 file.
 echo   2. The file has no same-name sidecar:
 echo      .transcript.md / .transcript.txt / .txt / .srt / .vtt
-echo   3. For the first smoke test, prefer wav/mp3; use mp4 after audio passes.
+echo   3. For the first smoke test, prefer a fresh English-name wav file:
+echo      knowledge_base\local_asr_smoke.wav
+echo   4. Avoid very short, silent, damaged mp4 files or Chinese filenames for
+echo      the first smoke test.
 echo.
 choice /C YN /M "Run real MindDock ingest now"
 if errorlevel 2 (
   echo Ingest cancelled.
   exit /b 0
 )
+
+echo.
+echo [LOCK CHECK] Rebuild ingest needs exclusive access to Chroma.
+echo Backend is currently running and may lock data\chroma\chroma.sqlite3.
+echo Please close the MindDock-Backend window or stop the process on port %BACKEND_PORT%
+echo before running rebuild ingest.
+echo.
+echo To inspect the process:
+echo   netstat -ano ^| findstr :%BACKEND_PORT%
+echo.
+echo To stop it manually:
+echo   taskkill /PID ^<pid^> /F
+echo.
+choice /C YN /M "I have closed backend and released port 8000; continue"
+if errorlevel 2 (
+  echo Ingest cancelled. Backend was left running.
+  exit /b 0
+)
+
+echo.
+echo Checking that backend port %BACKEND_PORT% is released...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-NetTCPConnection -LocalPort %BACKEND_PORT% -State Listen -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 goto FAIL_BACKEND_LOCK
+echo   [OK] Port %BACKEND_PORT% is free
 
 echo.
 echo Running ingest...
@@ -105,6 +132,18 @@ goto FAIL_COMMON
 echo.
 echo [ERROR] Local ASR model is not Ready.
 echo Run start.bat first and wait for Model Ready.
+goto FAIL_COMMON
+
+:FAIL_BACKEND_LOCK
+echo.
+echo [ERROR] Backend is still listening on port %BACKEND_PORT%.
+echo Rebuild ingest may fail because backend can lock data\chroma\chroma.sqlite3.
+echo.
+echo Please close the MindDock-Backend window or stop the process manually:
+echo   netstat -ano ^| findstr :%BACKEND_PORT%
+echo   taskkill /PID ^<pid^> /F
+echo.
+echo Then run run_demo_ingest.bat again.
 goto FAIL_COMMON
 
 :FAIL_CONDA

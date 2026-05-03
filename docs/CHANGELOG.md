@@ -22,6 +22,16 @@ Update it before every push.
   backend business APIs and the frontend Vite proxy can reach `/sources` and
   `/frontend/media-transcript-config`; expanded the Vite proxy to cover the
   main chat/search/summarize/compare API routes.
+- Guarded `run_demo_ingest.bat` against rebuild ingest while the backend is
+  still listening on port `8000`, because the running backend can lock
+  `data/chroma/chroma.sqlite3`; the script now asks the user to close backend,
+  prints manual `netstat`/`taskkill` guidance, rechecks the port, and refuses to
+  ingest if the lock risk remains.
+- Clarified Local ASR smoke guidance: `start.bat` only starts the stack to
+  Ready, rebuild ingest recreates Chroma, backend should be closed before
+  `run_demo_ingest.bat`, and the first real ASR smoke test should use a fresh
+  English-name `.wav` such as `knowledge_base/local_asr_smoke.wav` instead of
+  very short, silent, damaged `.mp4` files or Chinese filenames.
 
 ### Added
 

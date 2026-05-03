@@ -1,5 +1,27 @@
 # Video Skill Demo
 
+## Current Local ASR Demo Flow
+
+Run `start.bat` first. The startup script is responsible only for reaching a
+usable Ready state: Local ASR health ready, backend health ready, Local ASR
+provider config saved, faster-whisper model preloaded, model status `ready`,
+frontend dev server ready, and browser opened.
+
+`start.bat` intentionally does not ingest files, does not call
+`/v1/audio/transcriptions`, and does not perform real transcription. Model
+preload is not transcription; it only loads the configured model so Settings can
+show Local ASR connected / model ready.
+
+Run `run_demo_ingest.bat` separately for the real ingest step. It checks backend
+health, Local ASR health, and backend model status before asking the user to
+confirm that `knowledge_base` contains a valid `.wav`, `.mp3`, or `.mp4` file
+without a same-name sidecar transcript. Prefer `.wav` or `.mp3` for the first
+real smoke test, then try `.mp4` after audio smoke passes.
+
+Do not commit model weights or runtime data. Keep `models/`, `data/`, and
+`knowledge_base/` out of the commit unless a future task explicitly changes
+that policy.
+
 MindDock supports media transcript ingestion (ASR) by indexing transcript sidecar files, calling an OpenAI-style audio transcription API, or using the bundled local ASR companion server under `tools/local_asr_server`. This is **video transcript / audio transcription**, not video frame understanding. Faster-whisper model weights are not committed to the repository; users can preload/download them through the local ASR server or point the server to a manually downloaded model directory.
 
 ## Local ASR Demo Startup

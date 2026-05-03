@@ -5,6 +5,20 @@ Update it before every push.
 
 ## Unreleased
 
+### Fixed
+
+- Reworked `start.bat` into a fail-fast one-click Local ASR demo launcher:
+  checks `minddock` and `local-asr`, verifies `faster_whisper` import, requires
+  local `models/faster-whisper-base` files, starts Local ASR and backend, saves
+  the Local ASR provider config, preloads `base / auto / int8`, waits for model
+  `ready`, starts the frontend, opens the browser, and writes startup logs.
+- Kept ingest out of `start.bat`; `run_demo_ingest.bat` remains the explicit
+  real-ingest workflow and checks backend health, Local ASR health, and model
+  readiness before asking for user confirmation.
+- Documented that Preload Model does not transcribe, ingest is the first real
+  transcription step, smoke tests should prefer `.wav`/`.mp3` before `.mp4`,
+  and faster-whisper model weights under `models/` must stay untracked.
+
 ### Added
 
 - ASR API provider for media transcript ingestion: `OptionalApiMediaTranscriptionClient` now calls an OpenAI-style `/audio/transcriptions` endpoint via `httpx`

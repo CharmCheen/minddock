@@ -1,5 +1,37 @@
 # Local ASR Provider
 
+## One-click Local Demo Startup
+
+Use `start.bat` from the repository root for the local demo startup path. It
+checks the `minddock` and `local-asr` conda environments, verifies that
+`faster_whisper` imports in `local-asr`, verifies the local
+`models/faster-whisper-base` directory, starts Local ASR, starts the backend,
+saves the Local ASR provider config, triggers model preload, waits until the
+model status is `ready`, starts the frontend dev server, and opens the browser.
+
+`start.bat` only brings the system to a usable Ready state. It does not run
+ingest, does not call `/v1/audio/transcriptions`, and does not perform real
+transcription. Preload Model loads the configured faster-whisper model only;
+ingest is the step that transcribes media.
+
+Use `run_demo_ingest.bat` after `start.bat` reports Ready. It checks backend
+health, Local ASR health, and model readiness, then asks for confirmation
+before running `python -m app.demo ingest`.
+
+For the first real smoke test, prefer a valid `.wav` or `.mp3` file without a
+same-name sidecar transcript. Try `.mp4` only after audio smoke passes.
+
+Model weights are not committed to git. Keep `models/` untracked and place the
+base model files under:
+
+```text
+models/faster-whisper-base/
+  model.bin
+  config.json
+  tokenizer.json
+  vocabulary.txt
+```
+
 MindDock 的 Media Transcript Provider 支持 **Local ASR** 模式，通过本地独立运行的 OpenAI-compatible ASR 伴生服务实现语音转文字。
 
 ## 设计原则

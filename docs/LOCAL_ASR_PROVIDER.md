@@ -7,7 +7,8 @@ checks the `minddock` and `local-asr` conda environments, verifies that
 `faster_whisper` imports in `local-asr`, verifies the local
 `models/faster-whisper-base` directory, starts Local ASR, starts the backend,
 saves the Local ASR provider config, triggers model preload, waits until the
-model status is `ready`, starts the frontend dev server, and opens the browser.
+model status is `ready`, starts the frontend dev server, verifies that the
+frontend dev server can proxy backend API calls, and opens the browser.
 
 `start.bat` only brings the system to a usable Ready state. It does not run
 ingest, does not call `/v1/audio/transcriptions`, and does not perform real

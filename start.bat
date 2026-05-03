@@ -91,13 +91,16 @@ call :CHECK_URL "http://%BACKEND_HOST%:%BACKEND_PORT%/health" 2
 if errorlevel 1 (
   echo   Starting backend at http://%BACKEND_HOST%:%BACKEND_PORT% ...
   echo Starting backend window... >> "%LOG_FILE%" 2>&1
-  start "MindDock-Backend" cmd /k "chcp 65001 >nul && cd /d ""%ROOT_DIR%"" && call conda activate %MINDDOCK_ENV% && python -m app.demo serve --port %BACKEND_PORT%"
+  start "MindDock-Backend" cmd /k "chcp 65001 >nul && cd /d ""%ROOT_DIR%"" && call conda run -n %MINDDOCK_ENV% python -m app.demo serve --port %BACKEND_PORT%"
   call :WAIT_URL "http://%BACKEND_HOST%:%BACKEND_PORT%/health" 60 "Backend /health"
   if errorlevel 1 goto FAIL_BACKEND_HEALTH
 ) else (
   echo   [OK] Backend already running at http://%BACKEND_HOST%:%BACKEND_PORT%
 )
 echo   [OK] Backend /health ready
+call :WAIT_BACKEND_API
+if errorlevel 1 goto FAIL_BACKEND_API
+echo   [OK] Backend API Ready
 
 echo.
 echo [5/9] Saving Local ASR provider config...
@@ -109,6 +112,10 @@ curl.exe -fsS -X PUT "http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transc
 if errorlevel 1 goto FAIL_CONFIG_SAVE
 del "%CONFIG_JSON%" >nul 2>nul
 echo   [OK] Local ASR config saved
+
+curl.exe -fsS -X POST "http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config/local/start" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 goto FAIL_BACKEND_LOCAL_START
+echo   [OK] Backend Local ASR status checked
 
 echo.
 echo [6/9] Preloading Local ASR model and waiting for Ready...
@@ -155,6 +162,9 @@ if errorlevel 1 (
   echo   [OK] Frontend already running at http://%FRONTEND_HOST%:%FRONTEND_PORT%
 )
 echo   [OK] Frontend ready
+call :WAIT_FRONTEND_BACKEND_PROXY
+if errorlevel 1 goto FAIL_FRONTEND_BACKEND_PROXY
+echo   [OK] Frontend -^> Backend API connectivity Ready
 
 echo.
 echo [9/9] Opening browser...
@@ -167,6 +177,7 @@ echo ============================================
 echo   Local ASR: Ready
 echo   Backend:   Ready
 echo   Frontend:  Ready
+echo   Frontend -^> Backend API: Ready
 echo   Model:     %ASR_MODEL% / %ASR_DEVICE% / %ASR_COMPUTE% Ready
 echo.
 echo Next step for real validation:
@@ -196,6 +207,42 @@ if %WAIT_URL_COUNT% GEQ %WAIT_URL_SECONDS% exit /b 1
 if %WAIT_URL_COUNT%==1 echo   Waiting for %WAIT_URL_NAME% ...
 powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
 goto WAIT_URL_LOOP
+
+:CHECK_BACKEND_API
+curl.exe -fsS --max-time 5 "http://%BACKEND_HOST%:%BACKEND_PORT%/sources" >nul 2>> "%LOG_FILE%"
+if errorlevel 1 exit /b 1
+curl.exe -fsS --max-time 5 "http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config" >nul 2>> "%LOG_FILE%"
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:WAIT_BACKEND_API
+set /a BACKEND_API_WAIT_COUNT=0
+:WAIT_BACKEND_API_LOOP
+call :CHECK_BACKEND_API
+if not errorlevel 1 exit /b 0
+set /a BACKEND_API_WAIT_COUNT+=1
+if %BACKEND_API_WAIT_COUNT% GEQ 60 exit /b 1
+if %BACKEND_API_WAIT_COUNT%==1 echo   Waiting for backend business APIs ...
+powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+goto WAIT_BACKEND_API_LOOP
+
+:CHECK_FRONTEND_BACKEND_PROXY
+curl.exe -fsS --max-time 5 "http://%FRONTEND_HOST%:%FRONTEND_PORT%/sources" >nul 2>> "%LOG_FILE%"
+if errorlevel 1 exit /b 1
+curl.exe -fsS --max-time 5 "http://%FRONTEND_HOST%:%FRONTEND_PORT%/frontend/media-transcript-config" >nul 2>> "%LOG_FILE%"
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:WAIT_FRONTEND_BACKEND_PROXY
+set /a FRONTEND_PROXY_WAIT_COUNT=0
+:WAIT_FRONTEND_BACKEND_PROXY_LOOP
+call :CHECK_FRONTEND_BACKEND_PROXY
+if not errorlevel 1 exit /b 0
+set /a FRONTEND_PROXY_WAIT_COUNT+=1
+if %FRONTEND_PROXY_WAIT_COUNT% GEQ 60 exit /b 1
+if %FRONTEND_PROXY_WAIT_COUNT%==1 echo   Waiting for frontend backend proxy ...
+powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+goto WAIT_FRONTEND_BACKEND_PROXY_LOOP
 
 :WAIT_MODEL_READY
 set /a MODEL_WAIT_COUNT=0
@@ -271,6 +318,17 @@ echo.
 echo [ERROR] Backend did not become ready at http://%BACKEND_HOST%:%BACKEND_PORT%/health within 60 seconds.
 goto FAIL_COMMON
 
+:FAIL_BACKEND_API
+echo.
+echo [ERROR] Backend /health responded, but backend business APIs are not usable.
+echo Checked:
+echo   http://%BACKEND_HOST%:%BACKEND_PORT%/sources
+echo   http://%BACKEND_HOST%:%BACKEND_PORT%/frontend/media-transcript-config
+echo.
+echo A stale or wrong-environment backend may already be using port %BACKEND_PORT%.
+echo Close the old MindDock-Backend window or stop the process on port %BACKEND_PORT%, then run start.bat again.
+goto FAIL_COMMON
+
 :FAIL_CONFIG_JSON
 echo.
 echo [ERROR] Failed to write Local ASR config JSON.
@@ -280,6 +338,11 @@ goto FAIL_COMMON
 echo.
 echo [ERROR] Failed to save Local ASR provider config through backend API.
 del "%CONFIG_JSON%" >nul 2>nul
+goto FAIL_COMMON
+
+:FAIL_BACKEND_LOCAL_START
+echo.
+echo [ERROR] Backend failed to check/start the configured Local ASR server.
 goto FAIL_COMMON
 
 :FAIL_PRELOAD
@@ -305,6 +368,14 @@ goto FAIL_COMMON
 :FAIL_FRONTEND_HEALTH
 echo.
 echo [ERROR] Frontend did not become ready at http://%FRONTEND_HOST%:%FRONTEND_PORT% within 60 seconds.
+goto FAIL_COMMON
+
+:FAIL_FRONTEND_BACKEND_PROXY
+echo.
+echo [ERROR] Frontend dev server is running, but frontend-to-backend API connectivity failed.
+echo Checked through Vite proxy:
+echo   http://%FRONTEND_HOST%:%FRONTEND_PORT%/sources
+echo   http://%FRONTEND_HOST%:%FRONTEND_PORT%/frontend/media-transcript-config
 goto FAIL_COMMON
 
 :FAIL_COMMON

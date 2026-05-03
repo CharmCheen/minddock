@@ -5,7 +5,8 @@
 Run `start.bat` first. The startup script is responsible only for reaching a
 usable Ready state: Local ASR health ready, backend health ready, Local ASR
 provider config saved, faster-whisper model preloaded, model status `ready`,
-frontend dev server ready, and browser opened.
+frontend dev server ready, frontend-to-backend API connectivity ready, and
+browser opened.
 
 `start.bat` intentionally does not ingest files, does not call
 `/v1/audio/transcriptions`, and does not perform real transcription. Model

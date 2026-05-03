@@ -18,6 +18,10 @@ Update it before every push.
 - Documented that Preload Model does not transcribe, ingest is the first real
   transcription step, smoke tests should prefer `.wav`/`.mp3` before `.mp4`,
   and faster-whisper model weights under `models/` must stay untracked.
+- Added startup connectivity checks so `start.bat` only reports ready after
+  backend business APIs and the frontend Vite proxy can reach `/sources` and
+  `/frontend/media-transcript-config`; expanded the Vite proxy to cover the
+  main chat/search/summarize/compare API routes.
 
 ### Added
 

@@ -23,6 +23,15 @@ CITATION_LABEL_SECTION_LIMIT = 48
 MAX_EVIDENCE_DISTANCE = 1.5
 PARTIAL_SUPPORT_DISTANCE = 1.0
 OUT_OF_SCOPE_ANSWER = "This question is not answerable from the current knowledge base evidence."
+
+HELPFUL_CHAT_INSUFFICIENT_EVIDENCE = (
+    "我没有在当前知识库中找到足够直接的证据来回答这个问题，因此不能给出带引用的结论。"
+    "\n\n你可以尝试："
+    "\n1. 使用更接近原文的关键词重新提问；"
+    "\n2. 在 Sources 中确认相关文档、音频或视频是否已经成功入库；"
+    "\n3. 打开 Source Drawer 查看转录文本是否存在；"
+    "\n4. 指定某个来源后重新提问。"
+)
 MAX_EVIDENCE_WINDOW_BLOCKS = 5
 MAX_EVIDENCE_WINDOW_CHARS = 2400
 

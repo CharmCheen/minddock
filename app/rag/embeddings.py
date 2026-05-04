@@ -12,6 +12,9 @@ from functools import lru_cache
 from app.core.config import get_settings
 
 DEFAULT_VECTOR_SIZE = 384
+KNOWN_LOCAL_EMBEDDING_VECTOR_SIZES = {
+    "qwen/qwen3-embedding-0.6b": 1024,
+}
 
 
 class EmbeddingBackend:
@@ -70,14 +73,32 @@ class DummyEmbedding(EmbeddingBackend):
 
 
 class SentenceTransformerEmbedding(EmbeddingBackend):
-    """Sentence-transformers embedding implementation."""
+    """Sentence-transformers embedding implementation.
+
+    Respects EMBEDDING_DEVICE env var: auto (default), cuda, or cpu.
+    """
 
     def __init__(self, model_name: str) -> None:
         from sentence_transformers import SentenceTransformer
         import torch
 
-        use_gpu = torch.cuda.is_available()
-        if use_gpu:
+        _embedding_device = os.environ.get("EMBEDDING_DEVICE", "auto").strip().lower()
+        gpu_available = torch.cuda.is_available()
+
+        if _embedding_device == "cpu":
+            device = "cpu"
+        elif _embedding_device == "cuda":
+            if not gpu_available:
+                import logging
+                _log = logging.getLogger(__name__)
+                _log.warning("EMBEDDING_DEVICE=cuda but CUDA is not available; falling back to cpu")
+                device = "cpu"
+            else:
+                device = "cuda"
+        else:  # auto
+            device = "cuda" if gpu_available else "cpu"
+
+        if device == "cuda":
             os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True,max_split_size_mb:128")
             try:
                 self._model = SentenceTransformer(
@@ -86,11 +107,21 @@ class SentenceTransformerEmbedding(EmbeddingBackend):
                     model_kwargs={"torch_dtype": torch.float16},
                 )
             except Exception:
+                import logging
+                _log = logging.getLogger(__name__)
+                _log.warning("Failed to load SentenceTransformer on cuda; falling back to cpu")
                 self._model = SentenceTransformer(model_name, device="cpu")
+                device = "cpu"
         else:
             self._model = SentenceTransformer(model_name, device="cpu")
 
         self.vector_size = self._model.get_sentence_embedding_dimension() or DEFAULT_VECTOR_SIZE
+        import logging
+        _log = logging.getLogger(__name__)
+        _log.info(
+            "SentenceTransformerEmbedding loaded: model=%s device=%s vector_size=%d",
+            model_name, device, self.vector_size,
+        )
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -141,6 +172,10 @@ def _looks_like_remote_embedding_model(model_name: str) -> bool:
     return lowered.startswith("text-embedding-") or lowered.startswith("embedding-")
 
 
+def _fallback_vector_size_for_model(model_name: str) -> int:
+    return KNOWN_LOCAL_EMBEDDING_VECTOR_SIZES.get(model_name.strip().lower(), DEFAULT_VECTOR_SIZE)
+
+
 @lru_cache(maxsize=8)
 def get_embedding_backend(model_name: str | None = None) -> EmbeddingBackend:
     """Create the preferred embedding backend with graceful local fallback."""
@@ -171,4 +206,4 @@ def get_embedding_backend(model_name: str | None = None) -> EmbeddingBackend:
             RuntimeWarning,
             stacklevel=2,
         )
-        return DummyEmbedding(vector_size=DEFAULT_VECTOR_SIZE)
+        return DummyEmbedding(vector_size=_fallback_vector_size_for_model(resolved_model_name))

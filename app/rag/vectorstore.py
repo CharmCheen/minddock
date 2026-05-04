@@ -545,6 +545,21 @@ def _build_source_detail(
         if key not in {"chunk_id", "doc_id"}
     }
 
+    # Ensure media transcript metadata appears in representative_metadata
+    # even when Chroma get returns sparse results for the first row.
+    _MEDIA_METADATA_KEYS = (
+        "source_media", "source_kind", "loader_name",
+        "transcript_provider", "transcript_status", "transcript_error",
+        "media_filename", "retrieval_basis",
+    )
+    for row in rows:
+        loader = str(row.get("loader_name", ""))
+        for key in _MEDIA_METADATA_KEYS:
+            if key not in representative_metadata and key in row:
+                representative_metadata[key] = row[key]
+        if loader in ("audio.transcribe", "video.transcribe"):
+            break
+
     # Aggregate derived chunk flags and previews for source-level display
     derived_kinds: set[str] = set()
     for idx, row in enumerate(rows):

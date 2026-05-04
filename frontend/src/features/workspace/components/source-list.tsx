@@ -141,7 +141,7 @@ function inferSourceKind(source: string, sourceType: string): { label: string; c
   if (lower.endsWith('.csv')) return { label: 'CSV', color: '#a16207', bg: '#fef9c3' };
   if (/\.(png|jpg|jpeg|webp)$/.test(lower)) return { label: 'Image', color: '#7c3aed', bg: '#ede9fe' };
   if (/\.(mp3|wav|m4a|aac|flac|ogg)$/.test(lower)) return { label: 'Audio', color: '#c2410c', bg: '#ffedd5' };
-  if (/\.(mp4|mov|mkv|webm)$/.test(lower)) return { label: 'Video', color: '#be123c', bg: '#ffe4e6' };
+  if (/\.(mp4|mov|mkv|webm|avi)$/.test(lower)) return { label: 'Video', color: '#be123c', bg: '#ffe4e6' };
   return { label: 'File', color: '#475569', bg: '#f1f5f9' };
 }
 
@@ -1007,16 +1007,34 @@ export const SourceList: React.FC = () => {
                       {(() => {
                         const tp = metadataString(src.representative_metadata, 'transcript_provider');
                         if (!tp) return null;
+                        const ts = metadataString(src.representative_metadata, 'transcript_status');
+                        const tsLabel = ts === 'ready' ? '● ready' : ts === 'failed' ? '✕ failed' : ts === 'skipped' ? '⊘ skipped' : ts === 'transcribing' ? '◌ transcribing...' : ts;
+                        const tsColor = ts === 'ready' ? 'var(--color-success-text)' : ts === 'failed' ? 'var(--color-error-text)' : ts === 'skipped' ? 'var(--color-warning-text)' : ts === 'transcribing' ? 'var(--color-info-text)' : 'var(--color-text-tertiary)';
+                        const tsBg = ts === 'ready' ? 'var(--color-success-bg)' : ts === 'failed' ? 'var(--color-error-bg)' : ts === 'skipped' ? 'var(--color-warning-bg)' : ts === 'transcribing' ? 'var(--color-info-bg)' : 'var(--color-canvas-subtle)';
+                        const tsBorder = ts === 'ready' ? 'var(--color-success-border)' : ts === 'failed' ? 'var(--color-error-border)' : ts === 'skipped' ? 'var(--color-warning-border)' : ts === 'transcribing' ? 'var(--color-info-border)' : 'var(--color-border-subtle)';
                         return (
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center',
-                            background: 'var(--color-info-bg)',
-                            color: 'var(--color-info-text)',
-                            border: '1px solid var(--color-info-border)',
-                            borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
-                          }}>
-                            Transcript: {tp}
-                          </span>
+                          <>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center',
+                              background: 'var(--color-info-bg)',
+                              color: 'var(--color-info-text)',
+                              border: '1px solid var(--color-info-border)',
+                              borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
+                            }}>
+                              Transcript: {tp}
+                            </span>
+                            {ts && (
+                              <span title={metadataString(src.representative_metadata, 'transcript_error') || undefined} style={{
+                                display: 'inline-flex', alignItems: 'center',
+                                background: tsBg,
+                                color: tsColor,
+                                border: `1px solid ${tsBorder}`,
+                                borderRadius: 'var(--radius-full)', padding: '1px 8px', fontSize: '10px', fontWeight: 600,
+                              }}>
+                                {tsLabel}
+                              </span>
+                            )}
+                          </>
                         );
                       })()}
                       {metadataString(src.representative_metadata, 'has_derived_summary') === 'true' && (

@@ -1,3 +1,4 @@
+import stat
 from pathlib import Path
 
 from app.rag.incremental import HashStore, IncrementalIngestService
@@ -409,6 +410,85 @@ def test_sync_directory_detects_video_source(tmp_path: Path) -> None:
     assert record["metadata"]["retrieval_basis"] == "transcript_text"
 
 
+def test_readonly_media_file_is_made_writable_before_ingest(tmp_path: Path) -> None:
+    from app.rag.media_loader import MockMediaTranscriptionClient, MediaSourceLoader
+    from app.rag.source_loader import SourceLoaderRegistry
+
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    service._loader_registry = SourceLoaderRegistry(
+        loaders=[MediaSourceLoader(transcription_client=MockMediaTranscriptionClient(text="Video transcript"))]
+    )
+    video_path = tmp_path / "knowledge_base" / "readonly.mp4"
+    video_path.write_text("fake-video", encoding="utf-8")
+    video_path.chmod(video_path.stat().st_mode & ~stat.S_IWRITE)
+
+    result = service.handle_created(video_path)
+
+    assert result.status == "updated"
+    assert video_path.stat().st_mode & stat.S_IWRITE
+
+
+def test_readonly_non_media_file_is_not_changed_by_media_hardening(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    doc_path = tmp_path / "knowledge_base" / "readonly.md"
+    doc_path.write_text("# Notes\nStill readable.\n", encoding="utf-8")
+    readonly_mode = doc_path.stat().st_mode & ~stat.S_IWRITE
+    doc_path.chmod(readonly_mode)
+
+    result = service.handle_created(doc_path)
+
+    assert result.status == "updated"
+    assert doc_path.stat().st_mode & stat.S_IWRITE == 0
+    doc_path.chmod(doc_path.stat().st_mode | stat.S_IWRITE)
+
+
+def test_readonly_media_outside_knowledge_base_is_not_changed(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    outside_path = tmp_path / "outside.mp4"
+    outside_path.write_text("fake-video", encoding="utf-8")
+    readonly_mode = outside_path.stat().st_mode & ~stat.S_IWRITE
+    outside_path.chmod(readonly_mode)
+
+    result = service.handle_created(outside_path)
+
+    assert result.status == "skipped"
+    assert result.detail == "outside watch path"
+    assert outside_path.stat().st_mode & stat.S_IWRITE == 0
+    outside_path.chmod(outside_path.stat().st_mode | stat.S_IWRITE)
+
+
+def test_readonly_media_chmod_failure_does_not_stop_ingest(tmp_path: Path, monkeypatch) -> None:
+    from app.rag.media_loader import MockMediaTranscriptionClient, MediaSourceLoader
+    from app.rag.source_loader import SourceLoaderRegistry
+
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    service._loader_registry = SourceLoaderRegistry(
+        loaders=[MediaSourceLoader(transcription_client=MockMediaTranscriptionClient(text="Video transcript"))]
+    )
+    video_path = tmp_path / "knowledge_base" / "readonly.mp4"
+    video_path.write_text("fake-video", encoding="utf-8")
+    video_path.chmod(video_path.stat().st_mode & ~stat.S_IWRITE)
+    original_chmod = Path.chmod
+
+    def fake_chmod(path: Path, mode: int) -> None:
+        if path == video_path:
+            raise PermissionError("readonly locked")
+        return original_chmod(path, mode)
+
+    monkeypatch.setattr(Path, "chmod", fake_chmod)
+
+    result = service.handle_created(video_path)
+
+    assert result.status == "updated"
+    doc_id = build_doc_id(Path("readonly.mp4"))
+    assert collection.count_doc(doc_id) == 1
+    original_chmod(video_path, video_path.stat().st_mode | stat.S_IWRITE)
+
+
 def test_sync_directory_deletes_audio_source(tmp_path: Path) -> None:
     from app.rag.media_loader import MockMediaTranscriptionClient, MediaSourceLoader
     from app.rag.source_loader import SourceLoaderRegistry
@@ -447,3 +527,180 @@ def test_sync_directory_empty_transcript_does_not_upsert_empty_records(tmp_path:
     assert [(result.event_type, result.status) for result in results] == [("created", "updated")]
     doc_id = build_doc_id(Path("lecture.mp3"))
     assert collection.count_doc(doc_id) == 0
+
+
+# ── HashStore transcript fields ────────────────────────────────────
+
+
+def test_hash_store_stores_transcript_status(tmp_path: Path) -> None:
+    store = HashStore(tmp_path / "hash_store.json")
+    store.set(
+        "lecture.mp3",
+        doc_id="abc123",
+        content_hash="deadbeef",
+        transcript_status="ready",
+        transcript_provider="local",
+        transcript_error="",
+    )
+    entry = store.get("lecture.mp3")
+    assert entry is not None
+    assert entry["transcript_status"] == "ready"
+    assert entry["transcript_provider"] == "local"
+    assert entry["transcript_error"] == ""
+
+
+def test_hash_store_transcript_fields_persist(tmp_path: Path) -> None:
+    path = tmp_path / "data" / "hash_store.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    store_a = HashStore(path)
+    store_a.set("song.mp4", doc_id="xyz", content_hash="abc", transcript_status="failed", transcript_provider="mock", transcript_error="mock provider used")
+
+    store_b = HashStore(path)
+    entry = store_b.get("song.mp4")
+    assert entry is not None
+    assert entry["transcript_status"] == "failed"
+    assert entry["transcript_provider"] == "mock"
+    assert entry["transcript_error"] == "mock provider used"
+
+
+def test_hash_store_backward_compat_no_transcript_fields(tmp_path: Path) -> None:
+    """Entries saved without transcript fields should not have them."""
+    store = HashStore(tmp_path / "hash_store.json")
+    store.set("notes.txt", doc_id="n1", content_hash="hash1")
+    entry = store.get("notes.txt")
+    assert entry is not None
+    assert "transcript_status" not in entry
+
+
+# ── _is_media_file ─────────────────────────────────────────────────
+
+
+def test_is_media_file_recognizes_audio(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    assert service._is_media_file(Path("song.mp3")) is True
+    assert service._is_media_file(Path("voice.wav")) is True
+    assert service._is_media_file(Path("podcast.m4a")) is True
+
+
+def test_is_media_file_recognizes_video(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    assert service._is_media_file(Path("video.mp4")) is True
+    assert service._is_media_file(Path("movie.mov")) is True
+    assert service._is_media_file(Path("clip.avi")) is True
+
+
+def test_is_media_file_rejects_non_media(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    assert service._is_media_file(Path("notes.txt")) is False
+    assert service._is_media_file(Path("doc.pdf")) is False
+    assert service._is_media_file(Path("photo.jpg")) is False
+
+
+# ── _needs_media_transcript_retry ──────────────────────────────────
+
+
+def test_needs_retry_when_no_transcript_status(monkeypatch, tmp_path: Path) -> None:
+    """If no transcript_status is recorded, media files always need retry."""
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    stored = {"content_hash": "abc", "transcript_status": ""}
+    monkeypatch.setattr(
+        "app.rag.incremental._get_current_transcript_provider",
+        lambda: "local",
+    )
+    assert service._needs_media_transcript_retry(Path("song.mp3"), stored) is True
+
+
+def test_needs_retry_when_transcript_failed(monkeypatch, tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    stored = {"content_hash": "abc", "transcript_status": "failed", "transcript_provider": "local"}
+    monkeypatch.setattr(
+        "app.rag.incremental._get_current_transcript_provider",
+        lambda: "local",
+    )
+    assert service._needs_media_transcript_retry(Path("song.mp3"), stored) is True
+
+
+def test_needs_retry_when_provider_changed(monkeypatch, tmp_path: Path) -> None:
+    """If provider changed from mock to local, retry even if status was ready."""
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    stored = {"content_hash": "abc", "transcript_status": "ready", "transcript_provider": "mock"}
+    monkeypatch.setattr(
+        "app.rag.incremental._get_current_transcript_provider",
+        lambda: "local",
+    )
+    assert service._needs_media_transcript_retry(Path("song.mp3"), stored) is True
+
+
+def test_no_retry_when_status_ready_and_provider_matches(monkeypatch, tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    stored = {"content_hash": "abc", "transcript_status": "ready", "transcript_provider": "local"}
+    monkeypatch.setattr(
+        "app.rag.incremental._get_current_transcript_provider",
+        lambda: "local",
+    )
+    assert service._needs_media_transcript_retry(Path("song.mp3"), stored) is False
+
+
+def test_non_media_never_needs_transcript_retry(monkeypatch, tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    stored = {"content_hash": "abc", "transcript_status": ""}
+    assert service._needs_media_transcript_retry(Path("notes.txt"), stored) is False
+
+
+# ── _derive_transcript_status_from_payload ─────────────────────────
+
+
+def test_derive_transcript_status_ready(monkeypatch, tmp_path: Path) -> None:
+    """Payload with local provider text → ready."""
+    from app.rag.incremental import _derive_transcript_status_from_payload
+    from app.rag.source_models import DocumentPayload, SourceDescriptor
+
+    descriptor = SourceDescriptor(source="test.mp3", source_type="file")
+    payload = DocumentPayload(
+        descriptor=descriptor,
+        ids=["test.mp3:0"],
+        documents=["Hello world transcript"],
+        metadatas=[{"loader_name": "audio.transcribe", "transcript_provider": "local", "loader_warnings": ""}],
+    )
+    result = _derive_transcript_status_from_payload(payload)
+    assert result["transcript_status"] == "ready"
+    assert result["transcript_provider"] == "local"
+
+
+def test_derive_transcript_status_skipped_for_mock(monkeypatch, tmp_path: Path) -> None:
+    from app.rag.incremental import _derive_transcript_status_from_payload
+    from app.rag.source_models import DocumentPayload, SourceDescriptor
+
+    descriptor = SourceDescriptor(source="test.mp4", source_type="file")
+    payload = DocumentPayload(
+        descriptor=descriptor,
+        ids=["test.mp4:0"],
+        documents=["[Video Transcript - Mock Provider]..."],
+        metadatas=[{"loader_name": "video.transcribe", "transcript_provider": "mock", "loader_warnings": "transcript_mock_fallback"}],
+    )
+    result = _derive_transcript_status_from_payload(payload)
+    assert result["transcript_status"] == "skipped"
+
+
+def test_derive_transcript_status_empty_for_non_media(monkeypatch, tmp_path: Path) -> None:
+    """Non-media payloads return empty dict."""
+    from app.rag.incremental import _derive_transcript_status_from_payload
+    from app.rag.source_models import DocumentPayload, SourceDescriptor
+
+    descriptor = SourceDescriptor(source="notes.md", source_type="file")
+    payload = DocumentPayload(
+        descriptor=descriptor,
+        ids=["notes.md:0"],
+        documents=["# Hello"],
+        metadatas=[{"loader_name": "file.text"}],
+    )
+    result = _derive_transcript_status_from_payload(payload)
+    assert result == {}

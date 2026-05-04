@@ -22,6 +22,9 @@ set "ASR_COMPUTE=int8"
 set "ASR_TIMEOUT=120"
 set "ASR_DIR=%ROOT_DIR%\tools\local_asr_server"
 set "LOCAL_ASR_MODEL_BASE_PATH=%ROOT_DIR%\models\faster-whisper-base"
+set "MEDIA_TRANSCRIPT_DERIVED_ENABLED=true"
+set "HF_ENDPOINT=https://hf-mirror.com"
+set "EMBEDDING_DEVICE=auto"
 set "WATCH_PATH=%ROOT_DIR%\knowledge_base"
 set "WATCHER_LOG_FILE=%LOG_DIR%\watcher.log"
 set "WATCHER_READY_FILE=%TEMP%\minddock_watcher_ready.json"
@@ -67,6 +70,11 @@ echo   Checking faster-whisper import in %ASR_ENV%...
 call conda run -n %ASR_ENV% python -c "import sys; print(sys.executable); import faster_whisper; print('faster-whisper ok')" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 goto FAIL_FASTER_WHISPER
 echo   [OK] faster-whisper import ok
+
+echo   Checking python-multipart import in %ASR_ENV%...
+call conda run -n %ASR_ENV% python -c "import multipart; print('python-multipart ok')" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 goto FAIL_PYTHON_MULTIPART
+echo   [OK] python-multipart import ok
 
 if not exist "%LOCAL_ASR_MODEL_BASE_PATH%\model.bin" goto FAIL_MODEL_FILES
 if not exist "%LOCAL_ASR_MODEL_BASE_PATH%\config.json" goto FAIL_MODEL_FILES
@@ -319,6 +327,16 @@ echo Run:
 echo   conda create -n local-asr python=3.10 -y
 echo   conda activate local-asr
 echo   pip install -r "%ASR_DIR%\requirements.txt"
+goto FAIL_COMMON
+
+:FAIL_PYTHON_MULTIPART
+echo.
+echo [ERROR] python-multipart import failed in local-asr environment.
+echo Full error was written to:
+echo   %LOG_FILE%
+echo.
+echo To install dependencies, run:
+echo   conda run -n local-asr python -m pip install -r "%ASR_DIR%\requirements.txt"
 goto FAIL_COMMON
 
 :FAIL_ASR_SERVER

@@ -340,6 +340,10 @@ def test_build_media_transcription_client_mock_by_default(monkeypatch) -> None:
         "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
         lambda: ActiveMediaTranscriptConfig(enabled=False),
     )
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.CONFIG_FILE",
+        Path("data/__nonexistent_test_config_mock__.json"),
+    )
     client = build_media_transcription_client()
     assert isinstance(client, MockMediaTranscriptionClient)
 
@@ -354,6 +358,10 @@ def test_build_media_transcription_client_disabled_when_setting_false(monkeypatc
         "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
         lambda: ActiveMediaTranscriptConfig(enabled=False),
     )
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.CONFIG_FILE",
+        Path("data/__nonexistent_test_config_disabled__.json"),
+    )
     client = build_media_transcription_client()
     assert isinstance(client, DisabledMediaTranscriptionClient)
 
@@ -367,6 +375,10 @@ def test_build_media_transcription_client_api_when_setting_api(monkeypatch) -> N
     monkeypatch.setattr(
         "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
         lambda: ActiveMediaTranscriptConfig(enabled=False),
+    )
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.CONFIG_FILE",
+        Path("data/__nonexistent_test_config_api__.json"),
     )
     client = build_media_transcription_client()
     assert isinstance(client, OptionalApiMediaTranscriptionClient)
@@ -759,6 +771,10 @@ def test_mock_provider_still_works_with_new_settings(monkeypatch, tmp_path: Path
         "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
         lambda: ActiveMediaTranscriptConfig(enabled=False),
     )
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.CONFIG_FILE",
+        Path("data/__nonexistent_test_config_mock2__.json"),
+    )
 
     client = build_media_transcription_client()
     assert isinstance(client, MockMediaTranscriptionClient)
@@ -783,6 +799,10 @@ def test_disabled_provider_still_works_with_new_settings(monkeypatch, tmp_path: 
     monkeypatch.setattr(
         "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
         lambda: ActiveMediaTranscriptConfig(enabled=False),
+    )
+    monkeypatch.setattr(
+        "app.runtime.media_transcript_active_config.CONFIG_FILE",
+        Path("data/__nonexistent_test_config_disabled2__.json"),
     )
 
     client = build_media_transcription_client()
@@ -1260,3 +1280,122 @@ def test_local_provider_uses_local_asr_model_not_generic_model(monkeypatch) -> N
     assert captured["api_key"] == "local-dev-key"
     assert captured["result_provider"] == "local"
     assert captured["fallback_to_mock"] is False
+
+
+# ── .avi extension support ──────────────────────────────────────────
+
+
+def test_avi_in_video_extensions() -> None:
+    assert ".avi" in VIDEO_EXTENSIONS
+
+
+def test_avi_recognized_as_media() -> None:
+    assert ".avi" in MEDIA_EXTENSIONS
+
+
+# ── transcript_status injection ─────────────────────────────────────
+
+
+def test_transcript_status_injected_for_media_loader(monkeypatch, tmp_path: Path) -> None:
+    """Verify transcript_status appears in chunk metadata for media files."""
+    from app.rag.ingest import _metadata_with_loader_warnings
+    from app.rag.source_models import SourceDescriptor, SourceLoadResult
+    from pathlib import Path as _Path
+
+    descriptor = SourceDescriptor(source="test.mp3", source_type="file", local_path=_Path("/fake/test.mp3"))
+    load_result = SourceLoadResult(
+        descriptor=descriptor,
+        title="test",
+        text="This is a test transcript.",
+        metadata={
+            "source_media": "audio",
+            "source_kind": "audio_file",
+            "loader_name": "audio.transcribe",
+            "transcript_provider": "local",
+            "retrieval_basis": "transcript_text",
+        },
+    )
+    meta = _metadata_with_loader_warnings(load_result)
+    assert meta["transcript_status"] == "ready"
+    assert meta["transcript_error"] == ""
+
+
+def test_transcript_status_failed_for_empty_media(monkeypatch, tmp_path: Path) -> None:
+    """Verify transcript_status=failed when media transcription produces empty text."""
+    from app.rag.ingest import _metadata_with_loader_warnings
+    from app.rag.source_models import SourceDescriptor, SourceLoadResult
+    from pathlib import Path as _Path
+
+    descriptor = SourceDescriptor(source="test.mp3", source_type="file", local_path=_Path("/fake/test.mp3"))
+    load_result = SourceLoadResult(
+        descriptor=descriptor,
+        title="test",
+        text="",
+        metadata={
+            "source_media": "audio",
+            "source_kind": "audio_file",
+            "loader_name": "audio.transcribe",
+            "transcript_provider": "local",
+            "retrieval_basis": "transcript_text",
+        },
+        warnings=("transcript_empty",),
+    )
+    meta = _metadata_with_loader_warnings(load_result)
+    assert meta["transcript_status"] == "failed"
+    assert "empty" in meta["transcript_error"].lower()
+
+
+def test_transcript_status_skipped_for_mock_provider(monkeypatch, tmp_path: Path) -> None:
+    """Verify transcript_status=skipped when mock provider is used."""
+    from app.rag.ingest import _metadata_with_loader_warnings
+    from app.rag.source_models import SourceDescriptor, SourceLoadResult
+    from pathlib import Path as _Path
+
+    descriptor = SourceDescriptor(source="test.mp4", source_type="file", local_path=_Path("/fake/test.mp4"))
+    load_result = SourceLoadResult(
+        descriptor=descriptor,
+        title="test",
+        text="[Video Transcript - Mock Provider]...",
+        metadata={
+            "source_media": "video",
+            "source_kind": "video_file",
+            "loader_name": "video.transcribe",
+            "transcript_provider": "mock",
+            "retrieval_basis": "transcript_text",
+        },
+        warnings=("transcript_mock_fallback",),
+    )
+    meta = _metadata_with_loader_warnings(load_result)
+    assert meta["transcript_status"] == "skipped"
+
+
+def test_transcript_status_not_injected_for_non_media(monkeypatch, tmp_path: Path) -> None:
+    """Verify transcript_status is NOT injected for non-media sources (txt/pdf/etc)."""
+    from app.rag.ingest import _metadata_with_loader_warnings
+    from app.rag.source_models import SourceDescriptor, SourceLoadResult
+    from pathlib import Path as _Path
+
+    descriptor = SourceDescriptor(source="test.md", source_type="file", local_path=_Path("/fake/test.md"))
+    load_result = SourceLoadResult(
+        descriptor=descriptor,
+        title="test",
+        text="# Hello\n\nWorld",
+        metadata={"loader_name": "file.text"},
+    )
+    meta = _metadata_with_loader_warnings(load_result)
+    assert "transcript_status" not in meta
+
+
+# ── derived chunks default-enabled ──────────────────────────────────
+
+
+def test_derived_enabled_when_config_enabled() -> None:
+    """Derived chunks generate when MEDIA_TRANSCRIPT_DERIVED_ENABLED is explicitly True."""
+    settings = Settings(media_transcript_derived_enabled=True)
+    assert settings.media_transcript_derived_enabled is True
+
+
+def test_derived_disabled_by_default() -> None:
+    """MEDIA_TRANSCRIPT_DERIVED_ENABLED defaults to False for safe global behavior."""
+    settings = Settings()
+    assert settings.media_transcript_derived_enabled is False

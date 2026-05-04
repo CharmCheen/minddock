@@ -256,7 +256,38 @@ def _metadata_with_loader_warnings(
             metadata["skill_config_keys"] = ",".join(sorted(binding.config))
     elif binding_resolution.warning:
         metadata["skill_binding_warning"] = binding_resolution.warning
+
+    # Add transcript_status for media files
+    _inject_transcript_status(metadata, load_result)
+
     return metadata
+
+
+def _inject_transcript_status(
+    metadata: dict[str, str],
+    load_result: SourceLoadResult,
+) -> None:
+    """Add transcript_status, transcript_error to metadata for media sources."""
+    loader_name = str(metadata.get("loader_name", ""))
+    if loader_name not in ("audio.transcribe", "video.transcribe"):
+        return
+
+    provider = str(metadata.get("transcript_provider", ""))
+    warnings = set(load_result.warnings)
+    has_text = bool(load_result.text.strip())
+
+    if provider in ("mock", "disabled") or "transcript_mock_fallback" in warnings:
+        metadata["transcript_status"] = "skipped"
+        metadata["transcript_error"] = "Transcript was not generated (mock/disabled provider)."
+        return
+
+    if "transcript_empty" in warnings or not has_text:
+        metadata["transcript_status"] = "failed"
+        metadata["transcript_error"] = "Transcription produced empty text."
+        return
+
+    metadata["transcript_status"] = "ready"
+    metadata["transcript_error"] = ""
 
 
 def build_documents_for_source(

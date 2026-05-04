@@ -4,6 +4,7 @@ import logging
 
 from app.llm.mock import INSUFFICIENT_EVIDENCE
 from app.rag.postprocess import HeuristicReranker
+from app.services.grounded_generation import HELPFUL_CHAT_INSUFFICIENT_EVIDENCE
 from app.rag.retrieval_models import RetrievedChunk, RetrievalFilters
 from app.runtime import RuntimeRequest, RuntimeResponse
 from app.services.chat_service import ChatService
@@ -107,8 +108,11 @@ def test_chat_returns_insufficient_evidence_when_no_grounded_hits() -> None:
     result = service.chat(query="test", top_k=3)
 
     assert isinstance(result, ChatServiceResult)
-    assert result.answer == INSUFFICIENT_EVIDENCE
+    assert result.answer == HELPFUL_CHAT_INSUFFICIENT_EVIDENCE
     assert result.citations == []
+    assert "没有在当前知识库中找到足够直接的证据" in result.answer
+    assert "尝试" in result.answer
+    assert "关键词" in result.answer
     assert result.grounded_answer is not None
     assert result.grounded_answer.support_status.value == "insufficient_evidence"
     assert result.grounded_answer.refusal_reason.value == "no_relevant_evidence"
@@ -183,8 +187,10 @@ def test_chat_refuses_when_retrieved_evidence_does_not_match_query() -> None:
 
     result = service.chat(query="retention policy audit logs", top_k=3)
 
-    assert result.answer == INSUFFICIENT_EVIDENCE
+    assert result.answer == HELPFUL_CHAT_INSUFFICIENT_EVIDENCE
     assert result.citations == []
+    assert "没有在当前知识库中找到足够直接的证据" in result.answer
+    assert "尝试" in result.answer
     assert result.grounded_answer is not None
     assert result.grounded_answer.support_status.value == "insufficient_evidence"
     assert result.grounded_answer.refusal_reason.value == "no_relevant_evidence"
@@ -850,3 +856,98 @@ def test_chat_debug_logs_formatted_prompt(caplog) -> None:
     assert "Formatted chat prompt:" in caplog.text
     assert "Question:\nwhere is data stored" in caplog.text
     assert "MindDock stores chunks in Chroma." in caplog.text
+
+
+def test_chat_insufficient_evidence_response_is_helpful_and_citation_free() -> None:
+    """Insufficient evidence response gives actionable suggestions without fabricating citations."""
+    service = ChatService(
+        search_service=FakeSearchService(
+            [
+                RetrievedChunk(
+                    text="weak content not useful",
+                    doc_id="d1",
+                    chunk_id="c1",
+                    source="doc.md",
+                    distance=9.9,
+                )
+            ]
+        ),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(query="test query with no real match", top_k=3)
+
+    assert result.answer == HELPFUL_CHAT_INSUFFICIENT_EVIDENCE
+    assert result.citations == []
+    assert result.grounded_answer is not None
+    assert result.grounded_answer.support_status.value == "insufficient_evidence"
+    assert result.grounded_answer.refusal_reason.value == "no_relevant_evidence"
+    assert result.grounded_answer.evidence == ()
+    assert "没有在当前知识库中找到足够直接的证据" in result.answer
+    assert "尝试" in result.answer
+    assert "关键词" in result.answer
+    assert "Source Drawer" in result.answer or "Sources" in result.answer
+    assert result.metadata.insufficient_evidence is True
+
+
+def test_chat_grounded_answer_has_no_helpful_fallback_text() -> None:
+    """When evidence is sufficient, answer should NOT contain fallback suggestion text."""
+    hits = [
+        RetrievedChunk(
+            text="MindDock stores chunks in Chroma for grounded retrieval.",
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/doc.md",
+            distance=0.2,
+        )
+    ]
+    runtime = FakeRuntime()
+    service = ChatService(
+        search_service=FakeSearchService(hits),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=runtime,
+    )
+
+    result = service.chat(query="where does MindDock store chunks", top_k=3)
+
+    assert result.answer != HELPFUL_CHAT_INSUFFICIENT_EVIDENCE
+    assert "没有在当前知识库中找到足够直接的证据" not in result.answer
+    assert result.citations != []
+    assert result.grounded_answer is not None
+    assert result.grounded_answer.support_status.value == "supported"
+    assert result.grounded_answer.refusal_reason is None
+
+
+def test_chat_out_of_scope_not_overwritten_by_helpful_fallback() -> None:
+    """Out-of-scope queries must still use the original refusal, not the helpful fallback."""
+    search_service = FakeSearchService(
+        [
+            RetrievedChunk(
+                text="MindDock stores data in Chroma.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/doc.md",
+                distance=0.1,
+            )
+        ]
+    )
+    service = ChatService(
+        search_service=search_service,
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=FakeRuntime(),
+    )
+
+    result = service.chat(query="你是什么模型", top_k=3)
+
+    assert result.answer != HELPFUL_CHAT_INSUFFICIENT_EVIDENCE
+    assert "尝试" not in result.answer
+    assert result.citations == []
+    assert result.grounded_answer is not None
+    assert result.grounded_answer.support_status.value == "insufficient_evidence"
+    assert result.grounded_answer.refusal_reason.value == "out_of_scope"
+    assert result.metadata.issues[0].code == "out_of_scope"
+    assert search_service.calls == 0

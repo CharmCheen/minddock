@@ -10,7 +10,6 @@ from typing import Optional
 
 from app.core.exceptions import ChatError
 from app.llm.factory import get_generation_runtime
-from app.llm.mock import INSUFFICIENT_EVIDENCE
 from app.rag.retrieval_models import GroundedAnswer, RefusalReason, SupportStatus
 from app.rag.retrieval_models import RetrievalFilters
 from app.rag.postprocess import Compressor, Reranker, get_compressor, get_reranker
@@ -24,6 +23,7 @@ from app.services.grounded_generation import (
     evidence_matches_query,
     expand_evidence_windows,
     format_evidence_block,
+    HELPFUL_CHAT_INSUFFICIENT_EVIDENCE,
     is_out_of_scope_knowledge_query,
     OUT_OF_SCOPE_ANSWER,
     select_grounded_hits,
@@ -175,9 +175,9 @@ class ChatService:
                 grounding = assess_grounding(retrieved_hits=hits, evidence=[])
                 logger.info("Chat returning insufficient evidence: query_preview=%s", query[:60])
                 return ChatServiceResult(
-                    answer=INSUFFICIENT_EVIDENCE,
+                    answer=HELPFUL_CHAT_INSUFFICIENT_EVIDENCE,
                     grounded_answer=GroundedAnswer(
-                        answer=INSUFFICIENT_EVIDENCE,
+                        answer=HELPFUL_CHAT_INSUFFICIENT_EVIDENCE,
                         evidence=(),
                         support_status=grounding.support_status,
                         refusal_reason=grounding.refusal_reason,
@@ -224,7 +224,7 @@ class ChatService:
             if not evidence_matches_query(query, grounded_hits):
                 logger.info("Chat returning insufficient evidence after relevance gate: query_preview=%s", query[:60])
                 return self._refusal_result(
-                    answer=INSUFFICIENT_EVIDENCE,
+                    answer=HELPFUL_CHAT_INSUFFICIENT_EVIDENCE,
                     started=started,
                     retrieval_ms=retrieval_ms,
                     retrieved_hits=len(hits),

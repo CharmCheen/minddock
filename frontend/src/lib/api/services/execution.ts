@@ -1,5 +1,6 @@
 import { getApiBaseUrl } from '../client';
 import { UnifiedExecutionRequestBody, ClientEvent, CancelRunResponse } from '../../../core/types/api';
+import type { AnswerStyle, UserPreferenceProfile } from '../../../features/settings/workspace-preferences';
 
 interface StreamCallbacks {
   onEvent: (event: ClientEvent) => void;
@@ -14,6 +15,8 @@ interface ExecutionInput {
   top_k?: number;
   citation_policy?: 'required' | 'preferred' | 'none';
   summarize_mode?: 'basic' | 'map_reduce';
+  answer_style?: AnswerStyle;
+  preference_profile?: UserPreferenceProfile;
 }
 
 function joinApiPath(baseUrl: string, path: string): string {
@@ -50,7 +53,10 @@ export const ExecutionService = {
       user_input: input.query,
       top_k: input.top_k ?? 5,
       output_mode: "text",
-      citation_policy: input.citation_policy || "preferred"
+      citation_policy: input.citation_policy || "preferred",
+      conversation_metadata: input.preference_profile
+        ? { user_preference_profile: input.preference_profile }
+        : undefined,
     };
 
     if (input.task_type && input.task_type !== 'auto') {
@@ -63,6 +69,13 @@ export const ExecutionService = {
 
     if (input.summarize_mode) {
       body.task_options = { mode: input.summarize_mode };
+    }
+
+    if (input.answer_style) {
+      body.task_options = {
+        ...(body.task_options || {}),
+        answer_style: input.answer_style,
+      };
     }
 
     const startStream = async () => {

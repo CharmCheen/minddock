@@ -86,6 +86,15 @@ _SUMMARIZE_RETRIEVAL_POOL_MAX = 24
 _CHAT_RETRIEVAL_POOL_MULTIPLIER = 3
 _CHAT_RETRIEVAL_POOL_MIN = 6
 _CHAT_RETRIEVAL_POOL_MAX = 12
+_USER_PREFERENCE_PROFILE_ID = "workspace_preference_v1"
+_USER_PREFERENCE_PROFILE_VERSION = "1.0.0"
+_ALLOWED_PREFERENCE_KEYS = {
+    "default_task_type",
+    "default_top_k",
+    "answer_style",
+    "citation_strictness",
+    "summarize_mode",
+}
 _SCOPE_GUARDRAIL_MESSAGE = (
     "你当前只在单个文档内检索。这个问题更像是全库范围或通用概念问题，"
     "当前文档未必适合回答它。\n\n"
@@ -160,6 +169,30 @@ def _should_apply_scope_guardrail(request: UnifiedExecutionRequest) -> bool:
     if _has_single_document_reference(request.user_input):
         return False
     return _looks_like_general_or_global_query(request.user_input)
+
+
+def _user_preference_profile_trace(conversation_metadata: dict[str, object]) -> dict[str, object] | None:
+    raw_profile = conversation_metadata.get("user_preference_profile")
+    if not isinstance(raw_profile, dict):
+        return None
+
+    preferences = raw_profile.get("preferences")
+    if not isinstance(preferences, dict):
+        preferences = {}
+    safe_preferences = {
+        key: preferences[key]
+        for key in sorted(_ALLOWED_PREFERENCE_KEYS)
+        if key in preferences and isinstance(preferences[key], (str, int, bool))
+    }
+
+    return {
+        "id": str(raw_profile.get("id") or _USER_PREFERENCE_PROFILE_ID),
+        "version": str(raw_profile.get("version") or _USER_PREFERENCE_PROFILE_VERSION),
+        "scope": str(raw_profile.get("scope") or "workspace_local"),
+        "storage": str(raw_profile.get("storage") or "browser_local_storage"),
+        "boundary": "not_long_term_memory",
+        "preferences": safe_preferences,
+    }
 
 
 @dataclass
@@ -652,6 +685,9 @@ class FrontendFacade:
                 "user_override": intent_result.user_override,
                 "matched_keyword": intent_result.matched_keyword,
             }
+            preference_trace = _user_preference_profile_trace(request.conversation_metadata)
+            if preference_trace is not None:
+                workflow_trace["user_preference_profile"] = preference_trace
             metadata = replace(
                 response.metadata,
                 selected_runtime=selected_runtime,

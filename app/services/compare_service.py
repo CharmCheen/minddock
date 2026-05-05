@@ -13,6 +13,7 @@ from typing import Optional
 from app.core.exceptions import ChatError
 from app.llm.factory import get_generation_runtime
 from app.llm.mock import INSUFFICIENT_EVIDENCE
+from app.prompts import GROUNDED_COMPARE_JSON_PROFILE_ID, get_prompt_profile, prompt_profile_trace
 from app.rag.retrieval_models import (
     ComparedPoint,
     EvidenceObject,
@@ -151,6 +152,7 @@ class CompareService:
                 "operation": "compare",
                 "requested_top_k": top_k,
                 "internal_candidate_k": len(state.hits),
+                **prompt_profile_trace(self._prompt_profile()),
                 **source_scope_trace(filters),
                 "cross_document_intent_detected": True,
                 "initial_candidate_count": len(state.hits),
@@ -665,47 +667,16 @@ class CompareService:
         left_group: _EvidenceGroup,
         right_group: _EvidenceGroup,
     ) -> str:
-        lines: list[str] = [
-            (
-                "You are a grounded comparison assistant. "
-                "Compare the evidence from two sources and produce a structured JSON response. "
-                "Only use the evidence provided below. Do not add outside knowledge."
-            ),
-            "",
-            f"Question: {question}",
-            "",
-            f"Left source evidence ({left_group.label}):",
-        ]
-        for index, hit in enumerate(left_group.hits, start=1):
-            lines.append(f"  L{index}: {hit.text.strip()}")
-        lines.append("")
-        lines.append(f"Right source evidence ({right_group.label}):")
-        for index, hit in enumerate(right_group.hits, start=1):
-            lines.append(f"  R{index}: {hit.text.strip()}")
-        lines.extend([
-            "",
-            (
-                "Return strictly valid JSON with this structure:\n"
-                "{\n"
-                '  "common_points": [\n'
-                "    {\n"
-                '      "statement": "string",\n'
-                '      "summary_note": "string",\n'
-                '      "left_evidence_ids": ["L1"],\n'
-                '      "right_evidence_ids": ["R1"]\n'
-                "    }\n"
-                "  ],\n"
-                '  "differences": [...],\n'
-                '  "conflicts": [...]\n'
-                "}"
-            ),
-            "",
-            "Rules:",
-            "1. Evidence ids MUST come from the L1..Ln and R1..Rn labels above.",
-            "2. Every point must have evidence from BOTH sides. Omit any point that cannot be supported by both left and right evidence.",
-            "3. Do not invent evidence IDs or output one-sided points.",
-        ])
-        return "\n".join(lines)
+        return self._prompt_profile().builder(
+            question=question,
+            left_label=left_group.label,
+            left_evidence=tuple(hit.text for hit in left_group.hits),
+            right_label=right_group.label,
+            right_evidence=tuple(hit.text for hit in right_group.hits),
+        )
+
+    def _prompt_profile(self):
+        return get_prompt_profile(GROUNDED_COMPARE_JSON_PROFILE_ID)
 
     def _extract_json_text(self, text: str) -> str:
         """Extract JSON from raw text, handling markdown fences and plain objects."""

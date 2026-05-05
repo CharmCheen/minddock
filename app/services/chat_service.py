@@ -10,6 +10,7 @@ from typing import Optional
 
 from app.core.exceptions import ChatError
 from app.llm.factory import get_generation_runtime
+from app.prompts import EVIDENCE_FIRST_CHAT_PROFILE_ID, get_prompt_profile, prompt_profile_trace
 from app.rag.retrieval_models import GroundedAnswer, RefusalReason, SupportStatus
 from app.rag.retrieval_models import RetrievalFilters
 from app.rag.postprocess import Compressor, Reranker, get_compressor, get_reranker
@@ -130,6 +131,7 @@ class ChatService:
                 "operation": "chat",
                 "requested_top_k": top_k,
                 "internal_candidate_k": internal_candidate_k,
+                **prompt_profile_trace(self._prompt_profile()),
                 **source_scope_trace(filters),
                 "local_doc_intent_detected": local_doc_intent_detected,
                 "structured_ref_intent_detected": structured_ref_intent_detected,
@@ -446,33 +448,10 @@ class ChatService:
         return trace
 
     def _build_prompt(self):
-        try:
-            from langchain_core.prompts import ChatPromptTemplate
-        except ModuleNotFoundError:
-            return "minddock-grounded-chat-prompt"
+        return self._prompt_profile().builder()
 
-        return ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    (
-                        "You are MindDock's grounded answer assistant. "
-                        "Follow these rules strictly: "
-                        "1. Answer only from the provided evidence; do not add outside knowledge. "
-                        "2. If the evidence is missing, weak, contradictory, or not clearly aligned with the question, "
-                        "say the evidence is insufficient and briefly explain the gap. "
-                        "3. Synthesize all relevant evidence items; do not rely on the first item when other evidence "
-                        "adds, qualifies, or conflicts with it. "
-                        "4. If only part of the question is supported, answer that part and state what is not supported. "
-                        "Keep the answer concise and factual."
-                    ),
-                ),
-                (
-                    "human",
-                    "Question:\n{query}\n\nEvidence:\n{evidence_block}",
-                ),
-            ]
-        )
+    def _prompt_profile(self):
+        return get_prompt_profile(EVIDENCE_FIRST_CHAT_PROFILE_ID)
 
     def _format_prompt_for_debug(self, prompt, inputs: dict[str, object]) -> str:
         if hasattr(prompt, "format_prompt"):

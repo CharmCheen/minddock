@@ -216,3 +216,75 @@
 | 独立意图识别模块 | TaskType 前端指定 | 中 |
 | 完整文档状态机 | 只有 "ready" 字符串 | 低 |
 | 复杂 LangGraph DAG | 4 节点线性图 | 低 |
+
+---
+
+## 11. 2026-05 收口口径：Prompt Profile 与功能完成度
+
+### Prompt Profile / Runtime Profile 边界
+
+本轮代码新增的是 **Prompt Profile Registry**，用于描述不同任务的提示词版本、证据策略、引用策略和输出策略。它和已有的 `RuntimeProfileRegistry` 不是同一类对象：
+
+- Prompt Profile：约束 Chat / Summarize / Compare 如何使用证据、何时拒答、如何输出。
+- Runtime Profile：选择模型运行时、provider、model name、base_url、capability 等。
+- `configs/profiles.yaml` 当前不是已接入的运行时用户画像或长期记忆配置，不应在论文中表述为“用户画像系统已经落地”。
+
+论文建议写法：
+
+> 系统新增了轻量级 Prompt Profile Registry，对问答、摘要、对比任务的提示词模板及证据使用策略进行版本化管理；运行时模型配置与 Prompt Profile 保持解耦。
+
+避免写法：
+
+> ~~系统已经实现完整用户画像长期记忆与个性化 Prompt 自动演化。~~
+
+### 已完成
+
+| 功能 | 真实口径 |
+|---|---|
+| 文本型 PDF 结构化解析 | 支持基于 PyMuPDF 的文本型 PDF block/page 解析，并保留 page、section、block metadata。 |
+| Markdown/TXT | 支持本地 Markdown 和纯文本文件读取、chunk、embedding、入库。 |
+| RAG 闭环 | 已形成 ingest -> chunk -> embedding -> vector retrieval -> rerank/compress -> generation -> citation 的主流程。 |
+| citation/evidence | 返回 `CitationRecord` / `EvidenceObject`，包含 source、doc_id、chunk_id、page、evidence window 等字段。 |
+| watchdog 增量入库 | 支持 watchdog 监听和 `watch --once` 同步，基于内容 hash 进行增删改更新。 |
+| 运行时配置 | 支持 runtime profile / adapter / provider 选择，但这是模型运行时配置，不是用户长期画像。 |
+| 可观测 workflow | unified execution 与 retrieval pipeline 会输出 workflow trace、step events、retrieval/rerank/compress 统计。 |
+| Prompt Profile Registry | 支持 `evidence_first_chat_v1`、`grounded_summary_v1`、`grounded_compare_json_v1` 三个最小 profile，并在 workflow trace 暴露 profile metadata。 |
+
+### 部分完成
+
+| 功能 | 真实口径 |
+|---|---|
+| 网页入库 | 支持静态 HTML 正文抽取，不支持 JS 渲染、登录态、反爬和通用爬虫。 |
+| CSV | 支持 CSV rows-as-text，不支持 Excel、SQL、公式执行或表格推理引擎。 |
+| OCR | 支持图片 OCR 文本入库，不支持 image caption、多模态 embedding 或 PDF figure extraction。 |
+| 音视频 | 支持 sidecar transcript / mock / API / local ASR 转录文本路径；默认不等于真实音视频理解。 |
+| rerank | 当前是 heuristic rerank，不是 cross-encoder reranker。 |
+| compression | 当前是 trimming / lexical compression，不是 LLM context compression。 |
+| intent classifier | 当前是轻量规则式关键词分类；Auto 模式不传 `task_type` 时由后端分类。 |
+| LangGraph | 当前主要是检索子工作流编排，不是完整 LangGraph Agent 主控。 |
+| Source Skill | 当前是 manifest/control plane + trusted handler binding，不是完整插件市场。 |
+
+### 未完成 / 未来工作
+
+| 功能 | 建议论文位置 |
+|---|---|
+| Word/Docx | 未来扩展。 |
+| 完整 Skill Market | 未来研究方向。 |
+| 远程插件安装 | 未来研究方向。 |
+| 签名校验 / 版本升级 / 权限授权 | 未来研究方向。 |
+| OpenAPI / MCP tool import | 未来研究方向。 |
+| 完整用户画像长期记忆 | 未来研究方向。 |
+| 真正 cross-encoder reranker | 未来优化。 |
+| LLM context compression | 未来优化。 |
+| 完整 LangGraph Agent 主控 | 未来架构增强。 |
+
+### 必须避免的论文表述
+
+| 不建议写法 | 推荐写法 |
+|---|---|
+| 使用 cross-encoder reranker | 使用启发式重排策略。 |
+| 使用 LLM 压缩上下文 | 使用基于词面相关性的上下文裁剪。 |
+| 支持完整插件市场 | 支持 Source Skill manifest 与受信 handler 绑定。 |
+| 支持 Word/Docx 入库 | 预留 Word/Docx loader 扩展点。 |
+| 实现完整用户画像长期记忆 | 支持运行时配置与前端偏好，长期画像作为未来工作。 |
+| LangGraph Agent 主控全链路 | LangGraph 用于检索子工作流编排与可观测性增强。 |

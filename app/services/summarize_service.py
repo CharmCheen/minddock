@@ -11,6 +11,7 @@ from typing import Optional
 from app.core.exceptions import SummarizeError
 from app.llm.factory import get_generation_runtime
 from app.llm.mock import INSUFFICIENT_EVIDENCE
+from app.prompts import GROUNDED_SUMMARY_PROFILE_ID, get_prompt_profile, prompt_profile_trace
 from app.rag.retrieval_models import ContextBlock, GroundedAnswer, RetrievalFilters, RetrievedChunk
 from app.rag.postprocess import Compressor, Reranker, get_compressor, get_reranker
 from app.runtime import GenerationRuntime, RuntimeRequest
@@ -152,6 +153,7 @@ class SummarizeService:
                 "operation": "summarize",
                 "requested_top_k": top_k,
                 "internal_candidate_k": len(workflow_state.hits),
+                **prompt_profile_trace(self._prompt_profile()),
                 **source_scope_trace(filters),
                 "initial_candidate_count": len(workflow_state.hits),
                 "after_rerank_count": None,
@@ -450,60 +452,13 @@ class SummarizeService:
         return runtime_response.text, runtime_response.used_fallback or fallback_used, any_truncated
 
     def _build_basic_prompt(self):
-        try:
-            from langchain_core.prompts import ChatPromptTemplate
-        except ModuleNotFoundError:
-            return "minddock-grounded-summary-prompt"
-
-        return ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    (
-                        "You are MindDock's grounded summarization assistant. "
-                        "Summarize only from the provided evidence. "
-                        "If the evidence is insufficient, say so explicitly. "
-                        "Produce a short synthesis rather than a verbatim extract."
-                    ),
-                ),
-                ("human", "Topic:\n{topic}\n\nEvidence:\n{evidence_block}"),
-            ]
-        )
+        return self._prompt_profile().builder(mode="basic")
 
     def _build_map_prompt(self):
-        try:
-            from langchain_core.prompts import ChatPromptTemplate
-        except ModuleNotFoundError:
-            return "minddock-grounded-summary-map-prompt"
-
-        return ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    "Summarize the provided document evidence only. Keep the summary local to that document.",
-                ),
-                (
-                    "human",
-                    "Topic:\n{topic}\n\nDocument:\n{document_ref}\n\nEvidence:\n{evidence_block}",
-                ),
-            ]
-        )
+        return self._prompt_profile().builder(mode="map")
 
     def _build_reduce_prompt(self):
-        try:
-            from langchain_core.prompts import ChatPromptTemplate
-        except ModuleNotFoundError:
-            return "minddock-grounded-summary-reduce-prompt"
+        return self._prompt_profile().builder(mode="reduce")
 
-        return ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    (
-                        "Combine the partial summaries into one grounded synthesis. "
-                        "Highlight agreements, distinctions, and the overall takeaway."
-                    ),
-                ),
-                ("human", "Topic:\n{topic}\n\nPartial summaries:\n{partial_summaries}"),
-            ]
-        )
+    def _prompt_profile(self):
+        return get_prompt_profile(GROUNDED_SUMMARY_PROFILE_ID)

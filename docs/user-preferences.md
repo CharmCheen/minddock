@@ -20,6 +20,16 @@ This is not a long-term user memory system. MindDock does not infer user traits,
 
 Frontend requests include a `workspace_preference_v1` profile under `conversation_metadata.user_preference_profile`. The backend sanitizes this profile and records it in `workflow_trace.user_preference_profile` so a run can explain which lightweight preference defaults were active.
 
+## Demo Surface
+
+For the defense demo, show the profile through:
+
+- Settings > Retrieval for default `top_k`, citation strictness, answer style, and summarize mode.
+- Settings > Display for the default operation / task type.
+- Workflow trace metadata, where `user_preference_profile` records the sanitized workspace-local defaults used by a request.
+
+The safe explanation is that this improves repeatability and auditability for a local workspace. It is not a learned persona, memory graph, or personalized retrieval index.
+
 ## Thesis Wording
 
 Recommended:

@@ -6,6 +6,15 @@ MindDock exposes Source Skills as a trusted-only control plane for ingestion cap
 
 This is not a Skill Market. MindDock does not download remote skills, does not import third-party packages, and does not execute user-provided Python or JavaScript code through Source Skill manifests.
 
+## Demo Surface
+
+For the defense demo, show Source Skills through:
+
+- `GET /frontend/source-skills`
+- Settings > Sources in the frontend
+
+The expected visible fields are trusted / built-in status, enabled state, supported inputs, capabilities, and limitations. The recommended narration is that the feature is an auditable control plane over reviewed ingestion handlers, not a third-party plugin marketplace.
+
 ## Completed
 
 | Capability | Implementation | Thesis Wording |
@@ -45,3 +54,7 @@ Recommended:
 Avoid:
 
 > MindDock implements a complete Skill Market with remote plugin installation and sandboxed execution.
+
+## Demo Boundary
+
+During the demo, do not present Source Skills as downloadable or user-executable plugins. It is safe to say that the catalog and manifest shape are market-ready extension points, but installation, signatures, sandboxing, permissions, review workflows, and OpenAPI/MCP import remain future work.

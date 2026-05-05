@@ -1,8 +1,18 @@
 # MindDock Demo Script
 
-This is a repeatable demo route for the MindDock thesis defense. It focuses on source ingestion, source-scoped RAG, citations, image OCR, the video sidecar skill demo, and `skill-resolve`.
+This is a repeatable demo route for the MindDock thesis defense. It focuses on source ingestion, source-scoped RAG, citations, workflow trace, Prompt Profiles, trusted Source Skills, workspace-local user preferences, image OCR, the video sidecar skill demo, and `skill-resolve`.
 
 The goal is to show a stable local knowledge assistant workflow without depending on fragile live services during the presentation.
+
+## Current Defense Focus
+
+Use the following product boundary consistently:
+
+- Completed: text-based PDF / Markdown / TXT ingest, RAG QA, citations, evidence, workflow trace, watchdog ingest, runtime config, Prompt Profile Registry, trusted-only Source Skill control plane, and workspace-local user preferences.
+- Partial: static web extraction, CSV rows-as-text, OCR text ingest, audio/video transcript-text ingest, heuristic rerank, trimming compression, and LangGraph retrieval subworkflow.
+- Future work: Word/Docx, complete Skill Market, remote plugin install, signatures, sandboxing, OpenAPI/MCP tool import, long-term memory, automatic user profiling, cross-encoder rerank, LLM context compression, and a complete LangGraph Agent controller.
+
+Do not describe Source Skills as a third-party plugin marketplace, user preferences as long-term memory, heuristic rerank as cross-encoder rerank, or trimming as LLM compression.
 
 ## Pre-Demo Checklist
 

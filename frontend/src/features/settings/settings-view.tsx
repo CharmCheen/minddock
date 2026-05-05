@@ -1344,9 +1344,11 @@ function RetrievalTab() {
   const {
     defaultTopK,
     defaultCitationPolicy,
+    defaultAnswerStyle,
     defaultSummarizeMode,
     setDefaultTopK,
     setDefaultCitationPolicy,
+    setDefaultAnswerStyle,
     setDefaultSummarizeMode,
     density,
   } = useWorkspacePreferences();
@@ -1361,7 +1363,7 @@ function RetrievalTab() {
         fontSize: '13px',
         color: 'var(--color-text-tertiary)',
       }}>
-        These settings affect the next request. They do not change the index or embedding model.
+        These workspace-local preferences affect the next request. They are saved in this browser and are not a long-term user memory or inferred profile.
       </div>
 
       <label style={{ display: 'grid', gap: '6px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
@@ -1397,6 +1399,22 @@ function RetrievalTab() {
         </select>
         <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
           Whether answers must include verifiable source citations.
+        </span>
+      </label>
+
+      <label style={{ display: 'grid', gap: '6px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
+        Answer style
+        <select
+          value={defaultAnswerStyle}
+          onChange={(e) => setDefaultAnswerStyle(e.target.value as 'concise' | 'balanced' | 'detailed')}
+          style={fieldStyle}
+        >
+          <option value="concise">Concise - shorter answers</option>
+          <option value="balanced">Balanced - default detail</option>
+          <option value="detailed">Detailed - more context</option>
+        </select>
+        <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+          Stored as request metadata for traceability; it is not an inferred user persona.
         </span>
       </label>
 
@@ -1481,7 +1499,7 @@ function DisplayTab() {
         fontSize: '13px',
         color: 'var(--color-text-tertiary)',
       }}>
-        Preferences are stored locally in your browser. They do not affect the backend.
+        UI preferences are stored locally in your browser. They do not create a long-term user profile.
       </div>
 
       {toggleRow('Show workflow details', showWorkflowDetails, setShowWorkflowDetails)}

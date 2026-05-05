@@ -195,6 +195,70 @@ def test_unified_execution_chat_returns_runtime_profile_metadata(monkeypatch) ->
     assert response.execution_summary.primary_artifact_kind == "text"
 
 
+def test_unified_execution_records_minimal_user_preference_profile(monkeypatch) -> None:
+    chat_orchestrator = ChatOrchestrator()
+    profile_registry, resolver, factory = _runtime_stack()
+    facade = FrontendFacade(
+        chat=chat_orchestrator,
+        runtime_profile_registry=profile_registry,
+        runtime_resolver=resolver,
+        runtime_factory=factory,
+        run_registry=_run_registry(),
+    )
+
+    def fake_run_chat_with_runtime(*, request, runtime, precomputed_hits=None):
+        return ChatServiceResult(
+            answer="chat response",
+            citations=[],
+            grounded_answer=GroundedAnswer(answer="chat response"),
+            metadata=UseCaseMetadata(retrieved_count=1, mode="grounded", workflow_trace={"operation": "chat"}),
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "run_chat_with_runtime", fake_run_chat_with_runtime)
+
+    response = facade.execute(
+        UnifiedExecutionRequest(
+            task_type=TaskType.CHAT,
+            user_input="hello",
+            execution_policy=ExecutionPolicy(
+                preferred_profile_id="default_cloud",
+                selection_mode=RuntimeSelectionMode.PREFERRED,
+            ),
+            conversation_metadata={
+                "user_preference_profile": {
+                    "id": "workspace_preference_v1",
+                    "version": "1.0.0",
+                    "scope": "workspace_local",
+                    "storage": "browser_local_storage",
+                    "preferences": {
+                        "default_task_type": "chat",
+                        "default_top_k": 8,
+                        "answer_style": "concise",
+                        "citation_strictness": "required",
+                        "summarize_mode": "basic",
+                        "unsafe_extra": {"not": "kept"},
+                    },
+                }
+            },
+            include_metadata=True,
+        )
+    )
+
+    profile = response.metadata.workflow_trace["user_preference_profile"]
+    assert profile["id"] == "workspace_preference_v1"
+    assert profile["version"] == "1.0.0"
+    assert profile["scope"] == "workspace_local"
+    assert profile["storage"] == "browser_local_storage"
+    assert profile["boundary"] == "not_long_term_memory"
+    assert profile["preferences"] == {
+        "answer_style": "concise",
+        "citation_strictness": "required",
+        "default_task_type": "chat",
+        "default_top_k": 8,
+        "summarize_mode": "basic",
+    }
+
+
 def test_unified_execution_chat_collects_stable_event_sequence(monkeypatch) -> None:
     chat_orchestrator = ChatOrchestrator()
     profile_registry, resolver, factory = _runtime_stack()

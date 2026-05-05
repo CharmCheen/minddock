@@ -112,6 +112,7 @@ export interface UnifiedExecutionRequestBody {
   };
   output_mode: string;
   citation_policy: string;
+  conversation_metadata?: Record<string, unknown>;
   task_options?: Record<string, unknown>;
 }
 

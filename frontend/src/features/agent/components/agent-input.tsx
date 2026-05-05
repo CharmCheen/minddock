@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAgentStore } from '../store';
 import { useAvailabilityStore } from '../../app/store/availability';
 import { useWorkspaceStore } from '../../workspace/store';
-import { useWorkspacePreferences } from '../../settings/workspace-preferences';
+import { buildUserPreferenceProfile, useWorkspacePreferences } from '../../settings/workspace-preferences';
 import { ExamplePrompts } from './example-prompts';
 import { ExecutionService } from '../../../lib/api/services/execution';
 import { ClientArtifactPayload, ClientEvent } from '../../../core/types/api';
@@ -17,7 +17,15 @@ export const AgentInput: React.FC<{
   const { status, taskType, runId, setTaskType, turns, prepareRun, startRun, appendEvent, appendArtifact, finishRun, failRun, requestCancel, markCancelled, reset } = useAgentStore();
   const { status: backendStatus } = useAvailabilityStore();
   const { selectedDocIds, selectedDocDetails, clearSelectedDocs } = useWorkspaceStore();
-  const { defaultTaskType, defaultTopK, defaultCitationPolicy, defaultSummarizeMode, density } = useWorkspacePreferences();
+  const preferences = useWorkspacePreferences();
+  const {
+    defaultTaskType,
+    defaultTopK,
+    defaultCitationPolicy,
+    defaultAnswerStyle,
+    defaultSummarizeMode,
+    density,
+  } = preferences;
 
   // Sync default task type from preferences when idle
   useEffect(() => {
@@ -48,7 +56,16 @@ export const AgentInput: React.FC<{
     prepareRun(query, { selectedSources: sources });
 
     const ctrl = ExecutionService.executeStream(
-      { query, task_type: taskType, sources, top_k: defaultTopK, citation_policy: defaultCitationPolicy, summarize_mode: taskType === 'summarize' ? defaultSummarizeMode : undefined },
+      {
+        query,
+        task_type: taskType,
+        sources,
+        top_k: defaultTopK,
+        citation_policy: defaultCitationPolicy,
+        summarize_mode: taskType === 'summarize' ? defaultSummarizeMode : undefined,
+        answer_style: defaultAnswerStyle,
+        preference_profile: buildUserPreferenceProfile(preferences),
+      },
       {
         onEvent: (event: ClientEvent) => {
           appendEvent(event);

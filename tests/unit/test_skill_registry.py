@@ -128,6 +128,18 @@ def test_frontend_source_skills_api_lists_catalog(monkeypatch, tmp_path) -> None
     assert csv_item["handler_name"] == "CSV Extraction"
     assert any(field["name"] == "max_rows" for field in csv_item["config_schema"])
     assert csv_item["executable"] is True
+    assert csv_item["trusted"] is True
+    assert csv_item["built_in"] is True
+    assert csv_item["category"] == "table"
+    assert csv_item["supported_extensions"] == [".csv"]
+    assert csv_item["supported_mime_types"] == ["text/csv"]
+    assert csv_item["control_plane"] == "trusted_source_skill_catalog"
+    assert csv_item["extension_model"] == "builtin_trusted_handler"
+    assert csv_item["future_market_ready"] is True
+    assert csv_item["market_boundary"] == "not_a_skill_market"
+    assert csv_item["installable"] is False
+    assert csv_item["remote_install_supported"] is False
+    assert csv_item["arbitrary_code_execution"] is False
 
 
 def test_frontend_source_skills_validate_and_register(monkeypatch, tmp_path) -> None:
@@ -148,6 +160,12 @@ def test_frontend_source_skills_validate_and_register(monkeypatch, tmp_path) -> 
     assert local_item["bindable"] is True
     assert local_item["executable"] is False
     assert local_item["config_keys"] == ["max_rows"]
+    assert local_item["trusted"] is True
+    assert local_item["built_in"] is False
+    assert local_item["extension_model"] == "declaration_only_local_manifest"
+    assert local_item["installable"] is False
+    assert local_item["remote_install_supported"] is False
+    assert local_item["arbitrary_code_execution"] is False
 
 
 def test_frontend_source_skills_rejects_unsafe_manifest(monkeypatch, tmp_path) -> None:
@@ -161,3 +179,14 @@ def test_frontend_source_skills_rejects_unsafe_manifest(monkeypatch, tmp_path) -
     assert response.status_code == 200
     assert response.json()["ok"] is False
     assert any("Arbitrary entrypoint" in error for error in response.json()["errors"])
+
+
+def test_frontend_source_skills_api_does_not_expose_market_or_remote_execution_routes() -> None:
+    client = TestClient(app)
+
+    paths = set(client.get("/openapi.json").json()["paths"])
+    source_skill_paths = {path for path in paths if path.startswith("/frontend/source-skills")}
+
+    forbidden_terms = ("install", "download", "market", "remote", "execute")
+    assert source_skill_paths
+    assert not any(term in path for path in source_skill_paths for term in forbidden_terms)

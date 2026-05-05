@@ -1709,16 +1709,98 @@ class SourceSkillSummaryResponse(BaseModel):
     executable: bool = False
     enabled: bool = True
     origin: str = "builtin"
+    trusted: bool = False
+    built_in: bool = False
+    category: str = "other"
+    supported_extensions: list[str] = Field(default_factory=list)
+    supported_mime_types: list[str] = Field(default_factory=list)
+    control_plane: str = "trusted_source_skill_catalog"
+    extension_model: str = "builtin_trusted_handler"
+    future_market_ready: bool = False
+    market_boundary: str = "not_a_skill_market"
+    installable: bool = False
+    remote_install_supported: bool = False
+    arbitrary_code_execution: bool = False
 
     @classmethod
     def from_info(cls, info: SkillInfo) -> "SourceSkillSummaryResponse":
         data = info.to_dict()
         handler = get_trusted_source_handler(info.handler or "")
+        trusted = handler is not None and info.kind == "source"
+        built_in = info.origin == "builtin"
         data["handler_name"] = None if handler is None else handler.name
         data["config_schema"] = [] if handler is None else [SourceHandlerConfigFieldResponse.from_field(field) for field in handler.config_schema]
         data["bindable"] = info.origin == "local" and info.enabled and handler is not None
         data["executable"] = info.origin == "builtin" and info.status == "implemented" and handler is not None
+        data["trusted"] = trusted
+        data["built_in"] = built_in
+        data["category"] = _source_skill_category(info)
+        data["supported_extensions"] = _supported_extensions(info.input_kinds)
+        data["supported_mime_types"] = _supported_mime_types(info)
+        data["control_plane"] = "trusted_source_skill_catalog"
+        data["extension_model"] = _source_skill_extension_model(info, trusted=trusted, built_in=built_in)
+        data["future_market_ready"] = trusted and info.kind == "source"
+        data["market_boundary"] = "not_a_skill_market"
+        data["installable"] = False
+        data["remote_install_supported"] = False
+        data["arbitrary_code_execution"] = False
         return cls(**data)
+
+
+def _source_skill_extension_model(info: SkillInfo, *, trusted: bool, built_in: bool) -> str:
+    if built_in and trusted:
+        return "builtin_trusted_handler"
+    if info.origin == "local" and trusted:
+        return "declaration_only_local_manifest"
+    if info.status == "future":
+        return "future_catalog_placeholder"
+    return "display_only_catalog_entry"
+
+
+def _source_skill_category(info: SkillInfo) -> str:
+    if info.source_kind == "web_page" or "url" in info.input_kinds:
+        return "web"
+    if info.source_media in {"audio", "video"}:
+        return "media"
+    if info.source_media == "image":
+        return "image"
+    if info.source_kind == "csv_file":
+        return "table"
+    if info.source_kind in {"pdf_file", "markdown_file", "text_file"}:
+        return "document"
+    return "other"
+
+
+def _supported_extensions(input_kinds: tuple[str, ...]) -> list[str]:
+    return [kind for kind in input_kinds if kind.startswith(".")]
+
+
+def _supported_mime_types(info: SkillInfo) -> list[str]:
+    mime_by_kind = {
+        ".aac": "audio/aac",
+        ".csv": "text/csv",
+        ".flac": "audio/flac",
+        ".jpeg": "image/jpeg",
+        ".jpg": "image/jpeg",
+        ".m4a": "audio/mp4",
+        ".markdown": "text/markdown",
+        ".md": "text/markdown",
+        ".mkv": "video/x-matroska",
+        ".mov": "video/quicktime",
+        ".mp3": "audio/mpeg",
+        ".mp4": "video/mp4",
+        ".ogg": "audio/ogg",
+        ".pdf": "application/pdf",
+        ".png": "image/png",
+        ".txt": "text/plain",
+        ".wav": "audio/wav",
+        ".webp": "image/webp",
+        "url": "text/html",
+    }
+    mime_types = {mime_by_kind[kind] for kind in info.input_kinds if kind in mime_by_kind}
+    if ".webm" in info.input_kinds:
+        mime_types.add("audio/webm" if info.source_media == "audio" else "video/webm")
+    return sorted(mime_types)
 
 
 class SourceHandlerConfigFieldResponse(BaseModel):

@@ -183,10 +183,14 @@ def _build_chunk_documents(
         # Try structured PDF chunking when block data is available
         page_blocks = load_result.metadata.get("_page_blocks")
         if page_blocks:
-            return _build_structured_chunks(
+            docs = _build_structured_chunks(
                 load_result=load_result,
                 page_blocks=page_blocks,
             )
+            if docs:
+                return docs
+            # Structured chunker dropped all content (e.g. short text pages).
+            # Fall through to page-mode chunking as a safety net.
         # Fallback to legacy page-mode token chunking
         return _build_page_mode_chunks(load_result=load_result)
 

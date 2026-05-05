@@ -94,6 +94,15 @@ pr_body.md
 test_output.txt
 examples/skill_demo.py
 
+# LaTeX compile artifacts (docs/reports)
+docs/reports/*.aux
+docs/reports/*.out
+docs/reports/*.log
+docs/reports/*.toc
+docs/reports/*.synctex.gz
+docs/reports/*.fls
+docs/reports/*.fdb_latexmk
+
 # Local ASR server artifacts
 tools/local_asr_server/__pycache__/
 tools/local_asr_server/*.pyc

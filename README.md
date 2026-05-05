@@ -6,7 +6,9 @@ The latest architecture work also adds:
 
 - a frontend-facing application facade over the main use cases
 - a runtime port/adapter model so LangChain is no longer the only architectural center
-- a minimal skill registry skeleton for future tool/skill integration
+- a versioned Prompt Profile Registry for grounded chat, summary, and compare prompts
+- a trusted-only Source Skill control plane for built-in ingestion capabilities
+- a workspace-local user preference profile for lightweight request defaults
 
 ## Current Scope
 
@@ -28,7 +30,49 @@ Implemented core capabilities:
 - demo/eval internal consumers aligned to service results
 - frontend-facing orchestrators/facade for query and knowledge-base flows
 - runtime registry + runtime request/response adapters
-- skill registry skeleton with a minimal example skill
+- Prompt Profile Registry metadata in workflow traces
+- trusted-only Source Skill catalog/API/settings surface for built-in handlers
+- workspace-local user preference profile metadata for default task type, retrieval depth, answer style, and citation strictness
+
+## Thesis / Demo Readiness Snapshot
+
+This repository is ready to support a thesis-defense demo as a local, evidence-first personal knowledge assistant. The safest wording is:
+
+Completed:
+
+- text-based PDF, Markdown, and TXT ingestion
+- RAG question-answering loop from ingest to retrieval, generation, citation, and workflow trace
+- citation / evidence / source / page / chunk traceability for grounded tasks
+- watchdog-based incremental ingest for local source changes
+- runtime configuration and runtime adapter boundaries
+- Prompt Profile Registry for grounded chat, summary, and compare generation strategies
+- trusted-only Source Skill control plane for built-in source handlers
+- workspace-local user preference profile for lightweight request defaults
+
+Partially completed:
+
+- static web page body extraction
+- CSV rows-as-text ingestion
+- OCR text ingestion for images
+- audio/video transcript-text ingestion through sidecar or configured transcript paths
+- heuristic rerank
+- trimming / lexical context compression
+- lightweight rule-based intent classification
+- LangGraph retrieval preparation subworkflow
+
+Future work:
+
+- Word/Docx ingest
+- complete Skill Market
+- remote plugin installation
+- plugin signature validation
+- sandboxed plugin execution
+- OpenAPI / MCP tool import
+- long-term user memory
+- automatic user profiling
+- true cross-encoder reranker
+- LLM context compression
+- complete LangGraph Agent controller
 
 ## Formal Models
 
@@ -110,11 +154,22 @@ Currently supported source types:
 - `file`
 - `url`
 
-Current built-in file formats:
+Current built-in file formats and input paths:
 
-- Markdown
-- plain text
-- PDF
+- Markdown and plain text are supported as primary text sources
+- text-based PDF is supported with page/block metadata where extraction succeeds
+- static HTML/URL extraction is supported when the page is fetchable without browser execution
+- CSV is ingested as rows-as-text, not as a spreadsheet reasoning engine
+- image OCR text ingest is available when OCR is configured
+- audio/video ingest is transcript-text based, such as sidecar transcripts or configured transcript providers
+
+Not currently supported as completed capabilities:
+
+- Word/Docx
+- JavaScript-rendered web apps, login-only pages, paywalled pages, or general crawling
+- spreadsheet formulas, SQL execution, or table reasoning engines
+- native multimodal image understanding beyond OCR text
+- native audio/video understanding beyond transcript text
 
 Important source rules:
 
@@ -209,6 +264,15 @@ python -m app.demo source-chunks --source https://example.com/final --limit 3 --
 python -m app.demo serve
 ```
 
+### Start the frontend
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Open `http://localhost:5173`.
+
 ### Call the API
 
 ```powershell
@@ -217,6 +281,18 @@ python -m app.demo chat --query "How is data stored?"
 python -m app.demo summarize --topic "storage design"
 python -m app.demo compare --question "Compare the storage approaches across documents"
 ```
+
+## Defense Demo Shortest Path
+
+1. Start the backend with `python -m app.demo serve` and the frontend with `npm run dev` from `frontend`.
+2. Open the source list and show indexed sources.
+3. Upload or place documents into the local knowledge base, then run ingest or the watcher.
+4. Execute chat, summarize, and compare tasks.
+5. Show evidence, citations, source/page/chunk references, and workflow trace metadata.
+6. Show or explain Prompt Profile, Source Skill, and User Preference surfaces:
+   - Prompt Profile metadata appears in workflow traces for chat, summary, and compare.
+   - Settings > Sources shows trusted built-in Source Skills and their limitations.
+   - Settings > Retrieval / Display stores workspace-local preference defaults.
 
 ## URL Fetch Configuration
 
@@ -310,6 +386,11 @@ python -m pytest tests/unit/test_retrieval_models.py tests/unit/test_search_serv
 - URL metadata extraction requires a fetchable, HTML-rendered page; JavaScript-rendered pages and paywalled content are not supported
 - filter semantics are controlled and intentionally limited, not a full query language
 - vector-store post-filtering may fetch extra candidates when enhanced filters are used
+- rerank is heuristic, not a trained cross-encoder reranker
+- compression is trimming / lexical context reduction, not LLM context compression
+- Source Skill is a trusted-only built-in control plane, not a complete Skill Market
+- user preferences are workspace-local request defaults, not long-term memory or automatic user profiling
+- LangGraph is used for retrieval subworkflow orchestration, not as a complete autonomous Agent controller
 - Chroma rebuild behavior on Windows is mitigated but not fully under application control
 - no CI workflow is configured yet
 

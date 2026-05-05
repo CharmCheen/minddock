@@ -1675,7 +1675,7 @@ function SourcesTab() {
         fontSize: '13px',
         color: 'var(--color-text-tertiary)',
       }}>
-        Source skills define what kinds of documents MindDock can ingest and retrieve. Local manifests bind only to trusted built-in handlers.
+        Source skills define the trusted control plane for MindDock ingestion. This version lists built-in trusted handlers and declaration-only local manifests; it does not install third-party skills, download remote plugins, or execute user-provided code.
       </div>
 
       {loading && <p style={{ color: 'var(--color-text-tertiary)', fontSize: '14px' }}>Loading source skills...</p>}
@@ -1767,8 +1767,14 @@ function SourceSkillCard({
 }) {
   const isEnabled = skill.enabled && skill.status !== 'future' && skill.status !== 'disabled';
   const input = skill.input_kinds.length ? skill.input_kinds.join(', ') : '-';
+  const extensions = skill.supported_extensions.length ? skill.supported_extensions.join(', ') : input;
   const limitations = skill.limitations.length ? skill.limitations.join(', ') : '-';
   const capabilities = skill.capabilities.length ? skill.capabilities.join(', ') : '-';
+  const trustLabel = skill.trusted ? 'Trusted' : 'Display only';
+  const originLabel = skill.built_in ? 'Built-in' : skill.origin === 'local' ? 'Local manifest' : skill.origin;
+  const executionBoundary = skill.arbitrary_code_execution || skill.remote_install_supported || skill.installable
+    ? 'External execution enabled'
+    : 'No install / no remote code';
 
   const canDisable = skill.origin === 'local' && skill.status === 'local';
   const canEnable = skill.origin === 'local' && skill.status === 'disabled';
@@ -1792,7 +1798,37 @@ function SourceSkillCard({
           <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>{skill.name}</div>
           <div style={{ fontSize: '12px', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere' }}>{skill.id}</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', flexWrap: 'wrap' }}>
+          <span
+            style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              padding: '3px 10px',
+              borderRadius: 'var(--radius-full)',
+              background: skill.trusted ? 'var(--color-success-bg)' : 'var(--color-canvas)',
+              color: skill.trusted ? 'var(--color-success-text)' : 'var(--color-text-tertiary)',
+              border: `1px solid ${skill.trusted ? 'var(--color-success-border)' : 'var(--color-border-subtle)'}`,
+            }}
+          >
+            {trustLabel}
+          </span>
+          <span
+            style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              padding: '3px 10px',
+              borderRadius: 'var(--radius-full)',
+              background: skill.built_in ? 'var(--color-brand-50)' : 'var(--color-canvas-subtle)',
+              color: skill.built_in ? 'var(--color-brand-900)' : 'var(--color-text-secondary)',
+              border: '1px solid var(--color-border-subtle)',
+            }}
+          >
+            {originLabel}
+          </span>
           {(canEnable || canDisable) && (
             <button
               type="button"
@@ -1834,9 +1870,13 @@ function SourceSkillCard({
       </div>
       <div style={{ display: 'grid', gap: '3px', fontSize: '13px', color: 'var(--color-text-tertiary)', lineHeight: 1.5 }}>
         <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Handler:</span> {skill.handler || '-'}</div>
+        <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Enabled:</span> {isEnabled ? 'yes' : 'no'}</div>
+        <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Category:</span> {skill.category}</div>
         <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Input:</span> {input}</div>
+        <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Extensions:</span> {extensions}</div>
         <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Capabilities:</span> {capabilities}</div>
         <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Limit:</span> {limitations}</div>
+        <div><span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Boundary:</span> {executionBoundary}</div>
       </div>
     </div>
   );

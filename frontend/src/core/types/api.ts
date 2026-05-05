@@ -341,6 +341,18 @@ export interface SourceSkillItem {
   executable: boolean;
   enabled: boolean;
   origin: string;
+  trusted: boolean;
+  built_in: boolean;
+  category: string;
+  supported_extensions: string[];
+  supported_mime_types: string[];
+  control_plane: string;
+  extension_model: string;
+  future_market_ready: boolean;
+  market_boundary: string;
+  installable: boolean;
+  remote_install_supported: boolean;
+  arbitrary_code_execution: boolean;
 }
 
 export interface SourceSkillListResponse {

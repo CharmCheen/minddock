@@ -261,16 +261,31 @@ class HybridRetrievalService:
         rrf_input.append(dense_rrf)
 
         # BM25 ranked: bm25_results[i] = (bm25_internal_pos, score)
-        # Map bm25_chunk_id -> its position in dense list
-        # (uses chunk_id from bm25_index to cross-reference with dense)
+        # Dense-overlapping BM25 hits reuse their dense position. BM25-only hits
+        # get synthetic RRF positions that map back to their real chunk_id.
         lexical_rrf: list[tuple[int, float]] = []
-        for bm25_pos, bm25_score in bm25_results:
+        bm25_only_chunk_ids_by_rank_pos: dict[int, str] = {}
+        for bm25_rank, (bm25_pos, bm25_score) in enumerate(bm25_results):
             bm25_chunk_id = self._bm25_index.get_chunk_id(bm25_pos)
-            pos = dense_pos_map.get(bm25_chunk_id, n + bm25_pos)
+            dense_pos = dense_pos_map.get(bm25_chunk_id)
+            if dense_pos is not None:
+                pos = dense_pos
+            else:
+                pos = n + bm25_rank
+                bm25_only_chunk_ids_by_rank_pos[pos] = bm25_chunk_id
             lexical_rrf.append((pos, bm25_score))
         rrf_input.append(lexical_rrf)
 
         fused = _rrf_fuse(rrf_input, top_k, rrf_k=self._rrf_k)
+        bm25_only_chunk_ids = [
+            bm25_only_chunk_ids_by_rank_pos[rank_pos]
+            for rank_pos, _ in fused
+            if rank_pos in bm25_only_chunk_ids_by_rank_pos
+        ]
+        bm25_only_hits = self._vectorstore.get_chunks_by_ids(
+            bm25_only_chunk_ids, filters=filters
+        )
+        bm25_only_hits_by_id = {hit.chunk_id: hit for hit in bm25_only_hits}
 
         # Reconstruct result in RRF order
         result: list[RetrievedChunk] = []
@@ -279,16 +294,11 @@ class HybridRetrievalService:
             if rank_pos < n:
                 hit = dense_hits[rank_pos]
             else:
-                # Chunk only in BM25 (not in dense top-k): look up by bm25_internal_pos
-                bm25_idx = rank_pos - n
-                if bm25_idx < len(bm25_results):
-                    bm25_pos, _ = bm25_results[bm25_idx]
-                    bm25_chunk_id = self._bm25_index.get_chunk_id(bm25_pos)
-                    if result:
-                        hit = result[0].with_updates(chunk_id=bm25_chunk_id)
-                    else:
-                        hit = dense_hits[0].with_updates(chunk_id=bm25_chunk_id)
-                else:
+                bm25_chunk_id = bm25_only_chunk_ids_by_rank_pos.get(rank_pos)
+                if not bm25_chunk_id:
+                    continue
+                hit = bm25_only_hits_by_id.get(bm25_chunk_id)
+                if hit is None:
                     continue
             if hit.chunk_id not in seen_ids:
                 result.append(hit.with_updates(retrieval_rank=len(result) + 1))

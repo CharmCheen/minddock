@@ -86,6 +86,7 @@ def _clear_runtime_caches() -> None:
     """Refresh runtime singletons after active runtime env overrides change."""
 
     from app.application import get_extension_registries
+    from app.llm.factory import get_generation_runtime
     from app.runtime.factory import get_runtime_factory
     from app.runtime.profiles import get_runtime_profile_registry
     from app.runtime.registry import get_runtime_registry
@@ -95,6 +96,7 @@ def _clear_runtime_caches() -> None:
     get_runtime_profile_registry.cache_clear()
     get_runtime_registry.cache_clear()
     get_runtime_factory.cache_clear()
+    get_generation_runtime.cache_clear()
     get_extension_registries.cache_clear()
     get_frontend_facade.cache_clear()
     frontend_facade = get_frontend_facade()

@@ -20,8 +20,9 @@ class ServiceError(Exception):
     status_code: int = 500
     error_category: str = "service_error"
 
-    def __init__(self, detail: str = "An internal error occurred") -> None:
+    def __init__(self, detail: str = "An internal error occurred", *, metadata: dict[str, object] | None = None) -> None:
         self.detail = detail
+        self.metadata = dict(metadata or {})
         super().__init__(detail)
 
 
@@ -44,6 +45,13 @@ class ChatError(ServiceError):
 
     status_code: int = 500
     error_category: str = "chat_error"
+
+
+class RuntimeInvocationError(ServiceError):
+    """Raised when a configured generation runtime fails to produce a response."""
+
+    status_code: int = 502
+    error_category: str = "runtime_invocation_failed"
 
 
 class SummarizeError(ServiceError):
@@ -189,6 +197,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             category=exc.error_category,
             detail=exc.detail,
             request_id=request_id,
+            metadata=exc.metadata,
         )
         return JSONResponse(
             status_code=exc.status_code,

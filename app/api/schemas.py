@@ -528,6 +528,12 @@ class ChatResponse(BaseModel):
     retrieved_count: int
     mode: str = Field(default="grounded", description="Response production mode for client-side display")
     workflow_trace: dict[str, Any] | None = None
+    fallback_used: bool = False
+    mock_used: bool = False
+    runtime_status: str | None = None
+    selected_model_name: str | None = None
+    selected_provider_kind: str | None = None
+    selected_base_url: str | None = None
 
     @classmethod
     def from_result(cls, result: ChatServiceResult | Mapping[str, Any]) -> "ChatResponse":
@@ -549,6 +555,12 @@ class ChatResponse(BaseModel):
                 retrieved_count=result.metadata.retrieved_count,
                 mode=result.metadata.mode or "grounded",
                 workflow_trace=result.metadata.workflow_trace,
+                fallback_used=result.metadata.fallback_used,
+                mock_used=result.metadata.mock_used,
+                runtime_status=result.metadata.runtime_status,
+                selected_model_name=result.metadata.selected_model_name,
+                selected_provider_kind=result.metadata.selected_provider_kind,
+                selected_base_url=result.metadata.selected_base_url,
             )
         grounded = _resolve_grounded_answer(
             grounded=result.get("grounded_answer"),
@@ -567,6 +579,12 @@ class ChatResponse(BaseModel):
             retrieved_count=int(result.get("retrieved_count", 0)),
             mode=str(result.get("mode") or "grounded"),
             workflow_trace=result.get("workflow_trace"),
+            fallback_used=bool(result.get("fallback_used", False)),
+            mock_used=bool(result.get("mock_used", False)),
+            runtime_status=result.get("runtime_status"),
+            selected_model_name=result.get("selected_model_name"),
+            selected_provider_kind=result.get("selected_provider_kind"),
+            selected_base_url=result.get("selected_base_url"),
         )
 
 
@@ -1409,6 +1427,11 @@ class UnifiedExecutionMetadataResponse(BaseModel):
     refusal_reason: str | None = None
     partial_failure: bool = False
     fallback_used: bool = False
+    mock_used: bool = False
+    runtime_status: str | None = None
+    selected_base_url: str | None = None
+    config_source: str | None = None
+    runtime_error: str | None = None
     selection_reason: str | None = None
     policy_applied: str | None = None
     filter_applied: bool = False
@@ -1425,6 +1448,10 @@ class ExecutionSummaryResponse(BaseModel):
     selected_model_name: str | None = None
     selected_capabilities: list[str] = Field(default_factory=list)
     fallback_used: bool = False
+    mock_used: bool = False
+    runtime_status: str | None = None
+    selected_base_url: str | None = None
+    config_source: str | None = None
     selection_reason: str | None = None
     policy_applied: str | None = None
     execution_steps_executed: list[str] = Field(default_factory=list)
@@ -1518,6 +1545,11 @@ class UnifiedExecutionResponseBody(BaseModel):
                 refusal_reason=result.metadata.refusal_reason,
                 partial_failure=result.metadata.partial_failure,
                 fallback_used=result.metadata.fallback_used,
+                mock_used=result.metadata.mock_used,
+                runtime_status=result.metadata.runtime_status,
+                selected_base_url=result.metadata.selected_base_url,
+                config_source=result.metadata.config_source,
+                runtime_error=result.metadata.runtime_error,
                 selection_reason=result.metadata.selection_reason,
                 policy_applied=result.metadata.policy_applied,
                 filter_applied=result.metadata.filter_applied,
@@ -1531,6 +1563,10 @@ class UnifiedExecutionResponseBody(BaseModel):
                 selected_model_name=result.execution_summary.selected_model_name,
                 selected_capabilities=list(result.execution_summary.selected_capabilities),
                 fallback_used=result.execution_summary.fallback_used,
+                mock_used=result.execution_summary.mock_used,
+                runtime_status=result.execution_summary.runtime_status,
+                selected_base_url=result.execution_summary.selected_base_url,
+                config_source=result.execution_summary.config_source,
                 selection_reason=result.execution_summary.selection_reason,
                 policy_applied=result.execution_summary.policy_applied,
                 execution_steps_executed=list(result.execution_summary.execution_steps_executed),
@@ -2039,6 +2075,7 @@ class ErrorResponse(BaseModel):
     )
     detail: str = Field(description="Human-readable description")
     request_id: str | None = Field(default=None, description="Optional request trace id")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Optional non-secret error metadata")
 
     @classmethod
     def from_parts(
@@ -2048,12 +2085,14 @@ class ErrorResponse(BaseModel):
         detail: str,
         request_id: str | None = None,
         category: str | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> "ErrorResponse":
         return cls(
             error=error,
             category=category or error,
             detail=detail,
             request_id=request_id,
+            metadata=dict(metadata or {}),
         )
 
 

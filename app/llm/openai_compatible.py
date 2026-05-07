@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from app.core.exceptions import RuntimeInvocationError
 from ports.llm import EvidenceItem, LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ class OpenAICompatibleLLM(LLMProvider):
 
 
 class FallbackLLM(LLMProvider):
-    """Compatibility wrapper that falls back without changing service-layer call sites."""
+    """Compatibility wrapper retained for old imports; configured runtime failures fail closed."""
 
     def __init__(self, primary: LLMProvider, fallback: LLMProvider) -> None:
         self._primary = primary
@@ -88,9 +89,21 @@ class FallbackLLM(LLMProvider):
     def generate(self, query: str, evidence: list[EvidenceItem]) -> str:
         try:
             return self._primary.generate(query=query, evidence=evidence)
-        except Exception:
+        except Exception as exc:
             logger.exception(
-                "LLM provider failed, falling back to mock provider",
+                "LLM provider failed; mock fallback is disabled for configured runtimes",
                 extra={"provider": self._primary.name()},
             )
-            return self._fallback.generate(query=query, evidence=evidence)
+            raise RuntimeInvocationError(
+                detail=(
+                    "Configured LLM runtime failed to respond. "
+                    "Check the runtime base URL, model name, API key, and network connectivity."
+                ),
+                metadata={
+                    "runtime_status": "failed",
+                    "fallback_used": False,
+                    "mock_used": False,
+                    "selected_provider_kind": self._primary.name(),
+                    "runtime_error": exc.__class__.__name__,
+                },
+            ) from exc

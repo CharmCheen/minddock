@@ -163,10 +163,12 @@ def present_error_response(
     detail: str,
     request_id: str | None = None,
     category: str | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> ErrorResponse:
     return ErrorResponse.from_parts(
         error=error,
         detail=detail,
         request_id=request_id,
         category=category,
+        metadata=metadata,
     )

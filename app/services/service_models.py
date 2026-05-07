@@ -86,6 +86,7 @@ class UseCaseMetadata:
     selected_profile_id: str | None = None
     selected_provider_kind: str | None = None
     selected_model_name: str | None = None
+    selected_base_url: str | None = None
     runtime_capabilities_matched: tuple[str, ...] = ()
     resolved_capabilities: tuple[str, ...] = ()
     execution_steps_executed: tuple[str, ...] = ()
@@ -96,6 +97,10 @@ class UseCaseMetadata:
     search_result_count: int = 0
     skill_artifact_count: int = 0
     fallback_used: bool = False
+    mock_used: bool = False
+    runtime_status: str | None = None
+    config_source: str | None = None
+    runtime_error: str | None = None
     selection_reason: str | None = None
     policy_applied: str | None = None
     filter_applied: bool = False

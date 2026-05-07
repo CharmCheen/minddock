@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
+from app.core.exceptions import RuntimeInvocationError
 from app.runtime.base import GenerationRuntime
 from app.runtime.models import RuntimeCapabilities, RuntimeRequest, RuntimeResponse
 from ports.llm import LLMProvider
@@ -31,12 +32,18 @@ class LangChainAdapter(GenerationRuntime):
         fallback: LLMProvider,
         provider_name: str,
         runtime_mode: str,
+        selected_model_name: str | None = None,
+        base_url: str | None = None,
+        config_source: str | None = None,
     ) -> None:
         self.llm = llm
         self.provider = provider
         self.fallback = fallback
         self.provider_name = provider_name
         self.runtime_name = runtime_mode
+        self.selected_model_name = selected_model_name
+        self.base_url = base_url
+        self.config_source = config_source
         self.capabilities = RuntimeCapabilities(
             supports_chat=True,
             supports_summarize=True,
@@ -56,6 +63,7 @@ class LangChainAdapter(GenerationRuntime):
                 ),
                 runtime_name=self.runtime_name,
                 provider_name=type(request.llm_override).__name__,
+                runtime_status="real",
             )
 
         if self.llm is None:
@@ -67,27 +75,45 @@ class LangChainAdapter(GenerationRuntime):
                 runtime_name=self.runtime_name,
                 provider_name=self.fallback.name(),
                 used_fallback=True,
-                debug_notes=("langchain_llm_unavailable",),
+                mock_used=True,
+                runtime_status="mock",
+                selected_model_name=self.selected_model_name,
+                base_url=self.base_url,
+                config_source=self.config_source or "mock_no_api_key",
+                debug_notes=("langchain_llm_unavailable", "mock_used"),
             )
 
         from langchain_core.output_parsers import StrOutputParser
 
         chain = request.prompt | self.llm | StrOutputParser()
         try:
-            return RuntimeResponse(
-                text=_strip_visible_thinking(str(chain.invoke(request.inputs))),
-                runtime_name=self.runtime_name,
-                provider_name=self.provider_name,
-            )
-        except Exception:
-            logger.exception("LangChain generation failed; falling back to provider", extra={"provider": self.provider_name})
-            return RuntimeResponse(
-                text=self.fallback.generate(
-                    query=request.fallback_query,
-                    evidence=request.fallback_evidence,
+            generated_text = _strip_visible_thinking(str(chain.invoke(request.inputs)))
+        except Exception as exc:
+            logger.exception("Configured LangChain generation failed", extra={"provider": self.provider_name})
+            raise RuntimeInvocationError(
+                detail=(
+                    "Configured LLM runtime failed to respond. "
+                    "Check the runtime base URL, model name, API key, and network connectivity."
                 ),
-                runtime_name=self.runtime_name,
-                provider_name=self.fallback.name(),
-                used_fallback=True,
-                debug_notes=("langchain_primary_failed",),
-            )
+                metadata={
+                    "runtime_status": "failed",
+                    "fallback_used": False,
+                    "mock_used": False,
+                    "selected_model_name": self.selected_model_name,
+                    "selected_provider_kind": self.provider_name,
+                    "selected_base_url": self.base_url,
+                    "config_source": self.config_source,
+                    "runtime_error": exc.__class__.__name__,
+                },
+            ) from exc
+        return RuntimeResponse(
+            text=generated_text,
+            runtime_name=self.runtime_name,
+            provider_name=self.provider_name,
+            used_fallback=False,
+            mock_used=False,
+            runtime_status="real",
+            selected_model_name=self.selected_model_name,
+            base_url=self.base_url,
+            config_source=self.config_source,
+        )

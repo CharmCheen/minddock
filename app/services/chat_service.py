@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.core.exceptions import ChatError
+from app.core.exceptions import ChatError, RuntimeInvocationError
 from app.llm.factory import get_generation_runtime
 from app.prompts import EVIDENCE_FIRST_CHAT_PROFILE_ID, get_prompt_profile, prompt_profile_trace
 from app.rag.retrieval_models import GroundedAnswer, RefusalReason, SupportStatus
@@ -351,6 +351,12 @@ class ChatService:
                     ),
                     runtime_mode=getattr(self.runtime, "runtime_name", type(self.runtime).__name__),
                     provider_mode=type(self.llm).__name__ if self.llm is not None else runtime_response.provider_name,
+                    selected_provider_kind=runtime_response.provider_name,
+                    selected_model_name=runtime_response.selected_model_name,
+                    selected_base_url=runtime_response.base_url,
+                    runtime_status=runtime_response.runtime_status,
+                    mock_used=runtime_response.mock_used,
+                    config_source=runtime_response.config_source,
                     fallback_used=runtime_response.used_fallback,
                     filter_applied=filters is not None,
                     retrieval_stats=RetrievalStats(
@@ -364,6 +370,9 @@ class ChatService:
                 context=context,
             )
 
+        except RuntimeInvocationError:
+            logger.exception("Configured runtime failed during chat: query_preview=%s", query[:60])
+            raise
         except Exception as exc:
             logger.exception("Chat failed: query_preview=%s", query[:60])
             raise ChatError(detail=f"Chat generation failed: {exc}") from exc

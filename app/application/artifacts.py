@@ -276,8 +276,18 @@ class ArtifactBuilder:
     def _grounding_metadata(metadata) -> dict[str, object]:
         result: dict[str, object] = {
             "fallback_used": metadata.fallback_used,
+            "mock_used": metadata.mock_used,
+            "runtime_status": metadata.runtime_status,
             "insufficient_evidence": metadata.insufficient_evidence,
         }
+        if metadata.selected_model_name is not None:
+            result["selected_model_name"] = metadata.selected_model_name
+        if metadata.selected_provider_kind is not None:
+            result["selected_provider_kind"] = metadata.selected_provider_kind
+        if metadata.selected_base_url is not None:
+            result["selected_base_url"] = metadata.selected_base_url
+        if metadata.config_source is not None:
+            result["config_source"] = metadata.config_source
         if metadata.support_status is not None:
             result["support_status"] = metadata.support_status
         if metadata.refusal_reason is not None:

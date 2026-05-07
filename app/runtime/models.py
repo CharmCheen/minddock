@@ -28,6 +28,11 @@ class RuntimeResponse:
     runtime_name: str
     provider_name: str
     used_fallback: bool = False
+    mock_used: bool = False
+    runtime_status: str = "real"
+    selected_model_name: str | None = None
+    base_url: str | None = None
+    config_source: str | None = None
     debug_notes: tuple[str, ...] = field(default_factory=tuple)
 
 

@@ -666,8 +666,9 @@ class FrontendFacade:
 
             selected_runtime = runtime_match.binding.adapter_kind if runtime_match is not None else None
             selected_profile_id = runtime_match.binding.selected_profile_id if runtime_match is not None else None
-            selected_provider_kind = runtime_match.binding.provider_kind if runtime_match is not None else None
-            selected_model_name = runtime_match.binding.model_name if runtime_match is not None else None
+            selected_provider_kind = response.metadata.selected_provider_kind or (runtime_match.binding.provider_kind if runtime_match is not None else None)
+            selected_model_name = response.metadata.selected_model_name or (runtime_match.binding.model_name if runtime_match is not None else None)
+            selected_base_url = response.metadata.selected_base_url
             matched_capabilities = runtime_match.binding.resolved_capabilities.labels() if runtime_match is not None else ()
             steps_executed = tuple(step.kind.value for step in plan.steps)
             artifact_kinds = tuple(artifact.kind.value for artifact in final_artifacts)
@@ -694,6 +695,7 @@ class FrontendFacade:
                 selected_profile_id=selected_profile_id,
                 selected_provider_kind=selected_provider_kind,
                 selected_model_name=selected_model_name,
+                selected_base_url=selected_base_url,
                 runtime_capabilities_matched=matched_capabilities,
                 resolved_capabilities=matched_capabilities,
                 execution_steps_executed=steps_executed,
@@ -712,6 +714,10 @@ class FrontendFacade:
                     for record, _ in skill_invocations
                 ),
                 fallback_used=fallback_used,
+                mock_used=response.metadata.mock_used,
+                runtime_status=response.metadata.runtime_status,
+                config_source=response.metadata.config_source,
+                runtime_error=response.metadata.runtime_error,
                 selection_reason=None if runtime_match is None else runtime_match.binding.selection_reason,
                 policy_applied=request.execution_policy.describe(),
                 workflow_trace=workflow_trace,
@@ -743,8 +749,12 @@ class FrontendFacade:
                 selected_profile_id=selected_profile_id,
                 selected_provider_kind=selected_provider_kind,
                 selected_model_name=selected_model_name,
+                selected_base_url=selected_base_url,
                 selected_capabilities=matched_capabilities,
                 fallback_used=fallback_used,
+                mock_used=response.metadata.mock_used,
+                runtime_status=response.metadata.runtime_status,
+                config_source=response.metadata.config_source,
                 selection_reason=None if runtime_match is None else runtime_match.binding.selection_reason,
                 policy_applied=request.execution_policy.describe(),
                 execution_steps_executed=steps_executed,

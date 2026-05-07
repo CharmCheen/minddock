@@ -9,7 +9,7 @@ from functools import lru_cache
 
 from app.core.exceptions import RuntimeProfileInvalidConfigError, RuntimeResolutionFailedError
 from app.llm.mock import MockLLM
-from app.llm.openai_compatible import FallbackLLM, OpenAICompatibleLLM
+from app.llm.openai_compatible import OpenAICompatibleLLM
 from app.runtime.adapters import LangChainAdapter
 from app.runtime.base import GenerationRuntime
 from app.runtime.models import RuntimeCapabilities, RuntimeProfile
@@ -42,6 +42,21 @@ def _build_langchain_chat_model(profile: RuntimeProfile, *, base_url: str | None
     )
 
 
+def _resolve_config_source(profile: RuntimeProfile) -> str:
+    if not os.environ.get("LLM_RUNTIME_BASE_URL") and not os.environ.get("LLM_RUNTIME_MODEL"):
+        return "runtime_profile"
+    if profile.api_key_env == "LLM_API_KEY":
+        try:
+            from app.runtime.active_config import load_active_runtime_config
+
+            active_config = load_active_runtime_config()
+        except Exception:
+            return "env_override"
+        if active_config.enabled and active_config.api_key_source == "env" and os.environ.get("LLM_API_KEY"):
+            return "active_config_env"
+    return "env_override"
+
+
 def _build_langchain_runtime(profile: RuntimeProfile) -> GenerationRuntime:
     if not profile.model_name.strip():
         raise RuntimeProfileInvalidConfigError(detail=f"Runtime profile '{profile.profile_id}' is missing model_name.")
@@ -49,6 +64,7 @@ def _build_langchain_runtime(profile: RuntimeProfile) -> GenerationRuntime:
     # Allow live base_url and model override via env vars (set by user via settings UI)
     base_url = os.environ.get("LLM_RUNTIME_BASE_URL") or profile.base_url
     model_name = os.environ.get("LLM_RUNTIME_MODEL") or profile.model_name
+    config_source = _resolve_config_source(profile)
 
     mock = MockLLM()
     llm = _build_langchain_chat_model(profile, base_url=base_url, model_name=model_name)
@@ -60,16 +76,16 @@ def _build_langchain_runtime(profile: RuntimeProfile) -> GenerationRuntime:
             fallback=mock,
             provider_name="mock",
             runtime_mode=profile.adapter_kind,
+            selected_model_name=model_name,
+            base_url=base_url,
+            config_source="mock_no_api_key",
         )
 
-    provider = FallbackLLM(
-        primary=OpenAICompatibleLLM(
-            api_key=api_key,
-            base_url=base_url or "",
-            model=model_name,
-            timeout_seconds=float(profile.default_generation_params.get("timeout_seconds", 30.0)),
-        ),
-        fallback=mock,
+    provider = OpenAICompatibleLLM(
+        api_key=api_key,
+        base_url=base_url or "",
+        model=model_name,
+        timeout_seconds=float(profile.default_generation_params.get("timeout_seconds", 30.0)),
     )
     return LangChainAdapter(
         llm=llm,
@@ -77,6 +93,9 @@ def _build_langchain_runtime(profile: RuntimeProfile) -> GenerationRuntime:
         fallback=mock,
         provider_name=profile.provider_kind,
         runtime_mode=profile.adapter_kind,
+        selected_model_name=model_name,
+        base_url=base_url,
+        config_source=config_source,
     )
 
 

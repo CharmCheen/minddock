@@ -14,12 +14,15 @@ Covers:
 
 import json
 import os
+import threading
 from types import SimpleNamespace
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.rag.retrieval_models import RetrievedChunk
 from app.runtime.active_config import ActiveRuntimeConfig
 
 
@@ -687,3 +690,179 @@ class TestRuntimeModelOverride:
         get_runtime_registry.cache_clear()
         get_runtime_profile_registry.cache_clear()
         monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+
+class _FakeSearchService:
+    def retrieve(self, *, query: str, top_k: int, filters=None):
+        return [
+            RetrievedChunk(
+                text="MindDock stores chunks in local Chroma.",
+                doc_id="runtime-doc",
+                chunk_id="runtime-chunk",
+                source="kb/runtime.md",
+                source_type="file",
+                title="runtime",
+                section="Storage",
+                location="Storage",
+                ref="runtime > Storage",
+                page=None,
+                anchor=None,
+                distance=0.01,
+            )
+        ]
+
+
+class _FakeOpenAIServer:
+    def __init__(self, *, content: str = "FAKE_RUNTIME_CALLED_12345", status_code: int = 200) -> None:
+        self.content = content
+        self.status_code = status_code
+        self.requests: list[dict[str, object]] = []
+        owner = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("content-length", "0") or "0")
+                raw_body = self.rfile.read(length).decode("utf-8")
+                payload = json.loads(raw_body or "{}")
+                owner.requests.append({"path": self.path, "payload": payload})
+                self.send_response(owner.status_code)
+                self.send_header("content-type", "application/json")
+                self.end_headers()
+                if owner.status_code >= 400:
+                    self.wfile.write(b'{"error":{"message":"fake runtime failure"}}')
+                    return
+                body = {
+                    "id": "chatcmpl-fake",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": payload.get("model", "fake-model"),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": owner.content},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+                self.wfile.write(json.dumps(body).encode("utf-8"))
+
+            def log_message(self, format, *args):
+                return
+
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.base_url = f"http://127.0.0.1:{self._server.server_port}/v1"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+
+
+def _install_fake_search(monkeypatch):
+    from app.api import routes
+    from app.application.orchestrators import ChatOrchestrator
+
+    monkeypatch.setattr(routes.frontend_facade, "chat", ChatOrchestrator(search_service=_FakeSearchService()))
+
+
+class TestRuntimeExecutionTrust:
+    def test_frontend_execute_calls_fake_runtime_and_reports_effective_model(self, client, monkeypatch):
+        unique = "FAKE_RUNTIME_CALLED_12345"
+        with _FakeOpenAIServer(content=unique) as fake_server:
+            response = client.put(
+                "/frontend/runtime-config",
+                json={
+                    "provider": "openai_compatible",
+                    "base_url": fake_server.base_url,
+                    "api_key": "sk-runtime-test",
+                    "model": "fake-runtime-model-123",
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == 200
+            _install_fake_search(monkeypatch)
+
+            execute_response = client.post(
+                "/frontend/execute",
+                json={
+                    "task_type": "chat",
+                    "user_input": "How does MindDock store chunks in local Chroma?",
+                    "include_metadata": True,
+                },
+            )
+
+        assert execute_response.status_code == 200
+        body = execute_response.json()
+        assert fake_server.requests
+        sent_payload = fake_server.requests[0]["payload"]
+        assert sent_payload["model"] == "fake-runtime-model-123"
+        assert unique in json.dumps(body)
+        assert body["metadata"]["fallback_used"] is False
+        assert body["metadata"]["mock_used"] is False
+        assert body["metadata"]["runtime_status"] == "real"
+        assert body["metadata"]["selected_model_name"] == "fake-runtime-model-123"
+        assert body["execution_summary"]["selected_model_name"] == "fake-runtime-model-123"
+        assert body["execution_summary"]["fallback_used"] is False
+
+    def test_bad_base_url_fails_closed_without_mock_answer(self, client, monkeypatch):
+        with _FakeOpenAIServer(status_code=404) as fake_server:
+            response = client.put(
+                "/frontend/runtime-config",
+                json={
+                    "provider": "openai_compatible",
+                    "base_url": fake_server.base_url + "/bad",
+                    "api_key": "sk-runtime-test",
+                    "model": "bad-runtime-model",
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == 200
+            _install_fake_search(monkeypatch)
+
+            execute_response = client.post(
+                "/frontend/execute",
+                json={
+                    "task_type": "chat",
+                    "user_input": "How does MindDock store chunks in local Chroma?",
+                    "include_metadata": True,
+                },
+            )
+
+        assert execute_response.status_code == 502
+        body = execute_response.json()
+        assert body["error"] == "runtime_invocation_failed"
+        assert "Configured LLM runtime failed" in body["detail"]
+        assert "MockLLM" not in json.dumps(body)
+        assert body["metadata"]["runtime_status"] == "failed"
+        assert body["metadata"]["fallback_used"] is False
+        assert body["metadata"]["mock_used"] is False
+        assert body["metadata"]["selected_model_name"] == "bad-runtime-model"
+
+    def test_no_config_uses_explicit_mock_mode_metadata(self, client, monkeypatch):
+        from app.api import routes
+
+        client.post("/frontend/runtime-config/reset")
+        routes._clear_runtime_caches()
+        _install_fake_search(monkeypatch)
+
+        response = client.post(
+            "/frontend/execute",
+            json={
+                "task_type": "chat",
+                "user_input": "How does MindDock store chunks in local Chroma?",
+                "include_metadata": True,
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["metadata"]["runtime_status"] == "mock"
+        assert body["metadata"]["mock_used"] is True
+        assert body["metadata"]["fallback_used"] is True
+        assert body["execution_summary"]["runtime_status"] == "mock"
+        assert body["artifacts"][0]["metadata"]["runtime_status"] == "mock"

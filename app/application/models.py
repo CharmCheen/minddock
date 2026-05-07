@@ -189,8 +189,12 @@ class ExecutionSummary:
     selected_profile_id: str | None = None
     selected_provider_kind: str | None = None
     selected_model_name: str | None = None
+    selected_base_url: str | None = None
     selected_capabilities: tuple[str, ...] = ()
     fallback_used: bool = False
+    mock_used: bool = False
+    runtime_status: str | None = None
+    config_source: str | None = None
     selection_reason: str | None = None
     policy_applied: str | None = None
     execution_steps_executed: tuple[str, ...] = ()
@@ -291,6 +295,7 @@ class UnifiedExecutionResponse:
             "selected_profile_id": self.metadata.selected_profile_id,
             "selected_provider_kind": self.metadata.selected_provider_kind,
             "selected_model_name": self.metadata.selected_model_name,
+            "selected_base_url": self.metadata.selected_base_url,
             "runtime_capabilities_matched": list(self.metadata.runtime_capabilities_matched),
             "resolved_capabilities": list(self.metadata.resolved_capabilities),
             "execution_steps_executed": list(self.metadata.execution_steps_executed),
@@ -323,6 +328,10 @@ class UnifiedExecutionResponse:
             "refusal_reason": self.metadata.refusal_reason,
             "partial_failure": self.metadata.partial_failure,
             "fallback_used": self.metadata.fallback_used,
+            "mock_used": self.metadata.mock_used,
+            "runtime_status": self.metadata.runtime_status,
+            "config_source": self.metadata.config_source,
+            "runtime_error": self.metadata.runtime_error,
             "selection_reason": self.metadata.selection_reason,
             "policy_applied": self.metadata.policy_applied,
             "filter_applied": self.metadata.filter_applied,

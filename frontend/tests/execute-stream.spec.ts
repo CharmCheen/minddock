@@ -29,6 +29,15 @@ async function mockRuntimeConfig(page: Page) {
       }),
     });
   });
+
+  // Prevent ECONNREFUSED for endpoints the app loads on startup
+  await page.route('**/sources', (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0 }) });
+  });
+  await page.route('**/frontend/media-transcript-config', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: false, provider: 'mock', api_key_configured: false, base_url: '', base_url_configured: false, model: '', timeout_seconds: 60, config_source: 'default', limitations: [] }) });
+  });
 }
 
 async function mockSources(page: Page) {
@@ -91,6 +100,14 @@ const completedStream = `${sseBody([
 test.describe('execute/stream SSE consumption', () => {
   test.beforeEach(async ({ page }) => {
     await mockRuntimeConfig(page);
+
+    // Fail the test if any request hits ECONNREFUSED (backend not running)
+    page.on('requestfailed', (request) => {
+      const err = request.failure()?.errorText || '';
+      if (err.includes('ECONNREFUSED') || err.includes('net::ERR_CONNECTION_REFUSED')) {
+        test.info().annotations.push({ type: 'warning', description: `ECONNREFUSED: ${request.url()}` });
+      }
+    });
   });
 
   test('completes the full idle to running to completed state transition with artifact rendered', async ({ page }) => {
@@ -664,6 +681,35 @@ test.describe('execute/stream SSE consumption', () => {
     });
 
     await mockSources(page);
+
+    // Mock source detail and chunks for the citation drawer
+    await page.route('**/sources/doc-selected-001', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          found: true,
+          item: {
+            doc_id: 'doc-selected-001',
+            source: 'kb/selected.md',
+            source_type: 'file',
+            title: 'Selected Doc',
+            chunk_count: 2,
+            source_state: { doc_id: 'doc-selected-001', source: 'kb/selected.md', ingest_status: 'ready' },
+          },
+          representative_metadata: {},
+        }),
+      });
+    });
+    await page.route('**/sources/doc-selected-001/chunks**', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], total: 0, limit: 100, offset: 0 }),
+      });
+    });
 
     await page.goto('/');
     await page.getByTestId('agent-input').fill('Citation test question');

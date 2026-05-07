@@ -91,7 +91,12 @@ export const ExecutionService = {
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP Error: ${response.statusText}`);
+          let detail = response.statusText;
+          try {
+            const errBody = await response.json();
+            detail = errBody.detail || errBody.message || detail;
+          } catch { /* non-JSON error body, use statusText */ }
+          throw new Error(detail);
         }
 
         if (!response.body) {

@@ -78,6 +78,7 @@ export interface ClientCompletedPayload {
 }
 
 export interface ClientFailedPayload {
+  detail?: string;
   message?: string;
   error?: string;
 }

@@ -75,10 +75,21 @@ function buildStatusBadges(metadata: Record<string, unknown> | undefined): Statu
   const supportStatus = String(metadata.support_status || grounded?.support_status || '');
   const refusalReason = metadata.refusal_reason || grounded?.refusal_reason;
   const fallbackUsed = metadata.fallback_used === true;
+  const mockUsed = metadata.mock_used === true;
+  const runtimeStatus = String(metadata.runtime_status || '');
   const insufficientEvidence = metadata.insufficient_evidence === true || supportStatus === 'insufficient_evidence';
   const badges: StatusBadge[] = [];
 
-  if (fallbackUsed) {
+  // Mock / Demo mode: configured runtime not available, using mock LLM
+  if (runtimeStatus === 'mock' || mockUsed) {
+    badges.push({
+      label: 'Mock 模式',
+      color: '#b45309',
+      background: '#fffbeb',
+      border: '#fde68a',
+    });
+  } else if (fallbackUsed) {
+    // Fallback without mock_used: degraded but not mock
     badges.push({
       label: 'Fallback',
       color: '#b45309',

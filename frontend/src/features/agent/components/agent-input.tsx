@@ -81,8 +81,12 @@ export const AgentInput: React.FC<{
           } else if (event.event === 'completed') {
             finishRun();
           } else if (event.event === 'failed') {
-            const data = event.data as any;
-            failRun(data.error || data.message || 'Stream failed');
+            const data = event.data as Record<string, unknown>;
+            const raw = (data.detail || data.error || data.message || 'Stream failed') as string;
+            const friendly = raw.includes('RuntimeInvocationError')
+              ? 'Runtime 调用失败，请检查 base_url、api_key 或模型名称。'
+              : raw;
+            failRun(friendly);
           }
         },
         onError: (err, isNetworkError) => {

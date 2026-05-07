@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from app.core.config import get_settings
@@ -130,3 +131,40 @@ def test_run_watcher_writes_ready_file_after_once_sync(tmp_path: Path, monkeypat
 
     assert ready_file.exists()
     assert '"status": "ready"' in ready_file.read_text(encoding="utf-8")
+
+
+def test_run_watcher_ready_file_reports_degraded_sync(tmp_path: Path, monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("WATCH_ENABLED", "true")
+    descriptor = SourceDescriptor(
+        source="notes.md",
+        source_type="file",
+        local_path=tmp_path / "notes.md",
+    )
+    expected = [
+        IncrementalUpdateResult(
+            descriptor=descriptor,
+            event_type="modified",
+            status="degraded",
+            detail="empty payload; existing chunks preserved",
+        )
+    ]
+
+    class FakeIncrementalIngestService:
+        def __init__(self, *, kb_dir, debounce_seconds):
+            pass
+
+        def sync_directory(self, dry_run: bool):
+            return expected
+
+    monkeypatch.setattr("app.rag.watcher.IncrementalIngestService", FakeIncrementalIngestService)
+
+    from app.rag.watcher import run_watcher
+
+    ready_file = tmp_path / "watcher-ready.json"
+    run_watcher(path=tmp_path, once=True, ready_file=ready_file)
+
+    payload = json.loads(ready_file.read_text(encoding="utf-8"))
+    assert payload["status"] == "degraded"
+    assert payload["sync_degraded"] == 1
+    assert payload["sync_failed"] == 0

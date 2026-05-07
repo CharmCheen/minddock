@@ -45,8 +45,11 @@ class FakeCollection:
         documents: list[str],
         metadatas: list[dict[str, str]],
         embeddings: list[list[float]],
+        allow_empty_replace: bool = False,
     ) -> ReplaceDocumentResult:
         existing_ids = [key for key, value in self.records.items() if value["metadata"]["doc_id"] == doc_id]
+        if not ids and existing_ids and not allow_empty_replace:
+            raise ValueError("empty replacement refused")
         stale_ids = [key for key in existing_ids if key not in ids]
         for key in stale_ids:
             del self.records[key]
@@ -157,6 +160,30 @@ def test_incremental_failed_rebuild_keeps_existing_chunks(tmp_path: Path, monkey
 
     assert collection.records == before
     assert collection.count_doc(doc_id) == 1
+
+
+def test_incremental_empty_payload_keeps_existing_chunks_and_marks_degraded(tmp_path: Path) -> None:
+    collection = FakeCollection()
+    service = build_service(tmp_path, collection)
+    kb_dir = tmp_path / "knowledge_base"
+    doc_path = kb_dir / "notes.md"
+    doc_path.write_text("# Storage\nFirst version.\n", encoding="utf-8")
+
+    service.handle_created(doc_path)
+    doc_id = build_doc_id(Path("notes.md"))
+    before = dict(collection.records)
+
+    doc_path.write_text("", encoding="utf-8")
+    result = service.handle_modified(doc_path)
+
+    assert result.status == "degraded"
+    assert result.chunks_deleted == 0
+    assert collection.records == before
+    assert collection.count_doc(doc_id) == 1
+    stored = service._hash_store.get("notes.md")
+    assert stored is not None
+    assert stored["status"] == "degraded"
+    assert "empty payload" in stored["error"]
 
 
 def test_sync_directory_detects_new_file(tmp_path: Path) -> None:
@@ -524,9 +551,12 @@ def test_sync_directory_empty_transcript_does_not_upsert_empty_records(tmp_path:
 
     results = service.sync_directory()
 
-    assert [(result.event_type, result.status) for result in results] == [("created", "updated")]
+    assert [(result.event_type, result.status) for result in results] == [("created", "empty")]
     doc_id = build_doc_id(Path("lecture.mp3"))
     assert collection.count_doc(doc_id) == 0
+    stored = service._hash_store.get("lecture.mp3")
+    assert stored is not None
+    assert stored["status"] == "empty"
 
 
 # ── HashStore transcript fields ────────────────────────────────────

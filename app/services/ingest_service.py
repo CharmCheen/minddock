@@ -26,6 +26,8 @@ from app.stores.ingestion_status_store import write_pending, write_ready, write_
 
 logger = logging.getLogger(__name__)
 
+EMPTY_PAYLOAD_DETAIL = "Source produced no indexable chunks; existing chunks were preserved."
+
 
 class IngestService:
     """Batch ingest local files and optional URLs with partial-failure handling."""
@@ -75,7 +77,7 @@ class IngestService:
         ]
         batch_result = IngestBatchResult(source_results=source_results)
 
-        if batch_result.all_failed():
+        if batch_result.all_failed() and not _all_failures_are_empty_payloads(batch_result):
             detail = "; ".join(f"{item.source}: {item.reason}" for item in batch_result.failed_sources[:3])
             raise IngestError(detail=f"Ingestion failed for all requested sources. {detail}")
 
@@ -128,6 +130,27 @@ class IngestService:
 
         try:
             payload = build_payload_for_source(descriptor=descriptor, registry=self._loader_registry)
+            if not payload.ids or not payload.documents or not payload.metadatas:
+                existing_chunks = _count_existing_chunks(collection, payload.doc_id)
+                detail = EMPTY_PAYLOAD_DETAIL if existing_chunks else "Source produced no indexable chunks."
+                logger.warning(
+                    "Source ingest produced empty payload: source=%s source_type=%s doc_id=%s existing_chunks=%d",
+                    payload.descriptor.source,
+                    payload.descriptor.source_type,
+                    payload.doc_id,
+                    existing_chunks,
+                )
+                write_failed(doc_id=doc_id, error_message=detail)
+                return IngestSourceResult(
+                    descriptor=payload.descriptor,
+                    ok=False,
+                    failure=FailedSourceInfo(
+                        source=payload.descriptor.source,
+                        source_type=payload.descriptor.source_type,
+                        reason=detail,
+                    ),
+                )
+
             embeddings = self._embedder.embed_texts(payload.documents) if payload.documents else []
             replaced = collection.replace_document(
                 doc_id=payload.doc_id,
@@ -202,3 +225,29 @@ class IngestService:
                 continue
             normalized.append(candidate)
         return normalized
+
+
+def _count_existing_chunks(collection, doc_id: str) -> int:
+    if hasattr(collection, "count_document_chunks"):
+        try:
+            return int(collection.count_document_chunks(doc_id))
+        except Exception:
+            logger.debug("Unable to count existing chunks via count_document_chunks", exc_info=True)
+    if hasattr(collection, "list_document_chunk_ids"):
+        try:
+            return len(collection.list_document_chunk_ids(doc_id))
+        except Exception:
+            logger.debug("Unable to count existing chunks via list_document_chunk_ids", exc_info=True)
+    if hasattr(collection, "inspect_source"):
+        try:
+            result = collection.inspect_source(doc_id, limit=1, offset=0, include_admin_metadata=False)
+            if result is not None:
+                return int(result.chunk_page.total_chunks)
+        except Exception:
+            logger.debug("Unable to count existing chunks via inspect_source", exc_info=True)
+    return 0
+
+
+def _all_failures_are_empty_payloads(batch_result: IngestBatchResult) -> bool:
+    failures = batch_result.failed_sources
+    return bool(failures) and all("no indexable chunks" in item.reason for item in failures)

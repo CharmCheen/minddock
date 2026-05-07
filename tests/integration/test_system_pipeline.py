@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from app.llm.mock import MockLLM
 from app.rag.retrieval_models import ComparedPoint, EvidenceObject, GroundedCompareResult, RetrievedChunk, RetrievalFilters, SupportStatus
 from app.services.compare_service import CompareService
-from app.rag.source_models import CatalogQuery, ReplaceDocumentResult, SourceChunkPage, SourceChunkPreview, SourceDetail, SourceInspectResult
+from app.rag.source_models import CatalogQuery, DocumentPayload, ReplaceDocumentResult, SourceChunkPage, SourceChunkPreview, SourceDescriptor, SourceDetail, SourceInspectResult
 from app.rag.url_loader import URLContent
 from app.runtime import RuntimeRequest, RuntimeResponse
 from app.services.catalog_service import CatalogService
@@ -47,12 +47,15 @@ class InMemoryVectorStore:
         documents: list[str],
         metadatas: list[dict[str, str]],
         embeddings: list[list[float]],
+        allow_empty_replace: bool = False,
     ) -> ReplaceDocumentResult:
         stale_ids = [
             key
             for key, value in self.records.items()
             if value["metadata"]["doc_id"] == doc_id and key not in ids
         ]
+        if not ids and stale_ids and not allow_empty_replace:
+            raise ValueError("empty replacement refused")
         for key in stale_ids:
             del self.records[key]
 
@@ -292,6 +295,34 @@ def test_repeat_ingest_replaces_stale_chunks_without_rebuild(tmp_path: Path) -> 
     assert second.chunks == 1
     assert len(hits.to_api_dict()["hits"]) == 1
     assert hits.to_api_dict()["hits"][0]["text"] == "Only new chunk remains."
+
+
+def test_ingest_service_empty_payload_preserves_existing_chunks(tmp_path: Path, monkeypatch) -> None:
+    kb_dir = tmp_path / "knowledge_base"
+    kb_dir.mkdir()
+    doc_path = kb_dir / "notes.md"
+    doc_path.write_text("# Storage\nExisting chunk survives empty reingest.\n", encoding="utf-8")
+    store = InMemoryVectorStore()
+    ingest_service = IngestService(settings=build_settings(tmp_path), embedder=FakeEmbedder(), collection=store)
+
+    first = ingest_service.ingest_descriptor(SourceDescriptor(source="notes.md", source_type="file", local_path=doc_path))
+    assert first.ok is True
+    before = dict(store.records)
+
+    monkeypatch.setattr("app.services.ingest_service.write_pending", lambda **kwargs: None)
+    monkeypatch.setattr("app.services.ingest_service.write_failed", lambda **kwargs: None)
+    monkeypatch.setattr("app.services.ingest_service.write_ready", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "app.services.ingest_service.build_payload_for_source",
+        lambda **kwargs: DocumentPayload.empty(SourceDescriptor(source="notes.md", source_type="file", local_path=doc_path)),
+    )
+
+    second = ingest_service.ingest_descriptor(SourceDescriptor(source="notes.md", source_type="file", local_path=doc_path))
+
+    assert second.ok is False
+    assert second.failure is not None
+    assert "no indexable chunks" in second.failure.reason
+    assert store.records == before
 
 
 def test_local_file_still_succeeds_when_url_source_fails(tmp_path: Path, monkeypatch) -> None:

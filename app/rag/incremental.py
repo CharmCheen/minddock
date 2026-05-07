@@ -33,6 +33,7 @@ class VectorCollection(Protocol):
         documents: list[str],
         metadatas: list[dict[str, str]],
         embeddings: list[list[float]],
+        allow_empty_replace: bool = False,
     ):
         """Replace one document's current chunks and remove stale ones."""
 
@@ -244,6 +245,7 @@ class IncrementalIngestService:
                 documents=[],
                 metadatas=[],
                 embeddings=[],
+                allow_empty_replace=True,
             ).deleted
             self._hash_store.remove(source)
             results.append(
@@ -279,6 +281,7 @@ class IncrementalIngestService:
             documents=[],
             metadatas=[],
             embeddings=[],
+            allow_empty_replace=True,
         ).deleted
         self._hash_store.remove(descriptor.source)
         logger.info(
@@ -329,7 +332,7 @@ class IncrementalIngestService:
                 detail=detail,
             )
         stored = self._hash_store.get(descriptor.source)
-        if stored and stored.get("content_hash") == content_hash:
+        if stored and stored.get("content_hash") == content_hash and stored.get("status") == "ready":
             if not self._needs_media_transcript_retry(path, stored):
                 logger.debug(
                     "Hash unchanged, skipping rebuild: event=%s source=%s doc_id=%s",
@@ -362,6 +365,36 @@ class IncrementalIngestService:
 
         try:
             payload = build_payload_for_source(descriptor=descriptor, registry=self._loader_registry)
+            if not payload.ids or not payload.documents or not payload.metadatas:
+                existing_chunks = self._count_document_chunks(payload.doc_id)
+                if existing_chunks:
+                    detail = "empty payload; existing chunks preserved"
+                    status = "degraded"
+                else:
+                    detail = "empty payload; no indexable chunks"
+                    status = "empty"
+                self._hash_store.set(
+                    source_path=payload.descriptor.source,
+                    doc_id=payload.doc_id,
+                    content_hash=content_hash,
+                    status=status,
+                    error=detail,
+                )
+                logger.warning(
+                    "Incremental rebuild produced empty payload: event=%s source=%s doc_id=%s existing_chunks=%d status=%s",
+                    event_type,
+                    payload.descriptor.source,
+                    payload.doc_id,
+                    existing_chunks,
+                    status,
+                )
+                return IncrementalUpdateResult(
+                    descriptor=payload.descriptor,
+                    event_type=event_type,
+                    status=status,
+                    detail=detail,
+                )
+
             embeddings = self._embedder.embed_texts(payload.documents) if payload.documents else []
             replaced = self._collection.replace_document(
                 doc_id=payload.doc_id,

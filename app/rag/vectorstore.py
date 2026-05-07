@@ -124,16 +124,21 @@ class LangChainChromaStore:
         documents: list[str],
         metadatas: list[dict[str, str]],
         embeddings: list[list[float]] | None = None,
+        allow_empty_replace: bool = False,
     ) -> ReplaceDocumentResult:
         existing_ids = set(self.list_document_chunk_ids(doc_id))
         new_ids = set(ids)
+
+        if not ids and existing_ids and not allow_empty_replace:
+            raise ValueError(
+                f"Refusing empty replacement for indexed document `{doc_id}`; "
+                "use allow_empty_replace=True for explicit deletes."
+            )
 
         if ids:
             self.upsert(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
 
         deleted = self.delete_ids(sorted(existing_ids - new_ids))
-        if not ids and existing_ids:
-            deleted += self.delete_ids(sorted(new_ids & existing_ids))
 
         return ReplaceDocumentResult(upserted=len(ids), deleted=deleted)
 
@@ -483,6 +488,7 @@ def replace_document(
     documents: list[str],
     metadatas: list[dict[str, str]],
     embeddings: list[list[float]] | None = None,
+    allow_empty_replace: bool = False,
 ) -> ReplaceDocumentResult:
     """Upsert a document's current chunks and delete stale chunk ids."""
 
@@ -492,6 +498,7 @@ def replace_document(
         documents=documents,
         metadatas=metadatas,
         embeddings=embeddings,
+        allow_empty_replace=allow_empty_replace,
     )
 
 

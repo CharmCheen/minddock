@@ -77,6 +77,7 @@ def run_watcher(
     for result in sync_results:
         print(_format_result(result))
     failed_results = [result for result in sync_results if result.status == "failed"]
+    ready_status = _ready_status_for_sync(sync_results)
     if failed_results and fail_on_sync_error:
         _write_ready_file(
             ready_file,
@@ -89,7 +90,7 @@ def run_watcher(
     if once or dry_run:
         _write_ready_file(
             ready_file,
-            status="ready",
+            status=ready_status,
             watch_path=watch_path,
             sync_results=sync_results,
             detail="sync completed",
@@ -102,7 +103,7 @@ def run_watcher(
     observer.start()
     _write_ready_file(
         ready_file,
-        status="ready",
+        status=ready_status,
         watch_path=watch_path,
         sync_results=sync_results,
         detail="observer started",
@@ -179,11 +180,23 @@ def _write_ready_file(
         "detail": detail,
         "sync_total": len(sync_results),
         "sync_failed": sum(1 for result in sync_results if result.status == "failed"),
+        "sync_degraded": sum(1 for result in sync_results if result.status == "degraded"),
+        "sync_empty": sum(1 for result in sync_results if result.status == "empty"),
         "sync_updated": sum(1 for result in sync_results if result.status == "updated"),
         "sync_removed": sum(1 for result in sync_results if result.status in {"deleted", "removed"}),
         "sync_skipped": sum(1 for result in sync_results if result.status == "skipped"),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _ready_status_for_sync(sync_results: list) -> str:
+    if any(result.status == "failed" for result in sync_results):
+        return "failed"
+    if any(result.status == "degraded" for result in sync_results):
+        return "degraded"
+    if any(result.status == "empty" for result in sync_results):
+        return "empty"
+    return "ready"
 
 
 if __name__ == "__main__":

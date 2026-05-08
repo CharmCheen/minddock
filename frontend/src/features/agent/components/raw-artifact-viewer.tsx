@@ -80,15 +80,31 @@ function buildStatusBadges(metadata: Record<string, unknown> | undefined): Statu
   const insufficientEvidence = metadata.insufficient_evidence === true || supportStatus === 'insufficient_evidence';
   const badges: StatusBadge[] = [];
 
-  // Mock / Demo mode: configured runtime not available, using mock LLM
   if (runtimeStatus === 'mock' || mockUsed) {
+    badges.push({
+      label: 'Using mock/fallback',
+      color: '#b45309',
+      background: '#fffbeb',
+      border: '#fde68a',
+    });
+  } else if (fallbackUsed) {
+    badges.push({
+      label: 'Using fallback',
+      color: '#b45309',
+      background: '#fffbeb',
+      border: '#fde68a',
+    });
+  }
+
+  // Mock / Demo mode: configured runtime not available, using mock LLM
+  if (false && (runtimeStatus === 'mock' || mockUsed)) {
     badges.push({
       label: 'Mock 模式',
       color: '#b45309',
       background: '#fffbeb',
       border: '#fde68a',
     });
-  } else if (fallbackUsed) {
+  } else if (false && fallbackUsed) {
     // Fallback without mock_used: degraded but not mock
     badges.push({
       label: 'Fallback',

@@ -99,6 +99,7 @@ class UseCaseMetadata:
     fallback_used: bool = False
     mock_used: bool = False
     runtime_status: str | None = None
+    runtime_warning: str | None = None
     config_source: str | None = None
     runtime_error: str | None = None
     selection_reason: str | None = None

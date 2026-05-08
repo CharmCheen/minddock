@@ -280,6 +280,8 @@ class ArtifactBuilder:
             "runtime_status": metadata.runtime_status,
             "insufficient_evidence": metadata.insufficient_evidence,
         }
+        if metadata.runtime_warning is not None:
+            result["runtime_warning"] = metadata.runtime_warning
         if metadata.selected_model_name is not None:
             result["selected_model_name"] = metadata.selected_model_name
         if metadata.selected_provider_kind is not None:

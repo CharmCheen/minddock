@@ -10,6 +10,7 @@ export interface RuntimeFormValues {
   provider: string;
   base_url: string;
   api_key: string;
+  clear_api_key: boolean;
   model: string;
   enabled: boolean;
 }
@@ -36,7 +37,7 @@ interface SettingsState {
   isDirty: boolean;
   loadConfig: (options?: RuntimeServiceOptions) => Promise<void>;
   saveConfig: (form: RuntimeFormValues, options?: RuntimeServiceOptions) => Promise<void>;
-  testConnection: (form: Omit<RuntimeFormValues, 'enabled'>, options?: RuntimeServiceOptions) => Promise<void>;
+  testConnection: (form: Omit<RuntimeFormValues, 'enabled' | 'clear_api_key'>, options?: RuntimeServiceOptions) => Promise<void>;
   resetConfig: (options?: RuntimeServiceOptions) => Promise<void>;
   updateFormValues: (form: RuntimeFormValues) => void;
   clearMessages: () => void;
@@ -48,6 +49,7 @@ const DEFAULT_FORM: RuntimeFormValues = {
   provider: 'openai_compatible',
   base_url: 'https://api.openai.com/v1',
   api_key: '',
+  clear_api_key: false,
   model: 'gpt-4o-mini',
   enabled: false,
 };
@@ -58,6 +60,7 @@ function formFromConfig(config: RuntimeConfigResponse | null): RuntimeFormValues
     provider: config.provider || DEFAULT_FORM.provider,
     base_url: config.base_url || DEFAULT_FORM.base_url,
     api_key: '',
+    clear_api_key: false,
     model: config.model || DEFAULT_FORM.model,
     enabled: config.enabled,
   };
@@ -69,6 +72,7 @@ function computeIsDirty(current: RuntimeFormValues, saved: RuntimeFormValues): b
     current.base_url !== saved.base_url ||
     current.model !== saved.model ||
     current.enabled !== saved.enabled ||
+    current.clear_api_key !== saved.clear_api_key ||
     current.api_key.trim() !== ''
   );
 }
@@ -80,7 +84,7 @@ function saveMessageFromConfig(config: RuntimeConfigResponse): string {
   if (deriveRuntimeStatus(config).hasUsableKey) {
     return 'Saved. Runtime changes are active for new runs.';
   }
-  return 'Saved, but the API key is not active in this backend session. Re-enter the key or set LLM_API_KEY, then save again.';
+  return 'Saved, but this runtime is unavailable. Add a key or check the endpoint before running model-backed tasks.';
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -133,7 +137,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         base_url: form.base_url,
         model: form.model,
         enabled: form.enabled,
-        ...(trimmedApiKey ? { api_key: trimmedApiKey } : {}),
+        ...(trimmedApiKey && !form.clear_api_key ? { api_key: trimmedApiKey } : {}),
+        ...(form.clear_api_key ? { clear_api_key: true } : {}),
       }, options);
       const updated = await RuntimeConfigService.getConfig(options);
       const formValues = formFromConfig(updated);

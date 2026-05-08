@@ -28,6 +28,10 @@ set "EMBEDDING_DEVICE=auto"
 set "WATCH_PATH=%ROOT_DIR%\knowledge_base"
 set "WATCHER_LOG_FILE=%LOG_DIR%\watcher.log"
 set "WATCHER_READY_FILE=%TEMP%\minddock_watcher_ready.json"
+set "WAIT_WATCHER_READY=0"
+set "WATCHER_READY_TIMEOUT=30"
+set "WATCHER_STRICT=0"
+set "WATCHER_STATUS=Started, not verified"
 set "BUILD_FRONTEND=0"
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>nul
@@ -147,11 +151,11 @@ echo   [OK] Model Ready: %ASR_MODEL% / %ASR_DEVICE% / %ASR_COMPUTE%
 
 echo.
 echo [7/10] Starting knowledge_base watcher...
-if exist "%WATCHER_READY_FILE%" del "%WATCHER_READY_FILE%" >nul 2>nul
 call :CHECK_WATCHER_PROCESS
 if errorlevel 1 (
   echo   Starting watcher for:
   echo     %WATCH_PATH%
+  if exist "%WATCHER_READY_FILE%" del "%WATCHER_READY_FILE%" >nul 2>nul
   (
     echo ============================================
     echo MindDock watcher log
@@ -161,12 +165,34 @@ if errorlevel 1 (
     echo ============================================
   ) > "%WATCHER_LOG_FILE%"
   start "MindDock-Watcher" cmd /k "chcp 65001 >nul && cd /d ""%ROOT_DIR%"" && call conda activate %MINDDOCK_ENV% && python -m app.demo watch --path ""%WATCH_PATH%"" --ready-file ""%WATCHER_READY_FILE%"" --fail-on-sync-error >> ""%WATCHER_LOG_FILE%"" 2>&1"
-  call :WAIT_WATCHER_READY
-  if errorlevel 1 goto FAIL_WATCHER_READY
+  echo   Watcher started in background; readiness will be checked asynchronously
+  echo Watcher started in background; readiness will be checked asynchronously >> "%LOG_FILE%"
+  if "%WAIT_WATCHER_READY%"=="1" (
+    call :WAIT_WATCHER_READY
+    if errorlevel 2 (
+      set "WATCHER_STATUS=Warning / failed to become ready"
+      echo   [WARN] Watcher reported failed status. Continuing frontend startup.
+      echo [WARN] Watcher reported failed status. Continuing frontend startup. >> "%LOG_FILE%"
+      if "%WATCHER_STRICT%"=="1" goto FAIL_WATCHER_READY
+    ) else if errorlevel 1 (
+      set "WATCHER_STATUS=Warning / failed to become ready"
+      echo   [WARN] Watcher did not become ready within %WATCHER_READY_TIMEOUT% seconds. Continuing frontend startup.
+      echo [WARN] Watcher did not become ready within %WATCHER_READY_TIMEOUT% seconds. Continuing frontend startup. >> "%LOG_FILE%"
+      if "%WATCHER_STRICT%"=="1" goto FAIL_WATCHER_READY
+    ) else (
+      set "WATCHER_STATUS=Ready"
+      echo   [OK] Watcher Ready
+    )
+  ) else (
+    echo   [WARN] Watcher readiness not verified yet. Continuing frontend startup.
+    echo [WARN] Watcher readiness not verified yet. Continuing frontend startup. >> "%LOG_FILE%"
+  )
 ) else (
   echo   [OK] Watcher already running
+  set "WATCHER_STATUS=Started, not verified"
 )
-echo   [OK] Watcher Ready
+echo   Watcher: %WATCHER_STATUS%
+echo Watcher: %WATCHER_STATUS% >> "%LOG_FILE%"
 
 echo.
 echo [8/10] Frontend build setting...
@@ -210,7 +236,7 @@ echo   System started to usable state
 echo ============================================
 echo   Local ASR: Ready
 echo   Backend API: Ready
-echo   Watcher:   Ready
+echo   Watcher:   %WATCHER_STATUS%
 echo   Frontend:  Ready
 echo   Frontend -^> Backend API: Ready
 echo   Model:     %ASR_MODEL% / %ASR_DEVICE% / %ASR_COMPUTE% Ready
@@ -289,7 +315,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "try { if (!(Test-Path -L
 if not errorlevel 1 exit /b 0
 if errorlevel 2 exit /b 2
 set /a WATCHER_WAIT_COUNT+=1
-if %WATCHER_WAIT_COUNT% GEQ 600 exit /b 1
+if %WATCHER_WAIT_COUNT% GEQ %WATCHER_READY_TIMEOUT% exit /b 1
 if %WATCHER_WAIT_COUNT%==1 echo   Waiting for watcher initial sync and observer startup ...
 powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
 goto WAIT_WATCHER_READY_LOOP
@@ -427,7 +453,7 @@ goto FAIL_COMMON
 
 :FAIL_WATCHER_READY
 echo.
-echo [ERROR] Watcher did not become ready, or its initial incremental sync failed.
+echo [ERROR] Watcher did not become ready, or its initial incremental sync failed in strict mode.
 echo Checked readiness marker:
 echo   %WATCHER_READY_FILE%
 echo Watcher log:

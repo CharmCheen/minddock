@@ -221,6 +221,7 @@ function RuntimeTab() {
   const status = deriveRuntimeStatus(config);
   const effectiveRuntime = config?.effective_runtime;
   const effectiveProviderLabel = PROVIDER_LABELS[effectiveRuntime?.provider_kind || ''] || effectiveRuntime?.provider_kind || 'Not configured';
+  const hasSavedKey = Boolean(config?.api_key_configured);
   const hasUsableKey = status.hasUsableKey;
   const canSave = isDirty && !saving;
   const canTest = Boolean(form.base_url.trim() && form.model.trim()) && !testing;
@@ -267,7 +268,7 @@ function RuntimeTab() {
               fontWeight: 700,
             }}
           >
-            {successMessage ? 'Saved' : error ? 'Error' : status.label}
+            {error ? 'Error' : status.label}
           </span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '5px 10px', fontSize: '13px' }}>
@@ -284,7 +285,7 @@ function RuntimeTab() {
         </div>
       </div>
 
-      {!loading && status.kind === 'missing_key' && (
+      {!loading && status.kind === 'unavailable' && (
         <div
           style={{
             marginBottom: '14px',
@@ -297,7 +298,25 @@ function RuntimeTab() {
             fontWeight: 500,
           }}
         >
-          Runtime is missing an API key. Add one here before running model-backed tasks.
+          Configured but unavailable. Add a key or check the endpoint before running model-backed tasks.
+          {config?.last_error ? ` Last error: ${config.last_error}` : ''}
+        </div>
+      )}
+
+      {!loading && status.kind === 'missing' && (
+        <div
+          style={{
+            marginBottom: '14px',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--color-warning-bg)',
+            border: '1px solid var(--color-warning-border)',
+            color: 'var(--color-warning-text)',
+            fontSize: '13px',
+            fontWeight: 500,
+          }}
+        >
+          Not configured. Save a runtime before running model-backed tasks.
         </div>
       )}
 
@@ -350,8 +369,8 @@ function RuntimeTab() {
               data-testid="runtime-api-key"
               type="password"
               value={form.api_key}
-              onChange={(event) => patchForm({ api_key: event.target.value })}
-              placeholder={hasUsableKey ? 'Configured - leave blank to keep current key' : 'Enter API key'}
+              onChange={(event) => patchForm({ api_key: event.target.value, clear_api_key: false })}
+              placeholder={hasSavedKey ? 'Configured - leave blank to keep current key' : 'Enter API key'}
               autoComplete="off"
               style={fieldStyle}
               onFocus={(e) => Object.assign(e.target.style, fieldFocusStyle)}
@@ -361,9 +380,21 @@ function RuntimeTab() {
               }}
             />
             <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: 1.45 }}>
-              API key is kept only for the current backend session. After restarting the backend, re-enter it or set LLM_API_KEY in your environment.
+              API key is stored in a local gitignored secret file. Leave blank to keep the saved key.
             </span>
           </label>
+
+          {hasSavedKey && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-text-secondary)', fontSize: '13px', fontWeight: 500 }}>
+              <input
+                data-testid="runtime-clear-api-key"
+                type="checkbox"
+                checked={form.clear_api_key}
+                onChange={(event) => patchForm({ clear_api_key: event.target.checked, api_key: event.target.checked ? '' : form.api_key })}
+              />
+              Clear saved API key on save
+            </label>
+          )}
 
           <label style={{ display: 'grid', gap: '5px', fontSize: '12px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
             Model

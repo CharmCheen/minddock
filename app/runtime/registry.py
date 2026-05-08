@@ -47,11 +47,13 @@ def _resolve_config_source(profile: RuntimeProfile) -> str:
         return "runtime_profile"
     if profile.api_key_env == "LLM_API_KEY":
         try:
-            from app.runtime.active_config import load_active_runtime_config
+            from app.runtime.active_config import get_active_config
 
-            active_config = load_active_runtime_config()
+            active_config = get_active_config()
         except Exception:
             return "env_override"
+        if active_config.enabled and active_config.api_key_source == "local_secret":
+            return "active_config_secret"
         if active_config.enabled and active_config.api_key_source == "env" and os.environ.get("LLM_API_KEY"):
             return "active_config_env"
     return "env_override"

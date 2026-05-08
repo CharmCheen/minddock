@@ -30,6 +30,7 @@ class RuntimeResponse:
     used_fallback: bool = False
     mock_used: bool = False
     runtime_status: str = "real"
+    runtime_warning: str | None = None
     selected_model_name: str | None = None
     base_url: str | None = None
     config_source: str | None = None

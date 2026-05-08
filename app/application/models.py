@@ -194,6 +194,7 @@ class ExecutionSummary:
     fallback_used: bool = False
     mock_used: bool = False
     runtime_status: str | None = None
+    runtime_warning: str | None = None
     config_source: str | None = None
     selection_reason: str | None = None
     policy_applied: str | None = None
@@ -330,6 +331,7 @@ class UnifiedExecutionResponse:
             "fallback_used": self.metadata.fallback_used,
             "mock_used": self.metadata.mock_used,
             "runtime_status": self.metadata.runtime_status,
+            "runtime_warning": self.metadata.runtime_warning,
             "config_source": self.metadata.config_source,
             "runtime_error": self.metadata.runtime_error,
             "selection_reason": self.metadata.selection_reason,

@@ -925,6 +925,7 @@ def update_runtime_config(body: RuntimeConfigUpdateRequest) -> RuntimeConfigResp
         api_key=body.api_key,
         model=body.model,
         enabled=body.enabled,
+        clear_api_key=body.clear_api_key,
     )
 
     _clear_runtime_caches()

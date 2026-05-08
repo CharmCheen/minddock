@@ -77,6 +77,7 @@ class LangChainAdapter(GenerationRuntime):
                 used_fallback=True,
                 mock_used=True,
                 runtime_status="mock",
+                runtime_warning="Using mock runtime because no API key is configured.",
                 selected_model_name=self.selected_model_name,
                 base_url=self.base_url,
                 config_source=self.config_source or "mock_no_api_key",
@@ -90,6 +91,12 @@ class LangChainAdapter(GenerationRuntime):
             generated_text = _strip_visible_thinking(str(chain.invoke(request.inputs)))
         except Exception as exc:
             logger.exception("Configured LangChain generation failed", extra={"provider": self.provider_name})
+            try:
+                from app.runtime.active_config import record_runtime_error
+
+                record_runtime_error(exc.__class__.__name__)
+            except Exception:
+                logger.debug("Unable to persist runtime error status", exc_info=True)
             raise RuntimeInvocationError(
                 detail=(
                     "Configured LLM runtime failed to respond. "
@@ -106,6 +113,12 @@ class LangChainAdapter(GenerationRuntime):
                     "runtime_error": exc.__class__.__name__,
                 },
             ) from exc
+        try:
+            from app.runtime.active_config import clear_runtime_error
+
+            clear_runtime_error()
+        except Exception:
+            logger.debug("Unable to clear runtime error status", exc_info=True)
         return RuntimeResponse(
             text=generated_text,
             runtime_name=self.runtime_name,

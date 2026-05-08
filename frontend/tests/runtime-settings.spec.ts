@@ -2,7 +2,9 @@ import { expect, Page, test } from '@playwright/test';
 
 interface RuntimeConfigMock {
   apiKeyMasked: boolean;
+  apiKeyConfigured?: boolean;
   configSource: string;
+  runtimeStatus?: string;
   enabled?: boolean;
   model?: string;
   afterSave?: RuntimeConfigMock;
@@ -18,8 +20,11 @@ async function mockRuntimeConfig(page: Page, mock: RuntimeConfigMock) {
       base_url: 'https://api.example.com/v1',
       model: config.model || 'old-model',
       api_key_masked: config.apiKeyMasked,
+      api_key_configured: config.apiKeyConfigured ?? config.apiKeyMasked,
       enabled,
       config_source: config.configSource,
+      runtime_status: config.runtimeStatus || (enabled ? (config.apiKeyMasked ? 'connected' : 'unavailable') : 'disabled'),
+      last_error: null,
     };
   };
 
@@ -65,8 +70,11 @@ test.describe('runtime settings API key save semantics', () => {
           base_url: 'https://api.example.com/v1',
           model: 'new-model',
           api_key_masked: true,
+          api_key_configured: true,
           enabled: true,
           config_source: 'active_config_env',
+          runtime_status: 'connected',
+          last_error: null,
         }),
       });
     });
@@ -92,14 +100,14 @@ test.describe('runtime settings API key save semantics', () => {
   });
 
   test('shows missing-key copy when no key exists', async ({ page }) => {
-    await mockRuntimeConfig(page, { apiKeyMasked: false, configSource: 'active_config_disabled' });
+    await mockRuntimeConfig(page, { apiKeyMasked: false, configSource: 'active_config_disabled', runtimeStatus: 'unavailable' });
 
     await page.goto('/');
     await page.getByRole('button', { name: 'Open settings' }).click();
 
     await expect(page.getByTestId('runtime-api-key')).toHaveAttribute('placeholder', 'Enter API key');
-    await expect(page.getByText('API key is kept only for the current backend session. After restarting the backend, re-enter it or set LLM_API_KEY in your environment.')).toBeVisible();
-    await expect(page.getByText('Runtime is missing an API key.')).toBeVisible();
+    await expect(page.getByText('API key is stored in a local gitignored secret file. Leave blank to keep the saved key.')).toBeVisible();
+    await expect(page.getByTestId('runtime-current-status')).toContainText('Configured but unavailable');
   });
 
   test('empty api key test connection validates locally without backend call', async ({ page }) => {
@@ -139,7 +147,7 @@ test.describe('runtime settings API key save semantics', () => {
     await page.getByTestId('runtime-model').fill('new-model');
     await page.getByTestId('runtime-save').click();
 
-    await expect(page.getByText('Saved, but the API key is not active in this backend session. Re-enter the key or set LLM_API_KEY, then save again.')).toBeVisible();
+    await expect(page.getByText('Saved, but this runtime is unavailable. Add a key or check the endpoint before running model-backed tasks.')).toBeVisible();
     await expect(page.getByText('Saved. Runtime changes are active for new runs.')).toHaveCount(0);
   });
 
@@ -195,38 +203,75 @@ test.describe('runtime settings API key save semantics', () => {
     await expect(page.getByText('Saved. Runtime changes are active for new runs.')).toBeVisible();
     await expect(page.getByText('Saved, but the API key is not active in this backend session. Re-enter the key or set LLM_API_KEY, then save again.')).toHaveCount(0);
   });
+
+  test('explicit clear key sends clear_api_key and updates unavailable state', async ({ page }) => {
+    await mockRuntimeConfig(page, {
+      apiKeyMasked: true,
+      apiKeyConfigured: true,
+      configSource: 'active_config_secret',
+      runtimeStatus: 'connected',
+      enabled: true,
+      afterSave: {
+        apiKeyMasked: false,
+        apiKeyConfigured: false,
+        configSource: 'active_config_disabled',
+        runtimeStatus: 'unavailable',
+        enabled: true,
+      },
+    });
+    let savedPayload: Record<string, unknown> | null = null;
+
+    await page.route('**/frontend/runtime-config', async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      savedPayload = route.request().postDataJSON();
+      return route.fallback();
+    });
+
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Open settings' }).click();
+    await page.getByTestId('runtime-clear-api-key').check();
+    await page.getByTestId('runtime-save').click();
+
+    await expect.poll(() => savedPayload).not.toBeNull();
+    expect(savedPayload).toMatchObject({ clear_api_key: true });
+    await expect(page.getByTestId('runtime-current-status')).toContainText('Configured but unavailable');
+  });
 });
 
 test.describe('runtime status truth display', () => {
   test('does not show Configured when key marker exists but no active process key exists', async ({ page }) => {
     await mockRuntimeConfig(page, {
       apiKeyMasked: true,
+      apiKeyConfigured: false,
       configSource: 'active_config_disabled',
+      runtimeStatus: 'unavailable',
       enabled: true,
     });
 
     await page.goto('/');
-    await expect(page.getByTestId('runtime-status')).toContainText('Missing API key');
-    await expect(page.getByTestId('runtime-status')).not.toContainText('Configured');
+    await expect(page.getByTestId('runtime-status')).toContainText('Configured but unavailable');
+    await expect(page.getByTestId('runtime-status')).not.toContainText('Real LLM active');
 
     await page.getByRole('button', { name: 'Open settings' }).click();
-    await expect(page.getByTestId('runtime-current-status')).toContainText('Missing API key');
+    await expect(page.getByTestId('runtime-current-status')).toContainText('Configured but unavailable');
     await expect(page.getByTestId('runtime-api-key')).toHaveAttribute('placeholder', 'Enter API key');
-    await expect(page.getByText('Runtime is missing an API key.')).toBeVisible();
+    await expect(page.getByTestId('runtime-current-status')).toContainText('Configured but unavailable');
   });
 
-  test('shows Configured consistently when config_source is active', async ({ page }) => {
+  test('shows Real LLM active consistently when config_source is active', async ({ page }) => {
     await mockRuntimeConfig(page, {
       apiKeyMasked: true,
-      configSource: 'active_config_env',
+      apiKeyConfigured: true,
+      configSource: 'active_config_secret',
+      runtimeStatus: 'connected',
       enabled: true,
     });
 
     await page.goto('/');
-    await expect(page.getByTestId('runtime-status')).toContainText('Configured');
+    await expect(page.getByTestId('runtime-status')).toContainText('Real LLM active');
 
     await page.getByRole('button', { name: 'Open settings' }).click();
-    await expect(page.getByTestId('runtime-current-status')).toContainText('Configured');
+    await expect(page.getByTestId('runtime-current-status')).toContainText('Real LLM active');
     await expect(page.getByTestId('runtime-api-key')).toHaveAttribute('placeholder', 'Configured - leave blank to keep current key');
   });
 
@@ -242,6 +287,6 @@ test.describe('runtime status truth display', () => {
 
     await page.getByRole('button', { name: 'Open settings' }).click();
     await expect(page.getByTestId('runtime-current-status')).toContainText('Disabled');
-    await expect(page.getByText('Runtime is missing an API key.')).toHaveCount(0);
+    await expect(page.getByText('Configured but unavailable')).toHaveCount(0);
   });
 });

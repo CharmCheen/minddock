@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
+from app.api.schedule_routes import router as schedule_router
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
@@ -50,6 +51,7 @@ app = FastAPI(
 
 register_exception_handlers(app)
 app.include_router(api_router)
+app.include_router(schedule_router)
 
 # Allow frontend dev server origins (Vite default 5173, CRA default 3000, plus explicit localhost/127.0.0.1 variants)
 app.add_middleware(

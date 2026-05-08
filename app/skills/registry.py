@@ -286,9 +286,86 @@ class SkillRegistry:
             raise InvalidSkillInputError(detail=f"Skill '{skill_id}' expects '{field.name}' to be an object.")
 
 
+class ScheduleExtractionSkill(Skill):
+    """Identify schedule candidates from already-indexed document chunks."""
+
+    descriptor = SkillDescriptor(
+        skill_id="schedule_extraction",
+        display_name="日程候选识别",
+        description="从已入库文档中识别日期、时间和事项表达，生成可确认的日程候选。",
+        capability_tags=(SkillCapabilityTag.RETRIEVAL, SkillCapabilityTag.TRANSFORMATION),
+        input_schema=SkillInputSchema(
+            schema_name="schedule_extraction.input.v1",
+            description="Optional filters for the scan.",
+            fields=(
+                SkillSchemaField(
+                    name="doc_id",
+                    field_type="string",
+                    description="Scan only this document. Omit to scan all.",
+                    required=False,
+                ),
+                SkillSchemaField(
+                    name="source",
+                    field_type="string",
+                    description="Filter by source identifier.",
+                    required=False,
+                ),
+            ),
+        ),
+        output_schema=SkillOutputSchema(
+            schema_name="schedule_extraction.output.v1",
+            description="Scan result summary.",
+            fields=(
+                SkillSchemaField(name="chunks_scanned", field_type="integer", description="Chunks scanned."),
+                SkillSchemaField(name="candidates_extracted", field_type="integer", description="Candidates extracted."),
+                SkillSchemaField(name="candidates_added", field_type="integer", description="New candidates added."),
+                SkillSchemaField(name="candidates_skipped", field_type="integer", description="Duplicates skipped."),
+                SkillSchemaField(name="elapsed_ms", field_type="number", description="Elapsed time in ms."),
+            ),
+        ),
+        invocation_mode=SkillInvocationMode.MANUAL_ONLY,
+        produces_artifact_kind="skill_result",
+        safety_notes=(
+            "Read-only scan of indexed chunks. No LLM call. No side effects on RAG or ingestion.",
+            "All generated candidates have status=pending and require user confirmation.",
+        ),
+    )
+
+    def execute(self, request: SkillInvocationRequest, context: SkillExecutionContext) -> SkillInvocationResult:
+        from app.services.schedule_candidate_service import ScheduleCandidateService
+
+        doc_id = request.arguments.get("doc_id")
+        source = request.arguments.get("source")
+        service = ScheduleCandidateService()
+        result = service.scan(
+            doc_id=str(doc_id) if doc_id else None,
+            source=str(source) if source else None,
+        )
+        summary = (
+            f"Scanned {result['chunks_scanned']} chunks, "
+            f"extracted {result['candidates_extracted']} candidates, "
+            f"added {result['candidates_added']} new."
+        )
+        return SkillInvocationResult(
+            skill_id=self.descriptor.skill_id,
+            success=True,
+            output={
+                "chunks_scanned": result["chunks_scanned"],
+                "candidates_extracted": result["candidates_extracted"],
+                "candidates_added": result["candidates_added"],
+                "candidates_skipped": result["candidates_skipped"],
+                "elapsed_ms": result["elapsed_ms"],
+            },
+            summary_text=summary,
+            artifact_projection_hint="skill_result",
+            metadata={"invocation_source": request.invocation_source.value},
+        )
+
+
 @lru_cache(maxsize=1)
 def get_skill_registry() -> SkillRegistry:
     registry = SkillRegistry()
     registry.register(EchoSkill())
     registry.register(BulletNormalizeSkill())
+    registry.register(ScheduleExtractionSkill())
     return registry

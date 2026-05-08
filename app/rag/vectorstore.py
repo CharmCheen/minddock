@@ -208,6 +208,38 @@ class LangChainChromaStore:
         ids = result.get("ids") or []
         return len(ids)
 
+    def get_document_chunks(
+        self,
+        doc_id: str,
+        *,
+        include_text: bool = True,
+    ) -> list[dict[str, str]]:
+        """Return all chunks for a document as dicts with chunk_id, text, metadata.
+
+        This is a public read-only accessor for services that need raw chunk
+        text and metadata without going through the retrieval pipeline.
+        """
+        include_fields = ["metadatas"]
+        if include_text:
+            include_fields.append("documents")
+        result = self._store.get(where={"doc_id": doc_id}, include=include_fields)
+        ids = result.get("ids") or []
+        documents = result.get("documents") or [] if include_text else []
+        metadatas = result.get("metadatas") or []
+
+        rows: list[dict[str, str]] = []
+        for i, chunk_id in enumerate(ids):
+            meta = dict(metadatas[i] or {}) if i < len(metadatas) else {}
+            text = str(documents[i] or "") if include_text and i < len(documents) else ""
+            rows.append({
+                "chunk_id": str(chunk_id),
+                "doc_id": doc_id,
+                "source": str(meta.get("source", "")),
+                "text": text,
+                **{k: str(v) for k, v in meta.items() if k not in ("source",)},
+            })
+        return rows
+
     def get_neighbor_chunks(
         self,
         hit: RetrievedChunk,

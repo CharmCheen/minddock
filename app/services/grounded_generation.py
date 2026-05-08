@@ -61,15 +61,23 @@ _OUT_OF_SCOPE_PATTERNS = (
     "自我介绍",
 )
 _QUERY_STOPWORDS = {
+    "a",
     "about",
+    "an",
+    "and",
     "are",
     "can",
     "could",
     "does",
+    "do",
     "for",
     "from",
     "how",
+    "i",
+    "is",
+    "of",
     "into",
+    "to",
     "the",
     "their",
     "there",
@@ -84,6 +92,49 @@ _QUERY_STOPWORDS = {
     "you",
     "your",
 }
+_WEAK_ALIGNMENT_TERMS = {
+    "component",
+    "components",
+    "current",
+    "design",
+    "explain",
+    "key",
+    "latest",
+    "make",
+    "move",
+    "moves",
+    "population",
+    "price",
+    "prices",
+    "rule",
+    "rules",
+    "scratch",
+    "simple",
+    "stock",
+    "stocks",
+    "system",
+    "terms",
+    "theory",
+}
+_OPEN_DOMAIN_SENSITIVE_TERMS = {
+    "apple",
+    "bake",
+    "cake",
+    "capital",
+    "chess",
+    "chocolate",
+    "cook",
+    "france",
+    "knight",
+    "population",
+    "price",
+    "prices",
+    "recipe",
+    "relativity",
+    "stock",
+    "stocks",
+    "tesla",
+}
 
 
 @dataclass(frozen=True)
@@ -92,6 +143,32 @@ class GroundingAssessment:
 
     support_status: SupportStatus
     refusal_reason: RefusalReason | None = None
+
+
+@dataclass(frozen=True)
+class EvidenceQueryAlignment:
+    """Explainable query/evidence alignment gate result."""
+
+    passed: bool
+    reason: str
+    query_terms: tuple[str, ...] = ()
+    core_terms: tuple[str, ...] = ()
+    overlap_terms: tuple[str, ...] = ()
+    missing_core_terms: tuple[str, ...] = ()
+    overlap_ratio: float = 0.0
+    source_count: int = 0
+
+    def to_trace_dict(self) -> dict[str, object]:
+        return {
+            "triggered": not self.passed,
+            "reason": self.reason,
+            "query_terms": list(self.query_terms),
+            "core_terms": list(self.core_terms),
+            "overlap_terms": list(self.overlap_terms),
+            "missing_core_terms": list(self.missing_core_terms),
+            "overlap_ratio": self.overlap_ratio,
+            "source_count": self.source_count,
+        }
 
 
 def select_grounded_hits(hits: list[RetrievedChunk]) -> GroundedSelectionResult:
@@ -116,9 +193,21 @@ def is_out_of_scope_knowledge_query(query: str) -> bool:
 def evidence_matches_query(query: str, hits: list[RetrievedChunk]) -> bool:
     """Conservative lexical sanity check to prevent unrelated hits becoming supported evidence."""
 
-    query_tokens = _query_tokens(query)
-    if len(query_tokens) < 2:
-        return True
+    return assess_evidence_query_alignment(query, hits).passed
+
+
+def assess_evidence_query_alignment(query: str, hits: list[RetrievedChunk]) -> EvidenceQueryAlignment:
+    """Return an explainable conservative gate for obvious query/evidence mismatch."""
+
+    query_terms = _query_terms(query)
+    if len(query_terms) < 2:
+        return EvidenceQueryAlignment(
+            passed=True,
+            reason="too_few_query_terms",
+            query_terms=tuple(sorted(query_terms)),
+            source_count=_source_count(hits),
+        )
+
     evidence_parts: list[str] = []
     for hit in hits:
         evidence_parts.extend(
@@ -132,11 +221,63 @@ def evidence_matches_query(query: str, hits: list[RetrievedChunk]) -> bool:
             )
             if part
         )
-    evidence_text = " ".join(evidence_parts).lower()
-    evidence_tokens: set[str] = set()
-    for token in re.findall(r"[a-z0-9]+", evidence_text):
-        evidence_tokens.update(_token_variants(token))
-    return bool(query_tokens & evidence_tokens)
+    evidence_terms = _expanded_terms(" ".join(evidence_parts))
+    query_expanded = _expand_term_set(query_terms)
+    overlap_terms = tuple(sorted(term for term in query_terms if _token_variants(term) & evidence_terms))
+    overlap_ratio = round(len(overlap_terms) / max(len(query_terms), 1), 3)
+    core_terms = _core_query_terms(query_terms)
+    missing_core_terms = tuple(sorted(term for term in core_terms if not (_token_variants(term) & evidence_terms)))
+    core_overlap_count = len(core_terms) - len(missing_core_terms)
+    source_count = _source_count(hits)
+
+    if not query_expanded & evidence_terms:
+        return EvidenceQueryAlignment(
+            passed=False,
+            reason="no_query_evidence_overlap",
+            query_terms=tuple(sorted(query_terms)),
+            core_terms=tuple(sorted(core_terms)),
+            overlap_terms=overlap_terms,
+            missing_core_terms=missing_core_terms,
+            overlap_ratio=overlap_ratio,
+            source_count=source_count,
+        )
+
+    if core_terms and core_overlap_count == 0:
+        return EvidenceQueryAlignment(
+            passed=False,
+            reason="missing_core_query_terms",
+            query_terms=tuple(sorted(query_terms)),
+            core_terms=tuple(sorted(core_terms)),
+            overlap_terms=overlap_terms,
+            missing_core_terms=missing_core_terms,
+            overlap_ratio=overlap_ratio,
+            source_count=source_count,
+        )
+
+    if _is_open_domain_sensitive_query(query_terms) and core_terms:
+        required_core_overlap = min(2, len(core_terms))
+        if core_overlap_count < required_core_overlap:
+            return EvidenceQueryAlignment(
+                passed=False,
+                reason="missing_core_query_terms",
+                query_terms=tuple(sorted(query_terms)),
+                core_terms=tuple(sorted(core_terms)),
+                overlap_terms=overlap_terms,
+                missing_core_terms=missing_core_terms,
+                overlap_ratio=overlap_ratio,
+                source_count=source_count,
+            )
+
+    return EvidenceQueryAlignment(
+        passed=True,
+        reason="aligned",
+        query_terms=tuple(sorted(query_terms)),
+        core_terms=tuple(sorted(core_terms)),
+        overlap_terms=overlap_terms,
+        missing_core_terms=missing_core_terms,
+        overlap_ratio=overlap_ratio,
+        source_count=source_count,
+    )
 
 
 def build_context(hits: list[RetrievedChunk]) -> ContextBlock:
@@ -604,11 +745,53 @@ def _normalize_query(query: str) -> str:
 
 def _query_tokens(query: str) -> set[str]:
     tokens: set[str] = set()
+    for token in _query_terms(query):
+        tokens.update(_token_variants(token))
+    return tokens
+
+
+def _query_terms(query: str) -> set[str]:
+    terms: set[str] = set()
     for token in re.findall(r"[a-z0-9]+", query.lower()):
         if len(token) < 3 or token in _QUERY_STOPWORDS:
             continue
-        tokens.update(_token_variants(token))
-    return tokens
+        terms.add(token)
+    return terms
+
+
+def _expanded_terms(text: str) -> set[str]:
+    terms: set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", text.lower()):
+        if len(token) < 3:
+            continue
+        terms.update(_token_variants(token))
+    return terms
+
+
+def _expand_term_set(terms: set[str]) -> set[str]:
+    expanded: set[str] = set()
+    for term in terms:
+        expanded.update(_token_variants(term))
+    return expanded
+
+
+def _core_query_terms(query_terms: set[str]) -> set[str]:
+    core = {term for term in query_terms if term not in _WEAK_ALIGNMENT_TERMS}
+    return core or set(query_terms)
+
+
+def _is_open_domain_sensitive_query(query_terms: set[str]) -> bool:
+    expanded = _expand_term_set(query_terms)
+    return bool(expanded & _OPEN_DOMAIN_SENSITIVE_TERMS)
+
+
+def _source_count(hits: list[RetrievedChunk]) -> int:
+    sources = {
+        hit.source or hit.doc_id or hit.chunk_id
+        for hit in hits
+        if hit.source or hit.doc_id or hit.chunk_id
+    }
+    return len(sources)
 
 
 def _token_variants(token: str) -> set[str]:

@@ -1,6 +1,7 @@
 """Unit tests for ChatService."""
 
 import logging
+import pytest
 
 from app.llm.mock import INSUFFICIENT_EVIDENCE
 from app.rag.postprocess import HeuristicReranker
@@ -205,6 +206,125 @@ def test_chat_refuses_when_retrieved_evidence_does_not_match_query() -> None:
     assert "no_citations" in trace["trace_warnings"]
     assert search_service.calls == 1
     assert runtime.last_inputs is None
+
+
+@pytest.mark.parametrize(
+    ("query", "evidence_text", "missing_terms"),
+    [
+        (
+            "How do I make a chocolate cake from scratch?",
+            "This RAG paper explains how retrieval systems make generation more grounded from scratch.",
+            ("chocolate", "cake"),
+        ),
+        (
+            "What are the latest stock prices for Tesla and Apple?",
+            "The latest RAG systems update retrieved context before answering user questions.",
+            ("tesla", "apple"),
+        ),
+        (
+            "What are the rules of chess and how does the knight move?",
+            "The system applies rules to route retrieval requests across document chunks.",
+            ("chess", "knight"),
+        ),
+        (
+            "Explain the theory of general relativity in simple terms.",
+            "The paper presents a theory of retrieval-augmented generation for knowledge-intensive tasks.",
+            ("general", "relativity"),
+        ),
+    ],
+)
+def test_chat_evidence_gate_rejects_open_domain_questions_with_generic_overlap(
+    query: str,
+    evidence_text: str,
+    missing_terms: tuple[str, ...],
+) -> None:
+    runtime = FakeRuntime()
+    service = ChatService(
+        search_service=FakeSearchService(
+            [
+                RetrievedChunk(
+                    text=evidence_text,
+                    doc_id="rag-paper",
+                    chunk_id="c1",
+                    source="papers/rag.pdf",
+                    title="RAG Survey",
+                    distance=0.1,
+                )
+            ]
+        ),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=runtime,
+    )
+
+    result = service.chat(query=query, top_k=3)
+
+    assert result.citations == []
+    assert result.grounded_answer is not None
+    assert result.grounded_answer.support_status.value == "insufficient_evidence"
+    assert result.grounded_answer.refusal_reason.value == "no_relevant_evidence"
+    assert result.metadata.insufficient_evidence is True
+    assert result.metadata.support_status == "insufficient_evidence"
+    assert result.metadata.issues[0].code == "evidence_query_mismatch"
+    assert runtime.last_inputs is None
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    gate = trace["evidence_gate"]
+    assert gate["triggered"] is True
+    assert gate["reason"] == "missing_core_query_terms"
+    assert set(missing_terms).issubset(set(gate["missing_core_terms"]))
+
+
+@pytest.mark.parametrize(
+    ("query", "evidence_text", "expected_terms"),
+    [
+        (
+            "What is the system design of Milvus?",
+            "Milvus uses a distributed system design for vector search, with coordinators and query nodes.",
+            ("milvus", "system", "design"),
+        ),
+        (
+            "What are the key components of a RAG pipeline?",
+            "A RAG pipeline includes retrieval, reranking, context construction, and generation components.",
+            ("rag", "pipeline", "components"),
+        ),
+    ],
+)
+def test_chat_evidence_gate_allows_in_scope_questions(
+    query: str,
+    evidence_text: str,
+    expected_terms: tuple[str, ...],
+) -> None:
+    runtime = FakeRuntime()
+    service = ChatService(
+        search_service=FakeSearchService(
+            [
+                RetrievedChunk(
+                    text=evidence_text,
+                    doc_id="kb-doc",
+                    chunk_id="c1",
+                    source="papers/rag.pdf",
+                    title="Knowledge Base Paper",
+                    distance=0.1,
+                )
+            ]
+        ),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=runtime,
+    )
+
+    result = service.chat(query=query, top_k=3)
+
+    assert result.citations != []
+    assert result.grounded_answer is not None
+    assert result.grounded_answer.support_status.value == "supported"
+    assert result.metadata.support_status == "supported"
+    assert runtime.last_inputs is not None
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["evidence_gate"]["triggered"] is False
+    assert set(expected_terms).intersection(set(trace["evidence_gate"]["overlap_terms"]))
 
 
 def test_chat_returns_answer_and_citations_for_grounded_hits() -> None:
@@ -951,3 +1071,150 @@ def test_chat_out_of_scope_not_overwritten_by_helpful_fallback() -> None:
     assert result.grounded_answer.refusal_reason.value == "out_of_scope"
     assert result.metadata.issues[0].code == "out_of_scope"
     assert search_service.calls == 0
+
+
+# ---------------------------------------------------------------------------
+# Post-generation evidence gate tests
+# ---------------------------------------------------------------------------
+
+
+class RefusalRuntime:
+    """Fake runtime that returns evidence-insufficient answers."""
+
+    runtime_name = "fake-refusal-runtime"
+    provider_name = "fake-provider"
+
+    def __init__(self, refusal_text: str) -> None:
+        self._text = refusal_text
+        self.last_inputs: dict[str, object] | None = None
+
+    def generate(self, request: RuntimeRequest) -> RuntimeResponse:
+        self.last_inputs = request.inputs
+        return RuntimeResponse(
+            text=self._text,
+            runtime_name=self.runtime_name,
+            provider_name=self.provider_name,
+        )
+
+
+_IN_SCOPE_HITS = [
+    RetrievedChunk(
+        text="Milvus uses a distributed system design for vector search, with coordinators and query nodes.",
+        doc_id="milvus-paper",
+        chunk_id="c1",
+        source="papers/milvus.pdf",
+        title="Milvus",
+        distance=0.1,
+    ),
+    RetrievedChunk(
+        text="The query node handles search requests and coordinates with data nodes.",
+        doc_id="milvus-paper",
+        chunk_id="c2",
+        source="papers/milvus.pdf",
+        title="Milvus",
+        distance=0.15,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "refusal_text",
+    [
+        "The evidence is insufficient to answer the question. The provided text discusses unrelated topics.",
+        "The evidence provided does not contain any information about this topic.",
+        "Not enough evidence to provide a grounded answer.",
+        "The evidence provided is insufficient to answer how to make a chocolate cake from scratch.",
+    ],
+)
+def test_post_generation_gate_overrides_english_model_refusal(refusal_text: str) -> None:
+    """When the LLM answer contains English refusal language, metadata must reflect insufficient evidence.
+
+    Uses a query that passes the pre-generation evidence gate (terms overlap with Milvus evidence)
+    but the LLM still returns refusal language.
+    """
+    service = ChatService(
+        search_service=FakeSearchService(_IN_SCOPE_HITS),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=RefusalRuntime(refusal_text),
+    )
+
+    # Use a query that overlaps with Milvus evidence so pre-gen gate passes
+    result = service.chat(query="What is the system design of Milvus?", top_k=3)
+
+    assert result.grounded_answer is not None
+    assert result.grounded_answer.support_status.value == "insufficient_evidence", (
+        f"Expected insufficient_evidence, got {result.grounded_answer.support_status.value}"
+    )
+    assert result.citations == [], f"Expected empty citations, got {len(result.citations)}"
+    assert result.metadata.support_status == "insufficient_evidence"
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    gate = trace["evidence_gate"]
+    assert gate["triggered"] is True
+    assert gate["action"] == "force_insufficient_evidence"
+    assert "model_refused_due_to_insufficient_evidence" in gate["reason"]
+
+
+def test_post_generation_gate_overrides_chinese_model_refusal() -> None:
+    """When the LLM answer contains Chinese refusal language, metadata must reflect insufficient evidence."""
+    refusal_text = "当前知识库中没有足够证据来回答这个问题。请尝试使用更接近原文的关键词重新提问。"
+    service = ChatService(
+        search_service=FakeSearchService(_IN_SCOPE_HITS),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=RefusalRuntime(refusal_text),
+    )
+
+    result = service.chat(query="法国的首都是哪里？", top_k=3)
+
+    assert result.grounded_answer is not None
+    assert result.grounded_answer.support_status.value == "insufficient_evidence"
+    assert result.citations == []
+    assert result.metadata.support_status == "insufficient_evidence"
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    gate = trace["evidence_gate"]
+    assert gate["triggered"] is True
+    assert gate["action"] == "force_insufficient_evidence"
+
+
+def test_post_generation_gate_does_not_affect_in_scope_supported_answer() -> None:
+    """In-scope questions with normal answers must keep supported status and citations."""
+    normal_answer = "Milvus uses a distributed system design with coordinators and query nodes for vector search."
+    service = ChatService(
+        search_service=FakeSearchService(_IN_SCOPE_HITS),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=RefusalRuntime(normal_answer),
+    )
+
+    result = service.chat(query="What is the system design of Milvus?", top_k=3)
+
+    assert result.grounded_answer is not None
+    assert result.grounded_answer.support_status.value == "supported"
+    assert result.citations != []
+    assert result.metadata.support_status == "supported"
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    gate = trace["evidence_gate"]
+    assert gate["triggered"] is False
+    assert gate["action"] == "allow_generation"
+
+
+def test_post_generation_gate_records_evaluated_flag() -> None:
+    """The evidence_gate trace must always include evaluated=True."""
+    normal_answer = "Milvus uses a distributed system design with coordinators and query nodes."
+    service = ChatService(
+        search_service=FakeSearchService(_IN_SCOPE_HITS),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=RefusalRuntime(normal_answer),
+    )
+
+    result = service.chat(query="What is the system design of Milvus?", top_k=3)
+
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    gate = trace["evidence_gate"]
+    assert gate["evaluated"] is True

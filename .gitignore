@@ -66,6 +66,10 @@ proof_*.txt
 # Eval intermediate logs
 eval_run*.txt
 eval/_*.md
+eval/results/
+eval/reports/
+eval/figures/
+eval/datasets/
 
 # One-off inspection scripts
 front_matter_inspect.py

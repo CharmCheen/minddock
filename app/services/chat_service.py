@@ -21,9 +21,10 @@ from app.services.grounded_generation import (
     build_citation,
     build_context,
     build_evidence,
-    evidence_matches_query,
+    assess_evidence_query_alignment,
     expand_evidence_windows,
     format_evidence_block,
+    GroundingAssessment,
     HELPFUL_CHAT_INSUFFICIENT_EVIDENCE,
     is_out_of_scope_knowledge_query,
     OUT_OF_SCOPE_ANSWER,
@@ -48,6 +49,27 @@ _STRUCTURED_REF_RE = re.compile(
     r"(?i)(?:\b(?:table|figure|fig\.?|algorithm)\s*(?:\d+|[ivxlcdm]+)\b|\bappendix\s+[a-z0-9]+\b|(?:表|图|算法)\s*[0-9一二三四五六七八九十]+|附录\s*[A-Za-z0-9一二三四五六七八九十]+)"
 )
 _SOURCE_POINTER_RE = re.compile(r"(?i)\b(?:this|the|milvus|rag|local)?\s*(?:paper|document|doc|file|pdf)\b")
+_MODEL_REFUSAL_PATTERNS = (
+    "evidence is insufficient",
+    "evidence does not contain",
+    "evidence provided does not",
+    "evidence provided is insufficient",
+    "insufficient to answer",
+    "insufficient to explain",
+    "does not contain any information",
+    "not enough evidence",
+    "no relevant evidence",
+    "cannot answer from the provided",
+    "cannot be answered from",
+    "the evidence does not",
+    "当前知识库中没有足够证据",
+    "没有在当前知识库中找到",
+    "不能给出带引用的结论",
+    "证据不足",
+    "没有找到足够",
+    "无法从提供的证据",
+)
+
 _CROSS_SOURCE_INTENT_PHRASES = (
     "compare",
     "comparison",
@@ -223,7 +245,10 @@ class ChatService:
                     context=None,
                 )
 
-            if not evidence_matches_query(query, grounded_hits):
+            evidence_alignment = assess_evidence_query_alignment(query, grounded_hits)
+            trace["evidence_gate"] = evidence_alignment.to_trace_dict()
+            if not evidence_alignment.passed:
+                trace["applied_rules"].append("evidence_query_alignment_gate")
                 logger.info("Chat returning insufficient evidence after relevance gate: query_preview=%s", query[:60])
                 return self._refusal_result(
                     answer=HELPFUL_CHAT_INSUFFICIENT_EVIDENCE,
@@ -313,6 +338,43 @@ class ChatService:
             citations = [build_citation(hit) for hit in compressed_hits]
             evidence = [build_evidence(hit) for hit in compressed_hits]
             grounding = assess_grounding(retrieved_hits=hits, evidence=evidence)
+
+            # ── Post-generation evidence gate: detect model refusal ──
+            model_refusal = self._detect_model_refusal(answer)
+            pre_gen_gate = trace.get("evidence_gate")
+
+            if model_refusal:
+                grounding = GroundingAssessment(
+                    support_status=SupportStatus.INSUFFICIENT_EVIDENCE,
+                    refusal_reason=RefusalReason.NO_RELEVANT_EVIDENCE,
+                )
+                citations = []
+                evidence = []
+                trace["evidence_gate"] = {
+                    "evaluated": True,
+                    "triggered": True,
+                    "reason": f"model_refused_due_to_insufficient_evidence: {model_refusal}",
+                    "action": "force_insufficient_evidence",
+                    **({"pre_generation_gate": pre_gen_gate} if isinstance(pre_gen_gate, dict) else {}),
+                }
+                logger.info(
+                    "Post-generation evidence gate triggered: query_preview=%s pattern=%s",
+                    query[:60], model_refusal,
+                )
+            else:
+                # Record that gate was evaluated but not triggered
+                existing_gate = trace.get("evidence_gate")
+                if isinstance(existing_gate, dict):
+                    existing_gate["evaluated"] = True
+                    existing_gate["action"] = "allow_generation"
+                else:
+                    trace["evidence_gate"] = {
+                        "evaluated": True,
+                        "triggered": False,
+                        "reason": "aligned",
+                        "action": "allow_generation",
+                    }
+
             trace["final_citation_count"] = len(citations)
             trace["final_evidence_count"] = len(evidence)
             trace["final_sources"] = final_source_summary(citations)
@@ -456,6 +518,19 @@ class ChatService:
             local_doc_priority_applied=local_doc_priority_applied,
         )
         return trace
+
+    @staticmethod
+    def _detect_model_refusal(answer: str) -> str | None:
+        """Return the matched refusal pattern if the answer expresses evidence insufficiency, else None."""
+        if not answer:
+            return None
+        normalized = answer.lower().strip()
+        # Check first 300 chars — refusal language typically appears at the start
+        check_region = normalized[:300]
+        for pattern in _MODEL_REFUSAL_PATTERNS:
+            if pattern.lower() in check_region:
+                return pattern
+        return None
 
     def _build_prompt(self):
         return self._prompt_profile().builder()

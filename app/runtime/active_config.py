@@ -1,25 +1,9 @@
-"""Active runtime configuration store backed by a JSON file.
+"""Active runtime configuration store backed by local JSON files.
 
-Phase 1-3: User-configurable OpenAI-compatible runtime.
-
-Security (Phase 3):
-    The api_key is NEVER written to disk. It lives only in os.environ.
-    The file stores api_key_source ("env" | "none") as a marker.
-
-    Rationale: This is "weak persistence + env-first" — appropriate for
-    local single-user deployments. It prevents accidental api_key disclosure
-    via git history or shared drives, while keeping the UX functional:
-    the user enters the key once per session via the Settings UI.
-
-    Known limitation: after a restart, the user must re-enter the API key.
-    A proper secret manager (Vault, AWS SM, etc.) is out of scope for Phase 3.
-
-Observability (Phase 3):
-    The config_source field tells you exactly where the active runtime
-    credentials are coming from:
-      - "active_config_env"  — custom runtime enabled, key is in os.environ
-      - "active_config_disabled" — custom runtime disabled, using default
-      - "default"            — no active config file, using system defaults
+MindDock intentionally maintains one active runtime config. Non-sensitive
+settings live in ``data/active_runtime.json``. The API key, when saved through
+the UI, lives in ``data/active_runtime_secret.json`` so it can be gitignored
+separately from the rest of the configuration.
 """
 
 from __future__ import annotations
@@ -30,21 +14,27 @@ from dataclasses import dataclass
 from pathlib import Path
 
 CONFIG_FILE = Path("data/active_runtime.json")
+SECRET_FILE = Path("data/active_runtime_secret.json")
+_API_KEY_PREVIEW_CHARS = 4
 
 
 @dataclass
 class ActiveRuntimeConfig:
     """The currently active user-configured runtime.
 
-    Phase 3 change: api_key is NOT stored in this dataclass.
-    Only api_key_source is stored in the file. The actual key lives in os.environ.
+    The api_key is not stored in this dataclass or in the non-secret config
+    file. ``api_key_source`` is a marker:
+    - ``local_secret``: key is stored in SECRET_FILE
+    - ``env``: key is expected from LLM_API_KEY
+    - ``none``: no key configured
     """
 
     provider: str = "openai_compatible"
     base_url: str = "https://api.openai.com/v1"
-    api_key_source: str = "none"  # "env" = custom key in env, "none" = no custom key
+    api_key_source: str = "none"
     model: str = "gpt-4o-mini"
     enabled: bool = False
+    last_error: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -53,6 +43,7 @@ class ActiveRuntimeConfig:
             "api_key_source": self.api_key_source,
             "model": self.model,
             "enabled": self.enabled,
+            "last_error": self.last_error,
         }
 
     @classmethod
@@ -63,15 +54,17 @@ class ActiveRuntimeConfig:
             api_key_source=str(data.get("api_key_source", "none")),
             model=str(data.get("model", "gpt-4o-mini")),
             enabled=bool(data.get("enabled", False)),
+            last_error=str(data["last_error"]) if data.get("last_error") else None,
         )
 
 
 def get_active_config() -> ActiveRuntimeConfig:
-    """Load the active runtime config from disk, or return a default (disabled) config.
+    """Load the active runtime config from disk, or return a disabled default.
 
-    When no file exists, returns a config with provider="" as a sentinel.
-    get_effective_runtime_status() uses this to distinguish 'no config' from 'config disabled'.
+    When no file exists, provider="" is used as a sentinel so callers can
+    distinguish "not configured" from "configured but disabled".
     """
+
     if not CONFIG_FILE.exists():
         return ActiveRuntimeConfig(provider="")
     try:
@@ -82,22 +75,104 @@ def get_active_config() -> ActiveRuntimeConfig:
         return ActiveRuntimeConfig(provider="")
 
 
+def _write_config(config: ActiveRuntimeConfig) -> None:
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
+
+
+def _read_secret_api_key() -> str:
+    if not SECRET_FILE.exists():
+        return ""
+    try:
+        with open(SECRET_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return ""
+    key = data.get("api_key") if isinstance(data, dict) else None
+    return str(key or "").strip()
+
+
+def _write_secret_api_key(api_key: str) -> None:
+    SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(SECRET_FILE, "w", encoding="utf-8") as f:
+        json.dump({"api_key": api_key}, f, indent=2, ensure_ascii=False)
+
+
+def _delete_secret_api_key() -> None:
+    try:
+        SECRET_FILE.unlink()
+    except FileNotFoundError:
+        return
+
+
+def get_effective_api_key(config: ActiveRuntimeConfig | None = None) -> str:
+    """Return the effective key without logging or exposing it in API responses."""
+
+    config = config or get_active_config()
+    env_key = os.environ.get("LLM_API_KEY", "").strip()
+    if config.api_key_source == "local_secret":
+        return _read_secret_api_key() or env_key
+    if config.api_key_source == "env":
+        return env_key or _read_secret_api_key()
+    return env_key if config.provider == "" else ""
+
+
+def has_configured_api_key(config: ActiveRuntimeConfig | None = None) -> bool:
+    return bool(get_effective_api_key(config))
+
+
+def mask_api_key(config: ActiveRuntimeConfig | None = None) -> str | None:
+    key = get_effective_api_key(config)
+    if not key:
+        return None
+    if len(key) <= _API_KEY_PREVIEW_CHARS * 2:
+        return "*" * len(key)
+    return f"{key[:_API_KEY_PREVIEW_CHARS]}...{key[-_API_KEY_PREVIEW_CHARS:]}"
+
+
 def save_active_config(
     provider: str,
     base_url: str,
     api_key: str | None,
     model: str,
     enabled: bool,
+    clear_api_key: bool = False,
 ) -> ActiveRuntimeConfig:
-    """Persist the active runtime config to disk.
+    """Persist the active runtime config.
 
-    Security (Phase 3): the api_key is NEVER written to disk.
-    It is set in os.environ only. The file only records that a key exists (via api_key_source).
+    The non-secret config file never receives the key. A newly supplied key is
+    saved to SECRET_FILE. Omitting or blanking api_key preserves the old key;
+    only clear_api_key=True deletes it.
     """
+
     normalized_api_key = None if api_key is None else api_key.strip()
+    current_config = get_active_config()
     current_env_key = os.environ.get("LLM_API_KEY", "").strip()
-    should_keep_existing_key = enabled and not normalized_api_key and bool(current_env_key)
-    api_key_source = "env" if (enabled and (normalized_api_key or should_keep_existing_key)) else "none"
+    current_secret_key = _read_secret_api_key()
+
+    selected_key = ""
+    api_key_source = "none"
+    if enabled and not clear_api_key:
+        if normalized_api_key:
+            selected_key = normalized_api_key
+            api_key_source = "local_secret"
+            _write_secret_api_key(normalized_api_key)
+        elif current_config.api_key_source == "local_secret" and current_secret_key:
+            selected_key = current_secret_key
+            api_key_source = "local_secret"
+        elif current_config.api_key_source == "env" and current_env_key:
+            selected_key = current_env_key
+            api_key_source = "env"
+        elif current_secret_key:
+            selected_key = current_secret_key
+            api_key_source = "local_secret"
+        elif current_env_key:
+            selected_key = current_env_key
+            api_key_source = "env"
+
+    if clear_api_key or not enabled:
+        _delete_secret_api_key()
 
     config = ActiveRuntimeConfig(
         provider=provider,
@@ -105,17 +180,14 @@ def save_active_config(
         api_key_source=api_key_source,
         model=model,
         enabled=enabled,
+        last_error=None,
     )
+    _write_config(config)
 
-    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
-
-    # Bootstrap env vars so the registry uses them immediately (in-process, not persisted)
     if enabled:
-        if normalized_api_key:
-            os.environ["LLM_API_KEY"] = normalized_api_key
-        elif not should_keep_existing_key:
+        if selected_key:
+            os.environ["LLM_API_KEY"] = selected_key
+        else:
             os.environ.pop("LLM_API_KEY", None)
         if base_url:
             os.environ["LLM_RUNTIME_BASE_URL"] = base_url
@@ -134,46 +206,66 @@ def save_active_config(
 
 
 def bootstrap_env_from_active_config() -> None:
-    """Bootstrap env vars from saved config so existing registry uses them at startup.
+    """Bootstrap env vars from saved config so existing registry uses them."""
 
-    Called once in FastAPI lifespan on startup.
-
-    Security (Phase 3): this only sets base_url from the file.
-    The api_key must come from the user's shell environment (LLM_API_KEY env var),
-    or the user must re-enter it via the Settings UI after a restart.
-
-    If LLM_API_KEY is already set in the shell environment, it takes precedence.
-    """
     config = get_active_config()
-    if config.enabled and config.api_key_source == "env" and os.environ.get("LLM_API_KEY"):
+    if not config.enabled:
+        return
+
+    key = get_effective_api_key(config)
+    if key:
+        os.environ["LLM_API_KEY"] = key
         if config.base_url:
             os.environ["LLM_RUNTIME_BASE_URL"] = config.base_url
         if config.model:
             os.environ["LLM_RUNTIME_MODEL"] = config.model
-        # NOTE: api_key is NOT read from the file. It must come from the shell env
-        # or be re-entered via the Settings UI after a restart.
+
+
+def record_runtime_error(message: str) -> None:
+    """Persist a sanitized last runtime error for the settings UI."""
+
+    config = get_active_config()
+    if config.provider == "":
+        return
+    safe = message.strip()[:240]
+    config.last_error = safe or "Runtime invocation failed."
+    _write_config(config)
+
+
+def clear_runtime_error() -> None:
+    config = get_active_config()
+    if config.provider == "" or not config.last_error:
+        return
+    config.last_error = None
+    _write_config(config)
+
+
+def get_runtime_status(config: ActiveRuntimeConfig | None = None) -> str:
+    config = config or get_active_config()
+    if config.provider == "":
+        return "not_configured"
+    if not config.enabled:
+        return "disabled"
+    if config.last_error:
+        return "unavailable"
+    if has_configured_api_key(config):
+        return "connected"
+    return "unavailable"
 
 
 def get_effective_runtime_status() -> str:
-    """Determine where the currently-active runtime credentials are coming from.
+    """Determine where the currently-active runtime credentials come from."""
 
-    Returns one of:
-      - "active_config_env"        — custom runtime enabled, key is in os.environ
-      - "active_config_disabled"   — custom runtime saved but disabled, using default runtime
-      - "env_override"            — no active config but LLM_API_KEY is set in env
-      - "default"                 — no config file, using system defaults
-
-    provider="" is used as a sentinel value to detect "no config file was loaded".
-    """
     config = get_active_config()
 
-    # No config file existed
     if config.provider == "":
         if os.environ.get("LLM_API_KEY"):
             return "env_override"
         return "default"
 
     if config.enabled:
+        if config.api_key_source == "local_secret" and _read_secret_api_key():
+            return "active_config_secret"
         if config.api_key_source == "env" and os.environ.get("LLM_API_KEY"):
             return "active_config_env"
         return "active_config_disabled"

@@ -10,6 +10,7 @@
     "test:smoke": "playwright test tests/execute-stream.spec.ts --reporter=line"
   },
   "dependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.60.3",
     "axios": "^1.6.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

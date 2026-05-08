@@ -355,6 +355,7 @@ class ChatService:
                     selected_model_name=runtime_response.selected_model_name,
                     selected_base_url=runtime_response.base_url,
                     runtime_status=runtime_response.runtime_status,
+                    runtime_warning=runtime_response.runtime_warning,
                     mock_used=runtime_response.mock_used,
                     config_source=runtime_response.config_source,
                     fallback_used=runtime_response.used_fallback,

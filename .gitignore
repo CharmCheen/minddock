@@ -78,6 +78,7 @@ frontend/test-results/
 
 # Runtime data (never commit)
 data/active_runtime.json
+data/active_runtime_secret.json
 data/active_media_transcript.json
 data/ingestion_status.json
 frontend/data/

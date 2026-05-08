@@ -447,7 +447,7 @@ test.describe('execute/stream SSE consumption', () => {
     await page.getByTestId('agent-submit').click();
 
     await expect(page.getByText('I cannot answer from the available evidence.')).toBeVisible({ timeout: 8000 });
-    await expect(page.getByText('Fallback', { exact: true })).toBeVisible();
+    await expect(page.getByText('Using fallback', { exact: true })).toBeVisible();
     await expect(page.getByText('Insufficient', { exact: true })).toBeVisible();
     await expect(page.getByText('Refusal: No Relevant Evidence', { exact: true })).toBeVisible();
   });

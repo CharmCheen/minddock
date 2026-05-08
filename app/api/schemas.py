@@ -531,6 +531,7 @@ class ChatResponse(BaseModel):
     fallback_used: bool = False
     mock_used: bool = False
     runtime_status: str | None = None
+    runtime_warning: str | None = None
     selected_model_name: str | None = None
     selected_provider_kind: str | None = None
     selected_base_url: str | None = None
@@ -558,6 +559,7 @@ class ChatResponse(BaseModel):
                 fallback_used=result.metadata.fallback_used,
                 mock_used=result.metadata.mock_used,
                 runtime_status=result.metadata.runtime_status,
+                runtime_warning=result.metadata.runtime_warning,
                 selected_model_name=result.metadata.selected_model_name,
                 selected_provider_kind=result.metadata.selected_provider_kind,
                 selected_base_url=result.metadata.selected_base_url,
@@ -582,6 +584,7 @@ class ChatResponse(BaseModel):
             fallback_used=bool(result.get("fallback_used", False)),
             mock_used=bool(result.get("mock_used", False)),
             runtime_status=result.get("runtime_status"),
+            runtime_warning=result.get("runtime_warning"),
             selected_model_name=result.get("selected_model_name"),
             selected_provider_kind=result.get("selected_provider_kind"),
             selected_base_url=result.get("selected_base_url"),
@@ -1429,6 +1432,7 @@ class UnifiedExecutionMetadataResponse(BaseModel):
     fallback_used: bool = False
     mock_used: bool = False
     runtime_status: str | None = None
+    runtime_warning: str | None = None
     selected_base_url: str | None = None
     config_source: str | None = None
     runtime_error: str | None = None
@@ -1450,6 +1454,7 @@ class ExecutionSummaryResponse(BaseModel):
     fallback_used: bool = False
     mock_used: bool = False
     runtime_status: str | None = None
+    runtime_warning: str | None = None
     selected_base_url: str | None = None
     config_source: str | None = None
     selection_reason: str | None = None
@@ -1547,6 +1552,7 @@ class UnifiedExecutionResponseBody(BaseModel):
                 fallback_used=result.metadata.fallback_used,
                 mock_used=result.metadata.mock_used,
                 runtime_status=result.metadata.runtime_status,
+                runtime_warning=result.metadata.runtime_warning,
                 selected_base_url=result.metadata.selected_base_url,
                 config_source=result.metadata.config_source,
                 runtime_error=result.metadata.runtime_error,
@@ -1565,6 +1571,7 @@ class UnifiedExecutionResponseBody(BaseModel):
                 fallback_used=result.execution_summary.fallback_used,
                 mock_used=result.execution_summary.mock_used,
                 runtime_status=result.execution_summary.runtime_status,
+                runtime_warning=result.execution_summary.runtime_warning,
                 selected_base_url=result.execution_summary.selected_base_url,
                 config_source=result.execution_summary.config_source,
                 selection_reason=result.execution_summary.selection_reason,
@@ -1970,7 +1977,10 @@ class RuntimeConfigResponse(BaseModel):
     base_url: str = Field(description="Base URL for the API endpoint")
     model: str = Field(description="Model name identifier")
     api_key_masked: bool = Field(description="True if an API key is configured (but the key itself is never returned)")
+    api_key_configured: bool = Field(default=False, description="True if an API key is available to the backend")
     enabled: bool = Field(description="True if the user-configured runtime is active")
+    runtime_status: str = Field(description="not_configured, disabled, unavailable, or connected")
+    last_error: str | None = Field(default=None, description="Sanitized last runtime error, if any")
     config_source: str = Field(
         description=(
             "Where the active runtime credentials are coming from: "
@@ -1992,13 +2002,19 @@ class RuntimeConfigResponse(BaseModel):
         config_source: str = "default",
         effective_runtime: EffectiveRuntimeResponse | None = None,
     ) -> "RuntimeConfigResponse":
+        from app.runtime.active_config import get_runtime_status, has_configured_api_key
+
+        api_key_configured = has_configured_api_key(config)
         return cls(
             provider=config.provider,
             base_url=config.base_url,
             model=config.model,
-            api_key_masked=config.api_key_source == "env",
+            api_key_masked=api_key_configured,
+            api_key_configured=api_key_configured,
             enabled=config.enabled,
             config_source=config_source,
+            runtime_status=get_runtime_status(config),
+            last_error=config.last_error,
             effective_runtime=effective_runtime,
         )
 
@@ -2012,6 +2028,7 @@ class RuntimeConfigUpdateRequest(BaseModel):
         default=None,
         description="API key to use for this process. Omit or leave blank to keep the current process key.",
     )
+    clear_api_key: bool = Field(default=False, description="When true, explicitly delete any saved API key")
     model: str = Field(description="Model name identifier")
     enabled: bool = Field(default=True, description="Enable this configuration")
 

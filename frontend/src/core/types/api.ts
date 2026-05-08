@@ -200,8 +200,11 @@ export interface RuntimeConfigResponse {
   base_url: string;
   model: string;
   api_key_masked: boolean;
+  api_key_configured: boolean;
   enabled: boolean;
   config_source: string;
+  runtime_status: string;
+  last_error?: string | null;
   effective_runtime?: {
     profile_id: string;
     provider_kind: string;
@@ -282,6 +285,7 @@ export interface RuntimeConfigUpdateRequest {
   provider: string;
   base_url: string;
   api_key?: string;
+  clear_api_key?: boolean;
   model: string;
   enabled: boolean;
 }

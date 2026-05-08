@@ -39,7 +39,9 @@ def client(temp_config_file, monkeypatch):
 def temp_config_file(monkeypatch, tmp_path):
     """Redirect the config file to a temp path for isolated testing."""
     config_path = tmp_path / "active_runtime.json"
+    secret_path = tmp_path / "active_runtime_secret.json"
     monkeypatch.setattr("app.runtime.active_config.CONFIG_FILE", config_path)
+    monkeypatch.setattr("app.runtime.active_config.SECRET_FILE", secret_path)
     return config_path
 
 
@@ -54,8 +56,11 @@ class TestGetRuntimeConfig:
         assert "base_url" in data
         assert "model" in data
         assert "api_key_masked" in data
+        assert "api_key_configured" in data
         assert "enabled" in data
         assert "config_source" in data
+        assert "runtime_status" in data
+        assert "last_error" in data
         assert "effective_runtime" in data
 
     def test_effective_runtime_reflects_resolver_profile_not_saved_config(self, client, temp_config_file, monkeypatch):
@@ -114,8 +119,8 @@ class TestGetRuntimeConfig:
         response = client.get("/frontend/runtime-config")
         assert response.json()["enabled"] is False
 
-    def test_enabled_reflects_saved_config(self, client, temp_config_file):
-        """When a file has enabled=True and api_key_source=env, the response reflects it."""
+    def test_enabled_config_without_available_key_is_unavailable(self, client, temp_config_file):
+        """A saved key marker without an available key must not look usable."""
         config = ActiveRuntimeConfig(
             provider="openai_compatible",
             base_url="https://api.example.com/v1",
@@ -127,7 +132,9 @@ class TestGetRuntimeConfig:
 
         response = client.get("/frontend/runtime-config")
         assert response.json()["enabled"] is True
-        assert response.json()["api_key_masked"] is True
+        assert response.json()["api_key_masked"] is False
+        assert response.json()["api_key_configured"] is False
+        assert response.json()["runtime_status"] == "unavailable"
 
     def test_base_url_reflects_saved_config(self, client, temp_config_file):
         config = ActiveRuntimeConfig(
@@ -212,8 +219,10 @@ class TestUpdateRuntimeConfig:
         data = response.json()
         assert data["enabled"] is True
         assert data["api_key_masked"] is True
+        assert data["api_key_configured"] is True
         assert data["base_url"] == "https://api.example.com/v1"
         assert data["model"] == "gpt-4o"
+        assert data["runtime_status"] == "connected"
 
     def test_save_refreshes_effective_runtime_from_active_env_overrides(self, client, temp_config_file):
         response = client.put(
@@ -239,7 +248,7 @@ class TestUpdateRuntimeConfig:
         assert refreshed["effective_runtime"]["api_key_masked"] is True
 
     def test_api_key_never_persisted_to_disk(self, client, temp_config_file):
-        """PHASE 3 SECURITY INVARIANT: api_key is never written to the config file."""
+        """Security invariant: api_key is never written to the non-secret config file."""
         client.put(
             "/frontend/runtime-config",
             json={
@@ -254,12 +263,12 @@ class TestUpdateRuntimeConfig:
         # The key itself must NEVER appear in the file
         assert "api_key" not in stored or stored.get("api_key") == ""
         assert "sk-super-secret" not in json.dumps(stored)
-        # But api_key_source must be recorded
-        assert stored["api_key_source"] == "env"
+        # But api_key_source must be recorded as a gitignored local secret marker
+        assert stored["api_key_source"] == "local_secret"
         assert stored["enabled"] is True
 
     def test_saved_config_records_api_key_source(self, client, temp_config_file):
-        """The file stores api_key_source as a marker, not the actual key."""
+        """The config file stores api_key_source as a marker, not the actual key."""
         client.put(
             "/frontend/runtime-config",
             json={
@@ -271,8 +280,45 @@ class TestUpdateRuntimeConfig:
             },
         )
         stored = json.loads(temp_config_file.read_text())
-        assert stored["api_key_source"] == "env"
+        assert stored["api_key_source"] == "local_secret"
         assert "sk-persist" not in stored
+
+    def test_secret_file_is_used_after_backend_restart(self, client, temp_config_file, monkeypatch, tmp_path):
+        """Saving a key persists it in the gitignored secret file and bootstrap restores it."""
+        secret_path = tmp_path / "active_runtime_secret.json"
+        monkeypatch.setattr("app.runtime.active_config.SECRET_FILE", secret_path)
+
+        response = client.put(
+            "/frontend/runtime-config",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://restart.example.com/v1",
+                "api_key": "sk-restart-secret",
+                "model": "restart-model",
+                "enabled": True,
+            },
+        )
+        assert response.status_code == 200
+        assert secret_path.exists()
+        assert "sk-restart-secret" in secret_path.read_text()
+
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.delenv("LLM_RUNTIME_BASE_URL", raising=False)
+        monkeypatch.delenv("LLM_RUNTIME_MODEL", raising=False)
+
+        from app.runtime.active_config import bootstrap_env_from_active_config
+
+        bootstrap_env_from_active_config()
+
+        assert os.environ["LLM_API_KEY"] == "sk-restart-secret"
+        assert os.environ["LLM_RUNTIME_BASE_URL"] == "https://restart.example.com/v1"
+        assert os.environ["LLM_RUNTIME_MODEL"] == "restart-model"
+
+        refreshed = client.get("/frontend/runtime-config").json()
+        assert refreshed["api_key_configured"] is True
+        assert refreshed["config_source"] == "active_config_secret"
+        assert refreshed["runtime_status"] == "connected"
+        assert "sk-restart-secret" not in json.dumps(refreshed)
 
     def test_empty_base_url_rejected_when_enabled(self, client, temp_config_file):
         response = client.put(
@@ -371,6 +417,39 @@ class TestUpdateRuntimeConfig:
         assert stored["api_key_source"] == "env"
         assert "sk-existing-key" not in json.dumps(stored)
 
+    def test_save_blank_key_preserves_existing_local_secret(self, client, temp_config_file, monkeypatch, tmp_path):
+        secret_path = tmp_path / "active_runtime_secret.json"
+        monkeypatch.setattr("app.runtime.active_config.SECRET_FILE", secret_path)
+        client.put(
+            "/frontend/runtime-config",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://old.example.com/v1",
+                "api_key": "sk-local-secret",
+                "model": "old-model",
+                "enabled": True,
+            },
+        )
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+        response = client.put(
+            "/frontend/runtime-config",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://new.example.com/v1",
+                "api_key": "",
+                "model": "new-model",
+                "enabled": True,
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["api_key_configured"] is True
+        assert data["config_source"] == "active_config_secret"
+        assert os.environ["LLM_API_KEY"] == "sk-local-secret"
+        assert secret_path.read_text().find("sk-local-secret") != -1
+
     def test_save_omitted_key_preserves_existing_process_key(self, client, temp_config_file, monkeypatch):
         """Omitting api_key has the same keep-existing meaning as a blank field."""
         monkeypatch.setenv("LLM_API_KEY", "sk-existing-key")
@@ -405,10 +484,47 @@ class TestUpdateRuntimeConfig:
 
         assert response.status_code == 200
         assert response.json()["api_key_masked"] is False
+        assert response.json()["api_key_configured"] is False
         assert response.json()["config_source"] == "active_config_disabled"
+        assert response.json()["runtime_status"] == "unavailable"
         assert "LLM_API_KEY" not in os.environ
         stored = json.loads(temp_config_file.read_text())
         assert stored["api_key_source"] == "none"
+
+    def test_clear_api_key_flag_removes_old_key(self, client, temp_config_file, monkeypatch, tmp_path):
+        secret_path = tmp_path / "active_runtime_secret.json"
+        monkeypatch.setattr("app.runtime.active_config.SECRET_FILE", secret_path)
+        client.put(
+            "/frontend/runtime-config",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "sk-clear-me",
+                "model": "gpt-4o",
+                "enabled": True,
+            },
+        )
+        assert secret_path.exists()
+
+        response = client.put(
+            "/frontend/runtime-config",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "",
+                "clear_api_key": True,
+                "model": "gpt-4o",
+                "enabled": True,
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["api_key_configured"] is False
+        assert data["api_key_masked"] is False
+        assert data["runtime_status"] == "unavailable"
+        assert not secret_path.exists()
+        assert "LLM_API_KEY" not in os.environ
 
     def test_save_disabled_clears_env(self, client, temp_config_file, monkeypatch):
         """When saving with enabled=False, all env vars are cleared."""
@@ -864,5 +980,7 @@ class TestRuntimeExecutionTrust:
         assert body["metadata"]["runtime_status"] == "mock"
         assert body["metadata"]["mock_used"] is True
         assert body["metadata"]["fallback_used"] is True
+        assert body["metadata"]["runtime_warning"] == "Using mock runtime because no API key is configured."
         assert body["execution_summary"]["runtime_status"] == "mock"
         assert body["artifacts"][0]["metadata"]["runtime_status"] == "mock"
+        assert body["artifacts"][0]["metadata"]["runtime_warning"] == "Using mock runtime because no API key is configured."

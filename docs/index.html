@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MindDock — 面向个人知识库的 Agentic RAG 系统</title>
-<meta name="description" content="MindDock 是基于 LangGraph 编排的个人知识管理助手，支持多源 ingestion、本地 ASR 转录、意图自动感知、检索质量反思与有界重试、渐进式流式响应。">
+<meta name="description" content="MindDock 是面向个人本地知识库的 RAG 智能助手原型，围绕文档入库、结构化分块、语义检索、证据约束生成与引用溯源构建核心流程，支持 OpenAI-compatible 运行时和轻量级工作流编排。">
 <meta property="og:type" content="website">
 <meta property="og:title" content="MindDock — 面向个人知识库的 Agentic RAG 系统">
-<meta property="og:description" content="基于 LangGraph 编排的个人知识管理助手，支持多源 ingestion、本地 ASR 转录、意图自动感知、检索质量反思与有界重试。">
+<meta property="og:description" content="面向个人本地知识库的 RAG 智能助手原型，围绕文档入库、结构化分块、语义检索、证据约束生成与引用溯源构建核心流程。">
 <meta property="og:url" content="https://github.com/CharmCheen/minddock">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="MindDock — Agentic RAG 系统">
-<meta name="twitter:description" content="基于 LangGraph 编排的个人知识管理助手，支持多源 ingestion、检索质量反思与有界重试。">
+<meta name="twitter:description" content="面向个人本地知识库的 RAG 智能助手原型，围绕文档入库、结构化分块、语义检索、证据约束生成与引用溯源构建核心流程。">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230071e3'/><text x='50' y='72' font-family='Arial' font-size='60' font-weight='bold' text-anchor='middle' fill='white'>M</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -638,10 +638,10 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
       <div class="hero-center">
         <div class="hero-card">
           <div class="hero-card-glow" aria-hidden="true"></div><div class="hero-card-shimmer" aria-hidden="true"></div>
-          <div class="hero-pill"><span class="hero-pill-dot" aria-hidden="true"></span>Agentic RAG System</div>
+          <div class="hero-pill"><span class="hero-pill-dot" aria-hidden="true"></span>RAG Assistant Prototype</div>
           <h1>MindDock</h1>
           <p class="hero-card-sub">面向个人知识库的 Agentic RAG 系统</p>
-          <p class="hero-card-desc">基于 LangGraph 编排的个人知识管理助手，支持多源 ingestion、本地 ASR 转录、意图自动感知、检索质量反思与有界重试、source-scoped 对比规划、渐进式流式响应。</p>
+          <p class="hero-card-desc">面向个人本地知识库的 RAG 智能助手原型，围绕文档入库、结构化分块、语义检索、证据约束生成与引用溯源构建核心流程，并通过 OpenAI-compatible 运行时和轻量级工作流编排支持检索、问答、摘要与对比等知识处理任务。</p>
           <div class="hero-btns">
             <a href="https://github.com/CharmCheen/minddock" class="btn btn-primary" target="_blank" rel="noopener noreferrer">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.387.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.73.083-.73 1.205.085 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
@@ -655,7 +655,7 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
       <div class="hero-side">
         <div class="hero-satellite r">
           <div class="hero-sat-icon orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"/></svg></div>
-          <div class="hero-sat-info"><div class="hero-sat-title">本地 ASR</div><div class="hero-sat-desc">faster-whisper 转录</div></div>
+          <div class="hero-sat-info"><div class="hero-sat-title">音视频转录</div><div class="hero-sat-desc">多 Provider 转录接入</div></div>
         </div>
         <div class="hero-satellite r">
           <div class="hero-sat-icon teal"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
@@ -679,7 +679,7 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
   <div class="section-head" data-reveal>
     <div class="section-tag">Core Features</div>
     <h2>核心能力环绕</h2>
-    <p>六大核心能力围绕中心枢纽，构建完整的 Agentic RAG 工作流</p>
+    <p>六大核心能力围绕中心枢纽，构建轻量级 RAG 工作流原型</p>
   </div>
   <div class="features-wrap" data-reveal>
     <div class="features-orbit">
@@ -695,15 +695,15 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
       <div class="feat-core" data-reveal>
         <div class="feat-core-icon"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
         <h3>MindDock Core</h3>
-        <div class="feat-core-sub">Agentic RAG 引擎</div>
-        <p>LangGraph 驱动的智能工作流编排中心</p>
-        <div class="feat-tags"><span class="feat-t">Agent</span><span class="feat-t">RAG</span><span class="feat-t">Reflection</span></div>
+        <div class="feat-core-sub">轻量级 RAG 引擎</div>
+        <p>基于 LangGraph 的实验性工作流编排</p>
+        <div class="feat-tags"><span class="feat-t">RAG</span><span class="feat-t">LangGraph</span><span class="feat-t">Reflection</span></div>
       </div>
 
       <div class="feat-item fl-l1" data-reveal><div class="feat-item-icon fi-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><div class="feat-item-body"><strong>多源 Ingestion</strong><span>PDF / Markdown / URL / CSV / Image OCR / Audio / Video 全格式支持</span></div></div>
       <div class="feat-item fr-r1" data-reveal><div class="feat-item-icon fi-purple"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></div><div class="feat-item-body"><strong>意图感知</strong><span>自动识别查询意图，智能路由至最优处理路径</span></div></div>
       <div class="feat-item fl-l2" data-reveal><div class="feat-item-icon fi-green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg></div><div class="feat-item-body"><strong>智能检索</strong><span>多策略检索 + 质量反思 + 有界重试机制</span></div></div>
-      <div class="feat-item fr-r2" data-reveal><div class="feat-item-icon fi-orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"/></svg></div><div class="feat-item-body"><strong>本地 ASR</strong><span>faster-whisper 本地转录，隐私安全有保障</span></div></div>
+      <div class="feat-item fr-r2" data-reveal><div class="feat-item-icon fi-orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"/></svg></div><div class="feat-item-body"><strong>音视频转录</strong><span>支持 sidecar / mock / API / local ASR bridge 多种转录 Provider</span></div></div>
       <div class="feat-item fl-l3" data-reveal><div class="feat-item-icon fi-teal"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div><div class="feat-item-body"><strong>流式响应</strong><span>渐进式 SSE Streaming，实时呈现生成内容</span></div></div>
       <div class="feat-item fr-r3" data-reveal><div class="feat-item-icon fi-rose"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg></div><div class="feat-item-body"><strong>可观测性</strong><span>完整工作流追踪，每一步都可审计可调试</span></div></div>
     </div>
@@ -714,7 +714,7 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
   <div class="section-head" data-reveal>
     <div class="section-tag">Source Skills</div>
     <h2>多源数据接入能力</h2>
-    <p>8 种 Source Skills 环绕中心枢纽，覆盖文档、网页、多媒体等多种数据源</p>
+    <p>7 种 Source Skills 环绕中心枢纽，覆盖文档、网页、图片、音视频等多种数据源</p>
   </div>
   <div class="skills-wrap" data-reveal>
     <div class="skills-orbit">
@@ -728,13 +728,12 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
 
       <div class="skl-card sl-l1" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><div class="skl-card-info"><strong>PDF Skill</strong><small>文档解析</small></div></div>
       <div class="skl-card sl-l2" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/></svg></div><div class="skl-card-info"><strong>Markdown Skill</strong><small>文本提取</small></div></div>
-      <div class="skl-card sl-l3" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></div><div class="skl-card-info"><strong>URL Skill</strong><small>网页抓取</small></div></div>
+      <div class="skl-card sl-l3" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></div><div class="skl-card-info"><strong>URL Skill</strong><small>网页正文提取</small></div></div>
       <div class="skl-card sl-l4" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></div><div class="skl-card-info"><strong>CSV Skill</strong><small>表格处理</small></div></div>
 
-      <div class="skl-card r sl-r1" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div><div class="skl-card-info"><strong>Image OCR Skill</strong><small>图像识别</small></div></div>
-      <div class="skl-card r sl-r2" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg></div><div class="skl-card-info"><strong>Audio Transcription</strong><small>语音转文字</small></div></div>
+      <div class="skl-card r sl-r1" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div><div class="skl-card-info"><strong>Image OCR Skill</strong><small>可选图像 OCR</small></div></div>
+      <div class="skl-card r sl-r2" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg></div><div class="skl-card-info"><strong>Audio Transcription</strong><small>音频转录接入</small></div></div>
       <div class="skl-card r sl-r3" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div><div class="skl-card-info"><strong>Video Transcription</strong><small>视频转录</small></div></div>
-      <div class="skl-card r sl-r4" data-reveal><div class="skl-card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div><div class="skl-card-info"><strong>Code Skill</strong><small>代码解析</small></div></div>
     </div>
   </div>
 </section>
@@ -752,7 +751,7 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
         <div class="arch-tier-body">
           <h3>Ingestion Layer — 数据接入层</h3>
           <p>Source Skills 负责异构数据源的解析、清洗与向量化，统一输出 Chunk → Embedding → Metadata 三元组</p>
-          <div class="arch-tier-tags"><span class="at-tag">PDF/MD/URL/CSV</span><span class="at-tag">Image OCR</span><span class="at-tag">Audio/Video ASR</span><span class="at-tag">Code Parser</span></div>
+          <div class="arch-tier-tags"><span class="at-tag">PDF/MD/URL/CSV</span><span class="at-tag">Image OCR</span><span class="at-tag">Audio/Video Transcription</span></div>
         </div>
       </div>
 
@@ -773,7 +772,7 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
         <div class="arch-tier-num">3</div>
         <div class="arch-tier-body">
           <h3>Agent Layer — 智能编排层</h3>
-          <p>LangGraph 工作流引擎驱动，意图感知路由、source-scoped 对比规划、多轮对话上下文管理</p>
+          <p>基于 LangGraph 的实验性工作流编排，意图感知路由、source-scoped 对比规划、多轮对话上下文管理</p>
           <div class="arch-tier-tags"><span class="at-tag">LangGraph</span><span class="at-tag">Intent Router</span><span class="at-tag">State Machine</span><span class="at-tag">Context Window</span></div>
         </div>
       </div>
@@ -796,7 +795,7 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
   <div class="section-head" data-reveal>
     <div class="section-tag">Workflow</div>
     <h2>执行流程</h2>
-    <p>从用户查询到最终响应的完整 Agentic RAG 执行链路</p>
+    <p>从用户查询到最终响应的轻量级 RAG 执行链路</p>
   </div>
   <div class="flow-wrap" data-reveal>
     <div class="flow-track">
@@ -864,37 +863,37 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
       <div class="tech-card" data-reveal>
         <div class="tech-cat">Core Framework</div>
         <ul class="tech-list">
-          <li>LangGraph — 工作流编排引擎</li>
-          <li>LangChain — LLM 应用开发框架</li>
-          <li>Pydantic — 数据模型验证</li>
-          <li>FastAPI — 高性能 API 服务</li>
+          <li>FastAPI — 后端 API 服务</li>
+          <li>LangChain — LLM 应用集成</li>
+          <li>LangGraph — 实验性工作流编排</li>
+          <li>Pydantic Settings — 配置与数据校验</li>
         </ul>
       </div>
       <div class="tech-card" data-reveal>
         <div class="tech-cat">LLM & Embedding</div>
         <ul class="tech-list">
-          <li>支持接入各类大模型（OpenAI api格式）</li>
-          <li>text-embedding-3-large</li>
-          <li>本地 Ollama 兼容支持</li>
-          <li>多模型路由与 fallback</li>
+          <li>OpenAI-compatible Chat Runtime</li>
+          <li>可配置 base_url / api_key / model</li>
+          <li>sentence-transformers 本地 embedding</li>
+          <li>Mock fallback 用于无密钥演示</li>
         </ul>
       </div>
       <div class="tech-card" data-reveal>
         <div class="tech-cat">Vector & Storage</div>
         <ul class="tech-list">
-          <li>ChromaDB / Qdrant 向量存储</li>
-          <li>SQLite 本地持久化</li>
+          <li>ChromaDB 本地向量持久化</li>
           <li>文件系统元数据管理</li>
-          <li>增量索引与更新</li>
+          <li>watchdog 增量索引与更新</li>
+          <li>本地运行日志与执行记录</li>
         </ul>
       </div>
       <div class="tech-card" data-reveal>
-        <div class="tech-cat">Media Processing</div>
+        <div class="tech-cat">Source & Media Processing</div>
         <ul class="tech-list">
-          <li>faster-whisper 本地 ASR</li>
-          <li>PaddleOCR / EasyOCR 图像识别</li>
-          <li>PyPDF / pdfplumber 文档解析</li>
-          <li>BeautifulSoup 网页抓取</li>
+          <li>PyMuPDF PDF 文本解析</li>
+          <li>httpx + HTMLParser 静态网页正文提取</li>
+          <li>RapidOCR 可选图像 OCR</li>
+          <li>音视频转录接入：sidecar / mock / API / local ASR bridge</li>
         </ul>
       </div>
     </div>
@@ -914,8 +913,8 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
     <div class="roadmap-grid">
       <div class="rm-card" data-reveal>
         <div class="rm-card-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 00-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0020 4.77 5.07 5.07 0 0019.91 1S18.73.65 16 2.48a13.38 13.38 0 00-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 005 4.77a5.44 5.44 0 00-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 009 18.13V22"/></svg></div>
-        <h3>社区驱动的 Source Skills</h3>
-        <p>我们设计了标准化的 Source Skill 接口规范，任何人都可以为 MindDock 开发新的数据源接入能力。从 Notion 同步到 Slack 归档，从邮件解析到数据库连接，社区的创造力将不断扩展 MindDock 的边界。</p>
+        <h3>内置 Source Skill Catalog</h3>
+        <p>系统内置只读的 Source Skill Catalog，描述已实现的 7 种数据接入能力（PDF、Markdown、TXT、URL、CSV、图片 OCR、音视频转录）。每种 Skill 均有标准化的能力描述、Provider 列表与已知限制说明，便于后续扩展用户自定义 Skill。</p>
       </div>
       <div class="rm-card" data-reveal>
         <div class="rm-card-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></div>
@@ -924,8 +923,8 @@ a{color:var(--accent);text-decoration:none;transition:color .3s var(--ease-out-e
       </div>
       <div class="rm-card" data-reveal>
         <div class="rm-card-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></div>
-        <h3>面向未来的路线图</h3>
-        <p>多模态理解能力增强、跨设备知识同步、团队知识库协作模式、插件市场生态——这些方向已经在我们的视野中。加入我们，一起定义个人知识管理的未来形态。</p>
+        <h3>Future Work</h3>
+        <p>Skill 市场与用户自定义 Skill、代码仓库解析与代码问答 Skill、图像/视频多模态 embedding 与画面级检索、faster-whisper 等本地 ASR 引擎接入、PaddleOCR/EasyOCR 等更多 OCR provider、Qdrant 等外部向量数据库后端、Ollama 本地模型一键配置、Agent 编排增强（反思、工具调用、失败恢复与任务规划纳入统一 DAG）。</p>
       </div>
     </div>
 

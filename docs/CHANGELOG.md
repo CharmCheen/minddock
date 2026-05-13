@@ -5,6 +5,14 @@ Update it before every push.
 
 ## Unreleased
 
+### Documentation
+
+- Synchronized `README.md`, `README_ZH.md`, and core `docs/` guidance with the current implementation:
+  frontend unified execution/run control, runtime and media transcript configuration, Local ASR provider boundaries,
+  Source Skill endpoints, schedule-candidate extraction, and the GitHub Actions CI baseline.
+- Replaced outdated roadmap/test-plan wording that described early MVP scope or missing CI with current defense-ready
+  project boundaries and focused validation commands.
+
 ### Fixed
 
 - Reworked `start.bat` into a fail-fast one-click Local ASR demo launcher:

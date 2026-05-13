@@ -107,10 +107,10 @@ The following are documented future directions. They do NOT appear in the built-
 
 | id | description | provider status |
 |---|---|---|
-| `audio.transcribe` | Transcript-only source for audio files | `mock` (default), `disabled`, `api_stub` |
-| `video.transcribe` | Transcript-only source for video files | `mock` (default), `disabled`, `api_stub` |
+| `audio.transcribe` | Transcript-only source for audio files | `sidecar`, `mock` (default), `disabled`, OpenAI-style `api`, optional Local ASR |
+| `video.transcribe` | Transcript-only source for video files | `sidecar`, `mock` (default), `disabled`, OpenAI-style `api`, optional Local ASR |
 
-These handlers entered the active catalog in Skill System v1.3. They use `MediaSourceLoader` with a deterministic mock provider by default, so the pipeline works without external ASR dependencies. Real ASR provider, speaker diarization, timestamp citation UI, frame understanding, and multimodal embedding remain future work.
+These handlers entered the active catalog in Skill System v1.3. They use `MediaSourceLoader` with sidecar priority and a deterministic mock provider by default, so the pipeline works without external ASR dependencies. API and Local ASR providers are available configuration paths. Speaker diarization, timestamp citation UI, frame understanding, and multimodal embedding remain future work.
 
 ## Local Manifest Registration (Skill System v1.1)
 
@@ -174,7 +174,7 @@ If multiple local manifests match the same source, MindDock does not choose one
 randomly. It skips skill identity annotation and writes a short binding warning
 for debugging.
 
-Future capabilities such as `video.transcribe`, `audio.transcribe`, or
+Future capabilities such as `video.multimodal_frames`, `image.caption`, or
 `notion.import` should be implemented as trusted handlers inside the MindDock
 codebase before users can bind manifests to them. Local manifests still never
 execute arbitrary code.
@@ -207,8 +207,8 @@ Current implementation:
 - **OCR-first multimodal ingestion** via `image.ocr` with mock fallback and optional RapidOCR.
 - **URL extraction** proves the `SourceLoaderRegistry` can be extended beyond local files.
 - **CSV extraction** (`csv.extract`) validates the Source Skill Contract extension path end-to-end: CSV → `SourceLoadResult` → chunking → Chroma → retrieval → citation.
-- **Source Skill Contract** provides the engineering justification for future audio/video/image caption skills without requiring them to be implemented now.
+- **Source Skill Contract** provides the engineering justification for transcript-based audio/video skills today and future multimodal/image caption skills later.
 
 What this means for the thesis:
 
-> "MindDock introduces a Source Skill Contract that normalizes heterogeneous sources into a unified `SourceLoadResult`. The current system implements text, PDF, URL, and image OCR source skills, with the contract designed to accommodate audio transcription and video transcription as future API-backed skills."
+> "MindDock introduces a Source Skill Contract that normalizes heterogeneous sources into a unified `SourceLoadResult`. The current system implements text, PDF, URL, CSV, image OCR, and transcript-based audio/video source skills, while leaving image captioning and native video-frame understanding as future extensions."

@@ -12,6 +12,8 @@ venv/
 .pytest_tmp/
 .mypy_cache/
 .coverage
+coverage.json
+coverage.xml
 htmlcov/
 dist/
 build/

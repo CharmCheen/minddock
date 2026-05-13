@@ -74,7 +74,7 @@
 
 | 功能 | 状态 | 说明 |
 |---|---|---|
-| Audio / video transcription | ❌ 未实现 | Source Skill Contract 已预留 audio.transcribe / video.transcribe |
+| Native audio / video understanding | ❌ 未实现 | 当前支持 transcript-text ingest；不做视频帧理解、多模态 embedding 或原生媒体推理 |
 | Image caption | ❌ 未实现 | Source Skill Contract 已预留 image.caption |
 | Multimodal embedding | ❌ 未实现 | 当前是 text embedding + OCR text 路径 |
 | JS-rendered URL | ❌ 未实现 | 需要 headless browser |
@@ -119,11 +119,11 @@
 
 ### Post-V4 Update / Latest Status
 
-After PR #18 (merged to master), `audio.transcribe` and `video.transcribe` are implemented as transcript-only trusted handlers with mock provider by default. They validate the Source Skill / Trusted Handler extension path, while real ASR, full video understanding, multimodal embedding, timestamp citation UI, and player UI remain future work.
+After later media-transcript work, `audio.transcribe` and `video.transcribe` are implemented as transcript-only trusted handlers. They support sidecar transcripts, mock/disabled modes, OpenAI-style API transcription, and optional Local ASR. Full video-frame understanding, multimodal embedding, timestamp citation UI, and player UI remain future work.
 
 ### Future work（答辩时可提及）
 
-- Real ASR provider for audio/video transcription
+- Native video-frame understanding / multimodal media reasoning
 - Image caption via multimodal model
 - JS-rendered URL via headless browser
 - Full Agent Skill Runtime（当前是 deterministic contract）
@@ -150,8 +150,7 @@ After PR #18 (merged to master), `audio.transcribe` and `video.transcribe` are i
 **Future skills（仅文档，不进 active catalog）：**
 
 - `image.caption`
-- `audio.transcribe`
-- `video.transcribe`
+- `video.multimodal_frames`
 - `url.js_rendered`
 
 ---

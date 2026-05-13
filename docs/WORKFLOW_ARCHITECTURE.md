@@ -192,14 +192,14 @@ MindDock also exposes a lightweight source skill system for demo clarity and fut
 | Source type | Current builtin skill behavior |
 |-------------|--------------------------------|
 | Images | `image.ocr` uses RapidOCR by default. Long screenshots can be sliced vertically, and OCR boxes are sorted into reading order. |
-| Video/audio | `video.transcribe` / `audio.transcribe` support sidecar transcripts as the stable demo path. If no sidecar exists, media falls back to configured transcript providers such as mock or disabled. |
+| Video/audio | `video.transcribe` / `audio.transcribe` support sidecar transcripts as the stable demo path. If no sidecar exists, media falls back to configured transcript providers such as mock, disabled, OpenAI-style API, or Local ASR. |
 | CSV | `csv.extract` parses CSV rows into readable text chunks. |
 | URL | `url.extract` fetches static HTML and records extraction quality metadata. |
 | PDF/text/markdown | File extraction skills resolve consistently for CLI/demo binding metadata. |
 
 `skill-resolve` preserves local manifest precedence. If no local manifest matches, implemented builtin source skills provide deterministic fallback bindings for common source types. Actual loading still goes through trusted loaders and handlers; MindDock does not execute arbitrary user-provided code as part of source ingestion.
 
-The video demo does not include real ASR, Whisper, ffmpeg, cloud video APIs, or real video multimodal understanding. Sidecar transcript is the stable local representation that enters the normal RAG path.
+The video demo should be worded as transcript-based media ingestion. Sidecar transcript is the most stable local representation that enters the normal RAG path. Remote API transcription and Local ASR are configurable transcript providers, but MindDock still does not perform native video-frame understanding or multimodal video reasoning.
 
 ---
 
@@ -241,8 +241,8 @@ The following improvements are identified for future iterations:
 6. **Video `multimodal_frames` provider**  
    Add an optional provider that samples video frames, calls a vision model, and converts visual observations into a transcript-like text representation. This should complement, not replace, sidecar transcripts; sidecar should remain the most stable demo path.
 
-7. **Real ASR provider**  
-   Add a configurable ASR provider for audio/video files after defining latency, cost, privacy, and failure-handling expectations.
+7. **Production calendar sync for schedule candidates**
+   Connect the schedule-candidate review workflow to a real calendar provider only after conflict handling, user confirmation, duplicate detection, and permission boundaries are designed.
 
 ---
 
@@ -255,7 +255,10 @@ The following improvements are identified for future iterations:
 | `app/services/chat_service.py` | **Production RAG pipeline** |
 | `app/skills/source_binding.py` | Local/builtin source skill resolution |
 | `app/rag/image_loader.py` | RapidOCR-backed image OCR loader |
-| `app/rag/media_loader.py` | Audio/video transcript loader with sidecar support |
+| `app/rag/media_loader.py` | Audio/video transcript loader with sidecar, API, mock, disabled, and Local ASR provider support |
+| `app/runtime/media_transcript_active_config.py` | Active media transcript provider configuration |
+| `app/runtime/local_asr_bootstrap.py` | Local ASR companion-server bootstrap and model-status helpers |
+| `app/schedule/` | Schedule-candidate extraction, models, and local store |
 | `app/services/search_service.py` | Retrieval bridge (Chroma + hybrid) |
 | `app/services/grounded_generation.py` | Citations, evidence, windows, grounding assessment |
 | `app/rag/hybrid_retrieval.py` | Dense + BM25 + RRF fusion |

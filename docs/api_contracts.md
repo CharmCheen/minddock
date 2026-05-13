@@ -38,8 +38,31 @@
 | `POST` | `/frontend/execute` | Unified execution (non-streaming) | `UnifiedExecutionResponseBody` |
 | `POST` | `/frontend/execute/stream` | **SSE stream** for unified execution | `text/event-stream` |
 | `GET` | `/frontend/runtime-profiles` | List selectable runtime profiles | `RuntimeProfileListResponse` |
+| `GET` | `/frontend/runtime-config` | Get effective runtime configuration | `RuntimeConfigResponse` |
+| `PUT` | `/frontend/runtime-config` | Save active runtime configuration | `RuntimeConfigResponse` |
+| `POST` | `/frontend/runtime-config/test` | Validate a runtime configuration | `RuntimeConfigTestResponse` |
+| `POST` | `/frontend/runtime-config/reset` | Reset active runtime configuration | `RuntimeConfigResponse` |
+| `GET` | `/frontend/media-transcript-config` | Get effective media transcript configuration | `MediaTranscriptConfigResponse` |
+| `PUT` | `/frontend/media-transcript-config` | Save media transcript configuration | `MediaTranscriptConfigResponse` |
+| `POST` | `/frontend/media-transcript-config/test` | Validate media transcript configuration | `MediaTranscriptConfigTestResponse` |
+| `POST` | `/frontend/media-transcript-config/reset` | Reset media transcript configuration | `MediaTranscriptConfigResponse` |
+| `GET` | `/frontend/media-transcript-config/local/status` | Check Local ASR server status | `LocalAsrStatusResponse` |
+| `POST` | `/frontend/media-transcript-config/local/start` | Start Local ASR server | `LocalAsrStatusResponse` |
+| `GET` | `/frontend/media-transcript-config/local/model/status` | Check Local ASR model status | `LocalAsrModelStatusResponse` |
+| `POST` | `/frontend/media-transcript-config/local/model/preload` | Preload Local ASR model | `LocalAsrModelStatusResponse` |
 | `GET` | `/frontend/skills` | List discoverable skills | `SkillListResponse` |
 | `GET` | `/frontend/skills/{skill_id}` | Get skill detail | `SkillDetailResponse` |
+| `GET` | `/frontend/source-skills` | List source skill manifests and built-ins | `SourceSkillListResponse` |
+| `GET` | `/frontend/source-skills/{skill_id}` | Get one source skill | `SourceSkillSummaryResponse` |
+| `POST` | `/frontend/source-skills/validate` | Validate a local source skill manifest | `SourceSkillValidationResponse` |
+| `POST` | `/frontend/source-skills/register` | Register a local source skill manifest | `SourceSkillValidationResponse` |
+| `POST` | `/frontend/source-skills/{skill_id}/enable` | Enable a local source skill | `SourceSkillValidationResponse` |
+| `POST` | `/frontend/source-skills/{skill_id}/disable` | Disable a local source skill | `SourceSkillValidationResponse` |
+| `GET` | `/frontend/schedule-candidates` | List schedule extraction candidates | `ScheduleCandidateListResponse` |
+| `POST` | `/frontend/schedule-candidates/scan` | Scan indexed text for schedule candidates | `ScheduleScanResponse` |
+| `POST` | `/frontend/schedule-candidates/{candidate_id}/confirm` | Confirm a schedule candidate | `ScheduleStatusUpdateResponse` |
+| `POST` | `/frontend/schedule-candidates/{candidate_id}/dismiss` | Dismiss a schedule candidate | `ScheduleStatusUpdateResponse` |
+| `POST` | `/frontend/skills/schedule-extraction/run` | Run schedule extraction skill workflow | `ScheduleSkillRunResponse` |
 | `GET` | `/frontend/runs/{run_id}` | Get transient run status | `RunSummaryResponse` |
 | `GET` | `/frontend/runs/{run_id}/events` | Replay recent client events | `RunEventListResponse` |
 | `POST` | `/frontend/runs/{run_id}/cancel` | Request run cancellation | `CancelRunResponse` |

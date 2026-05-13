@@ -2,7 +2,7 @@
 
 This document is the canonical wording guide for the thesis, README, and defense demo. It keeps the project description aligned with the current implementation and prevents overclaiming.
 
-MindDock should be described as a local, evidence-first personal knowledge management assistant. It supports grounded RAG workflows, citation/evidence traceability, workflow trace metadata, runtime configuration, Prompt Profiles, trusted built-in Source Skills, and lightweight workspace preferences.
+MindDock should be described as a local, evidence-first personal knowledge management assistant. It supports grounded RAG workflows, citation/evidence traceability, workflow trace metadata, runtime configuration, media transcript configuration, Prompt Profiles, trusted built-in Source Skills, schedule-candidate extraction, frontend run control, and lightweight workspace preferences.
 
 It should not be described as a full commercial NotebookLM replacement, a complete Skill Market, a long-term memory system, or a fully autonomous LangGraph Agent platform.
 
@@ -27,8 +27,10 @@ The project is suitable for thesis writing and defense demonstration if the thes
 | Workflow trace | Frontend-facing use cases expose retrieval/generation metadata and policy metadata. | The system records observable workflow traces for auditability and demo explanation. |
 | Watchdog incremental ingest | Local file changes can be synchronized through watcher-based create/modify/delete/move handling. | The system supports incremental local knowledge-base maintenance. |
 | Runtime config | Runtime profile/provider/model boundaries are represented separately from service logic. | The system separates model runtime configuration from RAG service orchestration. |
+| Media transcript config | Media sources can use sidecar transcripts, an OpenAI-style transcription API, or optional Local ASR, with mock/disabled modes for safe demos. | The system supports configurable transcript-based media ingestion while avoiding claims of native video understanding. |
 | Prompt Profile Registry | Chat, summarize, and compare use named/versioned prompt profiles with policy metadata. | The system abstracts generation constraints into auditable Prompt Profiles. |
 | Trusted Source Skill control plane | Built-in source handlers are exposed through trusted catalog/API/settings metadata. | The system provides a trusted-only Source Skill control plane for ingestion capabilities. |
+| Frontend run control | Unified frontend execution exposes event streaming, run status, event replay, and cancellation. | The system provides observable frontend task execution for local RAG workflows. |
 | Workspace-local user preference profile | Frontend preferences store task/top_k/style/citation defaults and send sanitized metadata to workflow trace. | The system supports lightweight workspace preference defaults, not long-term memory. |
 
 ## Partially Completed Capabilities
@@ -38,7 +40,8 @@ The project is suitable for thesis writing and defense demonstration if the thes
 | Static web extraction | Fetchable static HTML can be extracted; JS-rendered/login/paywalled pages and broad crawling are not supported. | The system supports basic static web page ingestion. |
 | CSV rows-as-text | CSV rows can be indexed as text; no formula execution, spreadsheet engine, SQL, or table reasoning engine. | The system supports lightweight CSV text ingestion. |
 | OCR text ingest | OCR-derived text can be indexed when OCR is configured; no full multimodal image understanding. | The system supports OCR text ingestion for image-based sources. |
-| Audio/video transcript ingest | Transcript text paths, such as sidecar transcripts, can be indexed; native media understanding is not the default capability. | The system supports transcript-based media ingestion. |
+| Audio/video transcript ingest | Transcript text paths from sidecar files, remote API transcription, or Local ASR can be indexed; native media understanding is not the capability. | The system supports transcript-based media ingestion. |
+| Schedule extraction | Indexed text can be scanned into reviewable schedule candidates; there is no production calendar sync. | The system supports schedule-candidate extraction for review, leaving calendar sync as future work. |
 | Rerank | Retrieval refinement is heuristic. | The system uses heuristic rerank and leaves cross-encoder rerank as future optimization. |
 | Compression | Context reduction is trimming / lexical compression. | The system uses lightweight context trimming and leaves LLM compression as future work. |
 | Intent classification | Auto mode uses lightweight rule-based routing. | The system provides limited rule-based task routing. |
@@ -57,6 +60,7 @@ These items should remain future work unless implemented in a later PR:
 - long-term user memory
 - automatic user profiling
 - vectorized user preference retrieval
+- production calendar sync for schedule candidates
 - true cross-encoder reranker
 - LLM context compression
 - complete LangGraph Agent controller
@@ -71,6 +75,7 @@ These items should remain future work unless implemented in a later PR:
 | MindDock implements a complete Skill Market. | MindDock implements a trusted-only Source Skill control plane over built-in handlers. |
 | MindDock supports remote plugin installation. | Remote install remains future work. |
 | MindDock supports sandboxed third-party plugin execution. | Sandboxing and permission isolation remain future work. |
+| MindDock writes events directly to the user's calendar. | MindDock currently extracts reviewable schedule candidates; production calendar sync remains future work. |
 | MindDock implements long-term personalized memory. | MindDock supports workspace-local preference defaults. |
 | MindDock automatically infers a user profile. | User profiling remains future work. |
 | MindDock uses LangGraph as a full autonomous Agent controller. | MindDock uses LangGraph for a retrieval preparation subworkflow. |
@@ -80,7 +85,7 @@ These items should remain future work unless implemented in a later PR:
 
 A concise defense narrative:
 
-> MindDock is a personal knowledge management assistant built around evidence-first RAG. It can ingest local documents, retrieve relevant chunks, generate grounded answers, and expose citations, evidence, and workflow trace metadata. The system further introduces Prompt Profiles for auditable generation strategy management, a trusted-only Source Skill control plane for explaining source ingestion capabilities, and workspace-local user preferences for repeatable request defaults.
+> MindDock is a personal knowledge management assistant built around evidence-first RAG. It can ingest local documents and transcript-based media sources, retrieve relevant chunks, generate grounded answers, and expose citations, evidence, and workflow trace metadata. The system further introduces Prompt Profiles for auditable generation strategy management, a trusted-only Source Skill control plane for explaining source ingestion capabilities, frontend run-control visibility, schedule-candidate extraction, and workspace-local user preferences for repeatable request defaults.
 
 ## Defense Demo Route
 
@@ -90,8 +95,10 @@ A concise defense narrative:
 4. Execute chat, summarize, and compare.
 5. Show evidence, citations, source/page/chunk references, and workflow trace.
 6. Show Settings > Sources for trusted Source Skills.
-7. Show Settings > Retrieval / Display for workspace-local preferences.
-8. Explain Prompt Profile ids/versions through workflow trace metadata.
+7. Show Settings > Runtime for runtime and media transcript configuration.
+8. Show Settings > Retrieval / Display for workspace-local preferences.
+9. Optionally run schedule-candidate extraction and show confirm/dismiss behavior.
+10. Explain Prompt Profile ids/versions through workflow trace metadata.
 
 ## Innovation Mapping
 
@@ -102,6 +109,9 @@ A concise defense narrative:
 | Source Skill trusted-only control plane | Safe, built-in ingestion capability catalog that prepares for future skill ecosystems without enabling arbitrary code execution. |
 | Workflow trace | Observable execution metadata for debugging, auditability, and defense explanation. |
 | Runtime profile | Runtime/provider/model abstraction for configurable deployment environments. |
+| Media transcript configuration | Transcript-based media ingestion with explicit provider boundaries, including sidecar/API/local ASR paths. |
+| Frontend run control | Observable task execution through SSE events, replay, and cancellation. |
+| Schedule-candidate extraction | A bounded event-extraction workflow that remains user-reviewed rather than automatic calendar mutation. |
 | LangGraph retrieval subworkflow | Service-as-node style workflow expression for retrieval preparation, without replacing the main service chain. |
 | Future Skill Market | Future extension direction, not a completed implementation. |
 

@@ -9,12 +9,16 @@ The latest architecture work also adds:
 - a versioned Prompt Profile Registry for grounded chat, summary, and compare prompts
 - a trusted-only Source Skill control plane for built-in ingestion capabilities
 - a workspace-local user preference profile for lightweight request defaults
+- a unified frontend execution API with projected event streaming, run replay, and cancellation
+- runtime-editable LLM and media transcript configuration, including optional local ASR support
+- a schedule-candidate extraction workflow for turning knowledge-base text into reviewable events
+- a CI baseline workflow for the core Python test suite
 
 ## Current Scope
 
 Implemented core capabilities:
 
-- local file ingest for `.md`, `.txt`, `.pdf`
+- local file ingest for `.md`, `.txt`, `.pdf`, `.csv`, image files, and audio/video files
 - URL / HTML page ingest with og:title / og:description / og:image / canonical / domain metadata extraction; og:title preferred over `<title>` tag
 - persistent Chroma vector storage
 - `/search`, `/chat`, `/summarize`, `/compare`, `/ingest`, `/health`
@@ -33,6 +37,10 @@ Implemented core capabilities:
 - Prompt Profile Registry metadata in workflow traces
 - trusted-only Source Skill catalog/API/settings surface for built-in handlers
 - workspace-local user preference profile metadata for default task type, retrieval depth, answer style, and citation strictness
+- frontend execution endpoints for task orchestration, server-sent event streaming, run status, event replay, and cancellation
+- runtime configuration endpoints for LLM profiles, active runtime overrides, media transcript providers, and local ASR bootstrap/status
+- schedule-candidate scan/confirm/dismiss endpoints for lightweight event extraction from indexed text
+- GitHub Actions CI baseline that installs the package and runs `scripts/run_ci_baseline.py`
 
 ## Thesis / Demo Readiness Snapshot
 
@@ -48,16 +56,20 @@ Completed:
 - Prompt Profile Registry for grounded chat, summary, and compare generation strategies
 - trusted-only Source Skill control plane for built-in source handlers
 - workspace-local user preference profile for lightweight request defaults
+- frontend event-stream execution and run-control flow
+- media transcript ingestion through sidecar transcripts, remote OpenAI-style transcription, or optional local ASR
+- baseline CI workflow for regression protection
 
 Partially completed:
 
 - static web page body extraction
 - CSV rows-as-text ingestion
 - OCR text ingestion for images
-- audio/video transcript-text ingestion through sidecar or configured transcript paths
+- audio/video transcript-text ingestion through sidecar files, remote API, or local ASR configuration
 - heuristic rerank
 - trimming / lexical context compression
 - lightweight rule-based intent classification
+- schedule extraction as reviewable candidates, not a full calendar integration
 - LangGraph retrieval preparation subworkflow
 
 Future work:
@@ -72,6 +84,7 @@ Future work:
 - automatic user profiling
 - true cross-encoder reranker
 - LLM context compression
+- production calendar sync for extracted schedule candidates
 - complete LangGraph Agent controller
 
 ## Formal Models
@@ -160,8 +173,8 @@ Current built-in file formats and input paths:
 - text-based PDF is supported with page/block metadata where extraction succeeds
 - static HTML/URL extraction is supported when the page is fetchable without browser execution
 - CSV is ingested as rows-as-text, not as a spreadsheet reasoning engine
-- image OCR text ingest is available when OCR is configured
-- audio/video ingest is transcript-text based, such as sidecar transcripts or configured transcript providers
+- image OCR text ingest is available through mock/disabled modes or RapidOCR when configured; tall images are split before OCR
+- audio/video ingest is transcript-text based through sidecar `.transcript.md`, `.transcript.txt`, `.srt`, `.vtt`, remote OpenAI-style transcription, or optional local ASR
 
 Not currently supported as completed capabilities:
 
@@ -204,6 +217,12 @@ For future skill work:
 - register skills through the skill registry
 - keep skill invocation outside route-local logic
 - prefer orchestrator/runtime composition over ad hoc helper functions
+
+For future frontend-agent work:
+
+- prefer `/frontend/execute` or `/frontend/execute/stream` for user-facing task execution
+- use run-status, replay, and cancellation endpoints instead of long-lived route-local state
+- keep runtime and media transcript settings behind the existing frontend configuration endpoints
 
 ## Retrieval and Filter Semantics
 
@@ -268,6 +287,7 @@ python -m app.demo serve
 
 ```powershell
 cd frontend
+npm install
 npm run dev
 ```
 
@@ -348,11 +368,55 @@ Available management endpoints:
 
 - `GET /sources`
 - `GET /sources/{doc_id}`
+- `GET /sources/{doc_id}/chunks`
 - `GET /sources/by-source?source=...`
+- `GET /sources/by-source/chunks?source=...`
 - `DELETE /sources/{doc_id}`
 - `DELETE /sources/by-source?source=...`
 - `POST /sources/{doc_id}/reingest`
 - `POST /sources/by-source/reingest?source=...`
+
+### Frontend orchestration endpoints
+
+The frontend-facing application layer exposes:
+
+- `POST /frontend/execute`
+- `POST /frontend/execute/stream`
+- `GET /frontend/runs/{run_id}`
+- `GET /frontend/runs/{run_id}/events`
+- `POST /frontend/runs/{run_id}/cancel`
+- `GET /frontend/runtime-profiles`
+- `GET /frontend/runtime-config`
+- `PUT /frontend/runtime-config`
+- `POST /frontend/runtime-config/test`
+- `POST /frontend/runtime-config/reset`
+
+Media transcript configuration endpoints:
+
+- `GET /frontend/media-transcript-config`
+- `PUT /frontend/media-transcript-config`
+- `POST /frontend/media-transcript-config/test`
+- `POST /frontend/media-transcript-config/reset`
+- `GET /frontend/media-transcript-config/local/status`
+- `POST /frontend/media-transcript-config/local/start`
+- `GET /frontend/media-transcript-config/local/model/status`
+- `POST /frontend/media-transcript-config/local/model/preload`
+
+Source Skill and schedule-candidate endpoints:
+
+- `GET /frontend/skills`
+- `GET /frontend/skills/{skill_id}`
+- `GET /frontend/source-skills`
+- `GET /frontend/source-skills/{skill_id}`
+- `POST /frontend/source-skills/validate`
+- `POST /frontend/source-skills/register`
+- `POST /frontend/source-skills/{skill_id}/enable`
+- `POST /frontend/source-skills/{skill_id}/disable`
+- `GET /frontend/schedule-candidates`
+- `POST /frontend/schedule-candidates/scan`
+- `POST /frontend/schedule-candidates/{candidate_id}/confirm`
+- `POST /frontend/schedule-candidates/{candidate_id}/dismiss`
+- `POST /frontend/skills/schedule-extraction/run`
 
 ### Shared retrieval filters
 
@@ -375,6 +439,12 @@ Run the full suite:
 python -m pytest
 ```
 
+Run the CI baseline locally:
+
+```powershell
+python scripts/run_ci_baseline.py
+```
+
 Run the most relevant stage 6 tests:
 
 ```powershell
@@ -392,7 +462,7 @@ python -m pytest tests/unit/test_retrieval_models.py tests/unit/test_search_serv
 - user preferences are workspace-local request defaults, not long-term memory or automatic user profiling
 - LangGraph is used for retrieval subworkflow orchestration, not as a complete autonomous Agent controller
 - Chroma rebuild behavior on Windows is mitigated but not fully under application control
-- no CI workflow is configured yet
+- the configured CI workflow is a baseline regression suite, not a full production release pipeline
 
 ## License
 

@@ -1,135 +1,130 @@
 # MindDock 中文项目说明
 
-MindDock 是一个面向个人知识库的可验证 RAG 系统，支持多源知识接入、持续同步、引用溯源和工作流可观测。项目目标不是做通用聊天机器人，而是把用户提供的文档解析、索引、检索，并生成带可验证引用的 grounded answer。
+MindDock 是一个面向个人知识库的本地 RAG 助手。项目重点不是做通用聊天机器人，而是把用户提供的文档、网页、图片 OCR 文本、CSV 行文本、音视频转写文本统一导入、索引、检索，并生成带有可验证引用的 grounded answer。
 
-当前版本已经形成毕业设计演示所需的主体闭环：PDF 结构化解析、多源导入、向量索引、检索、问答、摘要、对比、citation 展示、source catalog、source drawer、持续同步和 workflow trace。
+当前版本已经形成毕业设计答辩演示所需的主要闭环：多源导入、Chroma 向量索引、检索、问答、摘要、对比、引用溯源、Source Catalog、Source Drawer、增量同步、Workflow Trace、运行时配置、媒体转写配置和前端统一执行入口。
 
-## 核心功能
+## 当前状态
 
-- **文档导入**：支持本地文件和 URL 导入。
-- **文件格式**：支持 PDF、Markdown、TXT、CSV、Image OCR，以及网页 URL 正文抽取、Audio/Video Transcript（P0 mock provider）。
-- **多源接入**：通过 Source Skill Contract 规范化异构数据源；已实现 `url.extract`、`image.ocr`、`csv.extract`、`audio.transcribe`、`video.transcribe`（P0 mock provider），未来可扩展 image caption skill。
-- **向量索引**：使用 Chroma 持久化存储 chunk、embedding 和 metadata。
-- **检索**：提供 `/search` 接口，返回带 source/citation 的检索结果。
-- **问答**：提供 `/chat` 接口，基于检索证据生成 grounded answer。
-- **摘要**：提供 `/summarize`，复用同一检索和引用链路。
-- **对比**：提供 `/compare`，支持多文档 grounded comparison。
-- **引用**：citation 包含 hit chunk、evidence window、页码、section、block type 等可验证字段。
-- **Source 管理**：支持 source 列表、详情、chunk inspect、删除和重新入库。
-- **前端展示**：提供 chat、citation list、source drawer、runtime settings 和 source scope 状态。
-- **持续同步**：watchdog `watch --once` 支持基于内容哈希的增量增删改。
-- **工作流可观测**：workflow trace 展示 retrieval / rerank / source cap / evidence window 等结构化 metadata。
+已经完成并可演示：
+
+- 本地 Markdown、TXT、文本型 PDF、CSV、图片、音频、视频导入。
+- URL / HTML 页面导入，并提取 `og:title`、`og:description`、`og:image`、canonical、domain 等元数据。
+- Chroma 持久化向量存储。
+- `/search`、`/chat`、`/summarize`、`/compare`、`/ingest`、`/health` 后端接口。
+- Source 生命周期管理：列表、详情、chunk 预览、删除、重建索引。
+- watchdog 增量同步：新增、修改、删除、移动。
+- 检索、问答、摘要、对比共用引用和证据链路。
+- Prompt Profile Registry，用于 grounded chat、summary、compare 的提示词版本化。
+- Source Skill 控制面，用于可信内置导入能力和本地 manifest 注册。
+- 前端统一执行入口、SSE 事件流、运行状态回放和取消。
+- 运行时配置面板：LLM profile、active runtime、媒体转写 provider、本地 ASR 状态和模型预加载。
+- 日程候选提取：从索引文本中扫描候选事件，支持确认和忽略。
+- GitHub Actions CI baseline，用于运行核心回归测试。
+
+部分完成或带限制的能力：
+
+- 静态网页正文抽取已经可用，但不支持 JS 渲染、登录态、付费墙和通用爬虫。
+- CSV 以 rows-as-text 方式进入知识库，不是表格推理引擎。
+- 图片能力是 OCR 文本导入，不是图片 caption、多模态 embedding 或图像理解。
+- 音视频能力基于转写文本，可来自 sidecar、远程 OpenAI-style transcription API 或本地 ASR；不是原生音视频理解。
+- rerank 是启发式 rerank，不是训练型 cross-encoder。
+- compression 是 trimming / lexical compression，不是 LLM context compression。
+- 日程提取目前生成 reviewable candidates，还没有生产级日历同步。
+- LangGraph 用于检索准备子流程，还不是完整 Agent 控制器。
+
+未来工作：
+
+- Word / Docx 导入。
+- 完整 Skill Market、远程插件安装、签名校验和沙箱执行。
+- OpenAPI / MCP tool import。
+- 长期用户记忆和自动用户画像。
+- 真正的 cross-encoder reranker 和 LLM context compression。
+- 生产级 calendar sync。
+- 完整 LangGraph Agent controller。
 
 ## 技术架构
 
-- **Backend**：FastAPI。
-- **Vector Store**：Chroma。
-- **RAG Pipeline**：loader -> parser/chunker -> embedding -> vectorstore -> retrieval -> rerank -> evidence window -> generation -> citation。
-- **PDF 处理**：包含 structured chunking，尽量保留 page、section、block type 等 metadata。
-- **Evidence Window**：检索仍使用小 chunk，回答和引用阶段扩展为更完整的 evidence window，保证 `hit_chunk_id in window_chunk_ids`。
-- **Citation Metadata**：后端和前端共同展示 `citation_label`、`evidence_preview`、`hit_in_window`、`window_chunk_count` 等字段。
-- **Source Skill Contract**：将 PDF、Markdown、TXT、URL、Image OCR、CSV、Audio/Video Transcript 等知识源统一描述为 source extraction skills，输出统一的 `SourceLoadResult`。
-- **Frontend Facade / Runtime Adapter**：前端统一调用应用层 facade，后端 runtime 可切换 mock 或真实 LLM provider。
+- Backend: FastAPI
+- Frontend: React + Vite + TypeScript
+- Vector Store: Chroma
+- RAG Pipeline: loader -> parser/chunker -> embedding -> vectorstore -> retrieval -> rerank -> evidence window -> generation -> citation
+- Runtime: runtime port/adapter + active config，支持 mock 和真实 LLM provider
+- Evaluation: 本地 benchmark runner 和 CI baseline
+- CI: `.github/workflows/ci-baseline.yml`
 
-## 技术亮点
+关键模块：
 
-### 1. Structured PDF Chunking
+- `app/rag/`: source loader、PDF parser、structured chunker、vectorstore、retrieval、watcher。
+- `app/services/`: search/chat/summarize/compare/ingest/catalog 等用例服务。
+- `app/api/`: HTTP route、schema、presenter、streaming。
+- `app/application/`: 前端统一 facade、orchestrator、run control、client events。
+- `app/runtime/`: LLM runtime、媒体转写 active config、本地 ASR bootstrap。
+- `app/skills/`: Source Skill manifest、registry、policy、trusted handlers。
+- `app/schedule/`: 日程候选抽取、模型和本地存储。
+- `frontend/`: 前端页面和交互体验。
+- `docs/`: 架构、模型、演示、测试、论文图表等文档。
+- `tests/`: unit / integration / contract tests。
 
-系统在 PDF 入库时尽量保留标题、段落、页码、section、caption/table/list 等结构信息，为后续检索和引用提供 metadata 支撑。
+## 支持的知识源
 
-### 2. Retrieval Unit 与 Answer/Citation Unit 分层
+`source_type` 目前包括：
 
-传统做法容易把“命中块”直接当作“回答块”和“引用块”。MindDock 将检索粒度和回答/引用粒度分开：检索时保持小 chunk 提升精度，回答和引用时通过 evidence window 补足上下文。
+- `file`
+- `url`
 
-### 3. Hit-preserving Evidence Window
+内置文件与输入能力：
 
-Evidence window 保证 `hit_chunk_id in window_chunk_ids`，避免扩窗、合并、裁剪后丢失真正命中的 chunk。这样 citation 变长后仍然可追溯。
+- Markdown 和 TXT：作为主要文本源。
+- PDF：支持文本型 PDF，并尽量保留 page、section、block metadata。
+- URL / HTML：支持可直接 fetch 的静态 HTML 页面。
+- CSV：按行转成文本进入 RAG。
+- 图片：支持 `.png`、`.jpg`、`.jpeg`、`.webp`，可使用 mock、disabled 或 RapidOCR；长图会先纵向切片再 OCR。
+- 音频：支持 `.mp3`、`.wav`、`.m4a`、`.aac`、`.flac`、`.ogg`、`.webm`。
+- 视频：支持 `.mp4`、`.mov`、`.mkv`、`.webm`、`.avi`。
+- 音视频转写 sidecar：支持 `.transcript.md`、`.transcript.txt`、`.srt`、`.vtt`。
 
-### 4. Verifiable Citation Metadata
+重要规则：
 
-Citation 不只返回短 snippet，还包含：
-
-- `hit_chunk_id`
-- `window_chunk_ids`
-- `hit_in_window`
-- `window_chunk_count`
-- `citation_label`
-- `evidence_preview`
-- `page_start` / `page_end`
-- `section_title`
-- `block_types`
-
-这些字段让用户和前端都能判断答案来源是否可信。
-
-### 5. Section-aware Rerank
-
-对于明确提到 section 的 query，系统会对匹配 `section_title` 的候选做轻量加权。例如 `SYSTEM DESIGN section` 能稳定优先命中 `SYSTEM DESIGN · p.3`。
-
-### 6. Local-doc Source Priority
-
-当 query 明确说 `local docs`、`local documents` 或“本地文档”时，系统优先保留本地 Markdown 文档，减少无关论文 PDF 混入。
-
-### 7. Structured-ref Lexical Injection
-
-对于 `Table 1`、`Figure 14`、`Fig. 2`、`表1`、`图2` 这类结构编号 query，系统会窄触发 BM25 lexical candidates，并用 `chunk_id` 回查真实 `RetrievedChunk` 后注入 rerank 候选池。
-
-### 8. Source Consistency Cap
-
-在高置信单源场景下，系统会减少低位 unrelated source citation。例如 `Table 1 of the Milvus paper` 的最终 citations 会优先保持在 Milvus PDF 内。
-
-### 9. Source Skill Contract
-
-MindDock 通过 Source Skill Contract 将 URL extraction、Image OCR、CSV rows-as-text、Audio/Video Transcript 等异构数据源统一接入 RAG pipeline。新增 source skill 只需实现 extraction 层，无需修改 retrieval、rerank、citation 或 frontend。
-
-### 10. Experience-oriented Validation
-
-本阶段采用真实体验 query 验收，重点观察 citation 是否可验证、source 是否一致、answer 是否被正确证据支撑。它不是大规模 benchmark。
-
-## 当前局限
-
-- Figure/table object-level parsing 仍不完整，尚未建立完整的图表对象级 metadata。
-- Cross-page evidence 仍有局限，跨页段落、图表数字和 layout cleaning 仍需进一步增强。
-- Rerank 为 heuristic rerank，不是学习型 cross-encoder reranker。
-- Context compression 主要是 trimming / lexical compression，不是 LLM compression。
-- URL source 仅支持 static HTML，不支持 JavaScript 渲染、登录态、反爬。
-- Image OCR 提供 OCR text 路径，不支持 image caption、PDF figure extraction、multimodal embedding。
-- CSV source skill 将行转换为文本，不支持 Excel、SQL、表格推理引擎。
-- 当前 validation 是 small experience-oriented validation，不是大规模定量 benchmark。
-
-## Skill System v1.1
-
-MindDock 支持本地 source skill manifest 注册，但只作为声明式 catalog 扩展。
-用户可以注册 `skill.json`，并绑定到系统内置 trusted handler，例如
-`csv.extract`、`url.extract`、`image.ocr`、`audio.transcribe`、`video.transcribe`。
-
-该机制不执行任意 Python 插件，不支持 marketplace，不接入 MCP，也不会让 LLM
-自主选择或调用本地 manifest skill。注册 manifest 不会触发 ingest，也不会写入
-Chroma。
-
-## 目录结构概览
-
-```text
-app/              后端 FastAPI、RAG、服务层、API schema
-frontend/         React + Vite 前端
-docs/             架构文档、演示脚本、验收报告
-tests/            unit / integration / contract tests
-eval/             小规模评测数据和 chunking 评估材料
-knowledge_base/   演示知识库文档，包括 PDF 和 Markdown
-data/chroma/      本地 Chroma 持久化索引
-```
+- `source` 是过滤和引用中的稳定身份。
+- 本地文件的 `source` 是相对知识库目录的路径。
+- URL 的 `source` 是重定向后的最终 URL。
+- `doc_id` 根据 `source` 确定性生成。
 
 ## 快速开始
 
-详细运行步骤见 [RUN.md](RUN.md)。
-
-最常用本地演示路径：
+创建并进入环境：
 
 ```powershell
+conda env create -f environment.yml
 conda activate minddock
+```
+
+安装项目：
+
+```powershell
+pip install -e ".[dev]"
+```
+
+构建索引：
+
+```powershell
+python -m app.demo ingest
+```
+
+追加 URL：
+
+```powershell
+python -m app.demo ingest --no-rebuild --url http://example.com
+```
+
+启动后端：
+
+```powershell
 python -m app.demo serve
 ```
 
-另开一个终端启动前端：
+启动前端：
 
 ```powershell
 cd frontend
@@ -137,7 +132,7 @@ npm install
 npm run dev
 ```
 
-打开：
+访问：
 
 ```text
 Backend API: http://127.0.0.1:8000
@@ -145,14 +140,168 @@ API Docs:    http://127.0.0.1:8000/docs
 Frontend:    http://localhost:5173
 ```
 
-## 核心 Demo 建议
+常用 CLI：
 
-答辩推荐按以下顺序演示：
+```powershell
+python -m app.demo search --query "local Chroma"
+python -m app.demo chat --query "How is data stored?"
+python -m app.demo summarize --topic "storage design"
+python -m app.demo compare --question "Compare the storage approaches across documents"
+python -m app.demo sources
+python -m app.demo source-chunks --source notes.md --limit 5 --offset 0
+python -m app.demo watch --once
+python -m app.demo evaluate
+```
 
-1. **H1: Section-aware Rerank** — `What does the SYSTEM DESIGN section of the Milvus paper describe?`
-2. **N2: Local-doc Source Priority** — `What are the main steps in the RAG pipeline according to the local docs?`
-3. **Watchdog sync-once** — 新增 Markdown 文件后 `watch --once`，验证增量同步
-4. **Source Drawer / Citation** — 展示 source、page、section label、chunk preview
-5. **Workflow Trace** — 展示 `--trace` 背后的 retrieval / rerank / evidence window metadata
+## 主要 API
 
-详细脚本见 [docs/FINAL_DEMO_SCRIPT.md](docs/FINAL_DEMO_SCRIPT.md)。
+基础能力：
+
+- `GET /`
+- `GET /health`
+- `POST /ingest`
+- `POST /search`
+- `POST /chat`
+- `POST /summarize`
+- `POST /compare`
+
+Source 生命周期：
+
+- `GET /sources`
+- `GET /sources/{doc_id}`
+- `GET /sources/{doc_id}/chunks`
+- `GET /sources/by-source?source=...`
+- `GET /sources/by-source/chunks?source=...`
+- `DELETE /sources/{doc_id}`
+- `DELETE /sources/by-source?source=...`
+- `POST /sources/{doc_id}/reingest`
+- `POST /sources/by-source/reingest?source=...`
+
+前端统一执行与 run control：
+
+- `POST /frontend/execute`
+- `POST /frontend/execute/stream`
+- `GET /frontend/runs/{run_id}`
+- `GET /frontend/runs/{run_id}/events`
+- `POST /frontend/runs/{run_id}/cancel`
+
+运行时与媒体转写配置：
+
+- `GET /frontend/runtime-profiles`
+- `GET /frontend/runtime-config`
+- `PUT /frontend/runtime-config`
+- `POST /frontend/runtime-config/test`
+- `POST /frontend/runtime-config/reset`
+- `GET /frontend/media-transcript-config`
+- `PUT /frontend/media-transcript-config`
+- `POST /frontend/media-transcript-config/test`
+- `POST /frontend/media-transcript-config/reset`
+- `GET /frontend/media-transcript-config/local/status`
+- `POST /frontend/media-transcript-config/local/start`
+- `GET /frontend/media-transcript-config/local/model/status`
+- `POST /frontend/media-transcript-config/local/model/preload`
+
+Source Skill 和日程候选：
+
+- `GET /frontend/skills`
+- `GET /frontend/skills/{skill_id}`
+- `GET /frontend/source-skills`
+- `GET /frontend/source-skills/{skill_id}`
+- `POST /frontend/source-skills/validate`
+- `POST /frontend/source-skills/register`
+- `POST /frontend/source-skills/{skill_id}/enable`
+- `POST /frontend/source-skills/{skill_id}/disable`
+- `GET /frontend/schedule-candidates`
+- `POST /frontend/schedule-candidates/scan`
+- `POST /frontend/schedule-candidates/{candidate_id}/confirm`
+- `POST /frontend/schedule-candidates/{candidate_id}/dismiss`
+- `POST /frontend/skills/schedule-extraction/run`
+
+## 检索过滤语义
+
+`/search`、`/chat`、`/summarize`、`/compare` 共用同一套 retrieval/filter model。
+
+支持：
+
+- `source`: 单值或多值。
+- `source_type`: 单值或多值。
+- `section`: 精确匹配。
+- `title_contains`: 受控的大小写不敏感 contains。
+- `requested_url_contains`: 受控的大小写不敏感 contains。
+- `page_from` / `page_to`: 页码范围。
+
+当前限制：
+
+- 不是通用 boolean DSL。
+- `contains` 只开放给少数字段。
+- 不支持复杂嵌套过滤表达式。
+
+## 答辩演示建议
+
+最短演示路径：
+
+1. 启动后端：`python -m app.demo serve`。
+2. 启动前端：在 `frontend` 目录运行 `npm run dev`。
+3. 打开 Source 列表，展示已索引来源。
+4. 导入或放入本地知识库文档，运行 ingest 或 `watch --once`。
+5. 执行 chat、summarize、compare。
+6. 展示 citation、source/page/chunk 引用、evidence preview 和 workflow trace。
+7. 展示 Prompt Profile、Source Skill、User Preference、Runtime Config 和 Media Transcript Config。
+
+更多脚本见：
+
+- `RUN.md`
+- `docs/demo-guide.md`
+- `docs/DEMO_SCRIPT.md`
+- `docs/FINAL_DEMO_SCRIPT.md`
+- `docs/thesis-alignment.md`
+
+## 测试
+
+运行完整测试：
+
+```powershell
+python -m pytest
+```
+
+运行 CI baseline：
+
+```powershell
+python scripts/run_ci_baseline.py
+```
+
+运行重点单元和集成测试：
+
+```powershell
+python -m pytest tests/unit/test_retrieval_models.py tests/unit/test_search_service.py tests/unit/test_chat_service.py tests/unit/test_summarize_service.py tests/integration/test_system_pipeline.py
+```
+
+前端构建：
+
+```powershell
+cd frontend
+npm run build
+```
+
+前端 smoke test：
+
+```powershell
+cd frontend
+npm run test:smoke
+```
+
+## 已知限制
+
+- URL 抽取依赖可 fetch 的 HTML 页面，不支持 JS 渲染页面、登录态、付费墙或通用爬虫。
+- 过滤语义是受控能力，不是完整查询语言。
+- enhanced filters 可能让 vector store 多取候选，再由 retrieval 层后过滤。
+- rerank 是启发式方法，不是训练型 cross-encoder。
+- compression 是裁剪和词法压缩，不是 LLM compression。
+- Source Skill 是可信内置控制面，不是完整 Skill Market。
+- 用户偏好是 workspace-local 请求默认值，不是长期记忆或自动画像。
+- Chroma rebuild 在 Windows 上已有缓解，但仍不完全由应用层控制。
+- CI 当前是 baseline regression suite，不是完整生产发布流水线。
+
+## License
+
+MIT

@@ -1,6 +1,6 @@
 # MindDock Defense Demo Guide
 
-This guide is the shortest stable route for a thesis-defense demo. It presents MindDock as a local, evidence-first personal knowledge assistant with grounded RAG, citations, workflow trace, runtime configuration, Prompt Profiles, trusted Source Skills, and workspace-local user preferences.
+This guide is the shortest stable route for a thesis-defense demo. It presents MindDock as a local, evidence-first personal knowledge assistant with grounded RAG, citations, workflow trace, runtime configuration, media transcript configuration, Prompt Profiles, trusted Source Skills, schedule-candidate extraction, and workspace-local user preferences.
 
 It intentionally avoids claiming that MindDock is a full commercial NotebookLM replacement, a complete Skill Market, or a long-term memory system.
 
@@ -22,6 +22,7 @@ Start the frontend:
 
 ```powershell
 cd frontend
+npm install
 npm run dev
 ```
 
@@ -46,7 +47,7 @@ Use local files that are safe to show during the defense. Recommended:
 - optionally one static URL source
 - optionally one CSV file for rows-as-text ingest
 - optionally one image for OCR text ingest
-- optionally one audio/video file with a transcript sidecar
+- optionally one audio/video file with a transcript sidecar, remote transcription provider, or Local ASR setup
 
 Index local sources:
 
@@ -75,9 +76,11 @@ python -m app.demo watch --path knowledge_base
 5. Show evidence, citation, source, page, chunk, and workflow trace metadata.
 6. Show the supporting control surfaces:
    - Settings > Models & Runtime for runtime configuration.
+   - Settings > Runtime > Media Transcript Provider for mock/API/local/disabled transcript settings.
    - Settings > Sources for trusted built-in Source Skills.
    - Settings > Retrieval / Display for workspace-local user preferences.
    - Workflow trace metadata for Prompt Profile ids and versions.
+7. Optionally run schedule-candidate extraction and show that candidates are reviewable before confirmation.
 
 ## Task Demonstrations
 
@@ -121,18 +124,22 @@ Completed:
 - citation / evidence / workflow trace
 - watchdog incremental ingest
 - runtime config
+- media transcript config, including sidecar/API/local provider boundaries
 - Prompt Profile Registry
 - trusted-only Source Skill control plane
+- schedule-candidate extraction as a review flow
 - workspace-local user preference profile
+- frontend unified execution with event streaming and run control
 
 Partially completed:
 
 - static web page body extraction
 - CSV rows-as-text
 - OCR text ingest
-- audio/video transcript-text ingest
+- audio/video transcript-text ingest through sidecar files, remote API, or Local ASR
 - heuristic rerank
 - trimming / lexical compression
+- schedule extraction as candidates, not production calendar sync
 - LangGraph retrieval subworkflow
 
 Future work:
@@ -147,6 +154,7 @@ Future work:
 - automatic user profiling
 - true cross-encoder reranker
 - LLM context compression
+- production calendar sync
 - complete LangGraph Agent controller
 
 ## Overclaiming To Avoid
@@ -167,6 +175,9 @@ Use these boundaries consistently:
 ```powershell
 curl http://127.0.0.1:8000/sources
 curl http://127.0.0.1:8000/frontend/source-skills
+curl http://127.0.0.1:8000/frontend/runtime-config
+curl http://127.0.0.1:8000/frontend/media-transcript-config
+curl http://127.0.0.1:8000/frontend/schedule-candidates
 ```
 
 User preferences are stored in the frontend workspace settings and are visible through request workflow trace metadata, not through a standalone preferences API.

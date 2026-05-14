@@ -1512,3 +1512,43 @@ def test_existing_json_parse_failure_fallback_still_works() -> None:
     point = result.compare_result.common_points[0]
     assert point.confidence is None
     assert point.evidence_coverage is not None
+
+
+# ---------------------------------------------------------------------------
+# Regression: model refusal detection in compare (Bug B)
+# ---------------------------------------------------------------------------
+
+
+def test_compare_detects_model_refusal_and_returns_insufficient() -> None:
+    """When the LLM returns refusal text, compare should return INSUFFICIENT_EVIDENCE."""
+    refusal_text = "证据不足，无法从提供的证据中进行对比。"
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Some unrelated content about weather.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Doc A",
+                distance=0.5,
+            ),
+            RetrievedChunk(
+                text="Another unrelated content about cooking.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Doc B",
+                distance=0.6,
+            ),
+        ],
+        runtime=FakeRuntime(text=refusal_text),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare the two documents", top_k=4)
+
+    assert result.compare_result.support_status.value == "insufficient_evidence"
+    assert result.compare_result.refusal_reason.value == "model_refused"
+    assert not result.citations
+    assert result.metadata.insufficient_evidence is True
+    assert result.metadata.timing.generation_ms is not None

@@ -8,7 +8,13 @@ from app.rag.source_loader import SourceLoaderRegistry, URLSourceLoader, build_u
 from app.rag.url_loader import _MainTextHTMLParser, fetch_url_content
 
 
-def _mock_url_settings(monkeypatch, *, insecure_fallback: bool = False) -> None:
+def _mock_url_settings(
+    monkeypatch,
+    *,
+    insecure_fallback: bool = False,
+    max_bytes: int = 2_000_000,
+    block_private_networks: bool = True,
+) -> None:
     monkeypatch.setattr(
         "app.rag.url_loader.get_settings",
         lambda: SimpleNamespace(
@@ -18,6 +24,8 @@ def _mock_url_settings(monkeypatch, *, insecure_fallback: bool = False) -> None:
             url_fetch_retry_backoff_seconds=0.0,
             url_fetch_verify_ssl=True,
             url_fetch_allow_insecure_fallback=insecure_fallback,
+            url_fetch_max_bytes=max_bytes,
+            url_fetch_block_private_networks=block_private_networks,
         ),
     )
 
@@ -331,6 +339,41 @@ def test_fetch_url_content_rejects_invalid_url(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="invalid URL"):
         fetch_url_content("not-a-url")
+
+
+def test_fetch_url_content_blocks_private_network_hosts(monkeypatch) -> None:
+    _mock_url_settings(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="private or local"):
+        fetch_url_content("http://127.0.0.1/private")
+
+
+def test_fetch_url_content_blocks_private_redirect_targets(monkeypatch) -> None:
+    _mock_url_settings(monkeypatch)
+    _mock_get(
+        monkeypatch,
+        FakeResponse(
+            text="<html><body><main><p>Readable article body.</p></main></body></html>",
+            url="http://127.0.0.1/private",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="private or local"):
+        fetch_url_content("https://example.com/requested")
+
+
+def test_fetch_url_content_rejects_oversized_response(monkeypatch) -> None:
+    _mock_url_settings(monkeypatch, max_bytes=32)
+    _mock_get(
+        monkeypatch,
+        FakeResponse(
+            text="<html><body><main><p>This response is much too large.</p></main></body></html>",
+            url="https://example.com/large",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="too large"):
+        fetch_url_content("https://example.com/large")
 
 
 def test_fetch_url_content_rejects_non_200_status(monkeypatch) -> None:

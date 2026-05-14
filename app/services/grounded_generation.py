@@ -196,6 +196,64 @@ def evidence_matches_query(query: str, hits: list[RetrievedChunk]) -> bool:
     return assess_evidence_query_alignment(query, hits).passed
 
 
+_MODEL_REFUSAL_PATTERNS = (
+    "evidence is insufficient",
+    "evidence provided is insufficient",
+    "provided evidence is insufficient",
+    "insufficient to answer",
+    "insufficient to explain",
+    "insufficient to provide",
+    "does not contain any information",
+    "not enough evidence",
+    "no relevant evidence",
+    "cannot answer from the provided",
+    "cannot be answered from",
+    "unable to answer from the provided",
+    "unable to determine from the provided",
+    "当前知识库中没有足够证据",
+    "没有在当前知识库中找到",
+    "不能给出带引用的结论",
+    "证据不足，",
+    "证据不足。",
+    "证据不足！",
+    "没有找到足够",
+    "无法从提供的证据",
+)
+
+# Characters that extend a Chinese refusal pattern into a non-refusal phrase.
+# e.g. "证据不足" + "以" = "证据不足以" (insufficient to support — normal analysis)
+_REFUSAL_BOUNDARY_EXCLUDE = {"以", "的", "了", "是", "在", "和", "与"}
+
+
+def detect_model_refusal(answer: str) -> str | None:
+    """Return the matched refusal pattern if the answer expresses evidence insufficiency, else None.
+
+    Shared by chat, summarize, and compare services to ensure consistent
+    post-generation evidence gate behavior.
+
+    For short Chinese patterns, verifies the character immediately after the
+    match does not extend the phrase into a non-refusal meaning
+    (e.g. "证据不足" + "以" = "证据不足以" which is normal analysis).
+    """
+    if not answer:
+        return None
+    normalized = answer.lower().strip()
+    check_region = normalized[:300]
+    for pattern in _MODEL_REFUSAL_PATTERNS:
+        idx = check_region.find(pattern.lower())
+        if idx < 0:
+            continue
+        # Boundary check: for patterns ending in a Chinese character,
+        # reject if the next character extends the phrase into non-refusal.
+        after_idx = idx + len(pattern)
+        if after_idx < len(check_region):
+            next_char = check_region[after_idx]
+            if next_char in _REFUSAL_BOUNDARY_EXCLUDE:
+                continue
+        return pattern
+    return None
+
+
 def assess_evidence_query_alignment(query: str, hits: list[RetrievedChunk]) -> EvidenceQueryAlignment:
     """Return an explainable conservative gate for obvious query/evidence mismatch."""
 

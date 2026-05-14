@@ -313,3 +313,122 @@ def test_summarize_large_document_safety(monkeypatch) -> None:
     # A summary was still produced
     assert result.summary is not None
     assert len(result.summary) > 0
+
+
+# ---------------------------------------------------------------------------
+# Regression: model refusal detection in summarize (Bug A)
+# ---------------------------------------------------------------------------
+
+
+class RefusingRuntime:
+    """Runtime that returns refusal text simulating model refusal."""
+
+    runtime_name = "fake-refusing"
+    provider_name = "fake-provider"
+
+    def __init__(self, refusal_text: str = "证据不足，无法总结。") -> None:
+        self._refusal_text = refusal_text
+
+    def generate(self, request: RuntimeRequest) -> RuntimeResponse:
+        return RuntimeResponse(
+            text=self._refusal_text,
+            runtime_name=self.runtime_name,
+            provider_name=self.provider_name,
+        )
+
+
+def test_summarize_detects_model_refusal_and_clears_citations() -> None:
+    """When the LLM returns refusal text, summarize should return INSUFFICIENT_EVIDENCE with empty citations."""
+    hits = [
+        RetrievedChunk(
+            text="Some evidence about topic A.",
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/a.md",
+            distance=0.2,
+        ),
+    ]
+    service = SummarizeService(
+        search_service=FakeSearchService(hits),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=RefusingRuntime("证据不足，无法从提供的证据中总结。"),
+    )
+
+    result = service.summarize(topic="What is the main topic?", top_k=4)
+
+    assert result.metadata.support_status == "insufficient_evidence"
+    assert result.metadata.insufficient_evidence is True
+    assert result.metadata.refusal_reason == "model_refused"
+    assert result.citations == []
+    assert list(result.grounded_answer.evidence) == []
+    assert result.grounded_answer.support_status.value == "insufficient_evidence"
+    assert result.grounded_answer.refusal_reason.value == "model_refused"
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["final_citation_count"] == 0
+    assert trace["final_evidence_count"] == 0
+    assert trace["final_sources"] == []
+
+
+def test_summarize_refusal_does_not_emit_mermaid_output() -> None:
+    hits = [
+        RetrievedChunk(
+            text="Some evidence about topic A.",
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/a.md",
+            distance=0.2,
+        ),
+    ]
+    service = SummarizeService(
+        search_service=FakeSearchService(hits),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=RefusingRuntime("The evidence is insufficient to answer from the provided context."),
+    )
+
+    result = service.summarize(topic="What is the main topic?", top_k=4, output_format="mermaid")
+
+    assert result.metadata.support_status == "insufficient_evidence"
+    assert result.metadata.insufficient_evidence is True
+    assert result.structured_output is None
+    assert result.citations == []
+
+
+class NormalChineseRuntime:
+    """Runtime that returns a normal Chinese answer mentioning '证据不足' in context."""
+
+    runtime_name = "fake-normal"
+    provider_name = "fake-provider"
+
+    def generate(self, request: RuntimeRequest) -> RuntimeResponse:
+        return RuntimeResponse(
+            text="根据知识库中的证据，我们发现证据不足以支持该结论，但进一步分析表明 RAG 技术在减少幻觉方面有显著优势。",
+            runtime_name=self.runtime_name,
+            provider_name=self.provider_name,
+        )
+
+
+def test_summarize_normal_chinese_with_evidence_insufficient_mention_is_not_refused() -> None:
+    """Normal Chinese answers that discuss '证据不足' as a concept should NOT trigger refusal."""
+    hits = [
+        RetrievedChunk(
+            text="RAG technology reduces hallucination in LLMs.",
+            doc_id="d1",
+            chunk_id="c1",
+            source="kb/a.md",
+            distance=0.2,
+        ),
+    ]
+    service = SummarizeService(
+        search_service=FakeSearchService(hits),
+        reranker=PassthroughReranker(),
+        compressor=PassthroughCompressor(),
+        runtime=NormalChineseRuntime(),
+    )
+
+    result = service.summarize(topic="RAG 的优势", top_k=4)
+
+    assert result.metadata.support_status != "insufficient_evidence"
+    assert len(result.citations) > 0

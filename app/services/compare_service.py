@@ -31,6 +31,7 @@ from app.services.grounded_generation import (
     build_citation,
     build_context,
     build_evidence,
+    detect_model_refusal,
     select_grounded_hits,
 )
 from app.services.search_service import SearchService
@@ -40,6 +41,10 @@ from app.services.workflow_trace import build_trace_warnings, final_source_summa
 from ports.llm import LLMProvider
 
 logger = logging.getLogger(__name__)
+
+
+class _CompareRefusedError(ValueError):
+    """Raised when the LLM explicitly refuses to compare due to insufficient evidence."""
 
 _STOPWORDS = {
     "a",
@@ -203,11 +208,35 @@ class CompareService:
 
             left_group, right_group = state.groups[:2]
             generation_started = time.perf_counter()
-            common_points, differences, conflicts = self._compare_groups(
-                question=question,
-                left_group=left_group,
-                right_group=right_group,
-            )
+            try:
+                common_points, differences, conflicts = self._compare_groups(
+                    question=question,
+                    left_group=left_group,
+                    right_group=right_group,
+                )
+            except _CompareRefusedError:
+                logger.info("Compare LLM refused due to insufficient evidence: question_preview=%s", question[:60])
+                generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
+                return self._insufficient_result(
+                    question=question,
+                    hits=state.hits,
+                    grounded_hits=state.grounded_hits,
+                    returned_hits=state.compressed_hits,
+                    retrieval_ms=state.retrieval_ms,
+                    rerank_ms=state.rerank_ms,
+                    compress_ms=state.compress_ms,
+                    generation_ms=generation_ms,
+                    started=started,
+                    filters=filters,
+                    reason="model_refused",
+                    workflow_trace=self._finalize_insufficient_trace(
+                        workflow_trace_base,
+                        after_rerank_count=len(state.reranked_hits),
+                        final_candidate_count=len(state.compressed_hits),
+                        extra_warnings=("Model refused to compare due to insufficient evidence.",),
+                    ),
+                    extra_warnings=tuple(state.source_warnings) + ("Model refused to compare due to insufficient evidence.",),
+                )
             generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
             compare_result = self._build_compare_result(
                 question=question,
@@ -433,6 +462,7 @@ class CompareService:
         returned_hits: list[RetrievedChunk] | None = None,
         rerank_ms: float | None = None,
         compress_ms: float | None = None,
+        generation_ms: float | None = None,
         reason: str | None = None,
         workflow_trace: dict[str, object] | None = None,
         extra_warnings: tuple[str, ...] = (),
@@ -448,6 +478,12 @@ class CompareService:
                 query=question,
                 support_status=SupportStatus.INSUFFICIENT_EVIDENCE,
                 refusal_reason=RefusalReason.INSUFFICIENT_CONTEXT,
+            )
+        elif reason == "model_refused":
+            compare_result = GroundedCompareResult(
+                query=question,
+                support_status=SupportStatus.INSUFFICIENT_EVIDENCE,
+                refusal_reason=RefusalReason.MODEL_REFUSED,
             )
         refusal_reason = compare_result.refusal_reason
         return CompareServiceResult(
@@ -471,6 +507,7 @@ class CompareService:
                     retrieval_ms=retrieval_ms,
                     rerank_ms=rerank_ms,
                     compress_ms=compress_ms,
+                    generation_ms=generation_ms,
                 ),
                 filter_applied=filters is not None,
                 retrieval_stats=RetrievalStats(
@@ -614,6 +651,8 @@ class CompareService:
                 left_group=left_group,
                 right_group=right_group,
             )
+        except _CompareRefusedError:
+            raise
         except Exception:
             logger.info("Compare LLM path failed; falling back to heuristic compare.")
             return self._compare_groups_heuristic(
@@ -654,6 +693,10 @@ class CompareService:
         text = runtime_response.text.strip()
         if not text:
             raise ValueError("Runtime returned empty text.")
+        refusal = detect_model_refusal(text)
+        if refusal:
+            logger.info("Compare LLM returned refusal text: pattern=%s", refusal)
+            raise _CompareRefusedError(f"LLM refused to compare: {refusal}")
         return self._parse_compare_llm_output(
             text=text,
             left_group=left_group,

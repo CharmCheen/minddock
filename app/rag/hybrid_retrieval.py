@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 import math
 import re
+import weakref
 from collections import Counter
 from threading import Lock
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from app.core.config import get_settings
 from app.rag.retrieval_models import RetrievedChunk
@@ -145,6 +146,54 @@ class BM25Index:
 
 
 _BUILD_LOCK = Lock()
+_INVALIDATION_CALLBACKS: list[weakref.ReferenceType | weakref.WeakMethod] = []
+
+
+def _callback_key(callback: Callable[[], None]) -> object:
+    method_self = getattr(callback, "__self__", None)
+    method_func = getattr(callback, "__func__", None)
+    if method_self is not None and method_func is not None:
+        return (id(method_self), method_func)
+    return callback
+
+
+def _callback_ref(callback: Callable[[], None]) -> weakref.ReferenceType | weakref.WeakMethod:
+    if getattr(callback, "__self__", None) is not None:
+        return weakref.WeakMethod(callback)
+    return weakref.ref(callback)
+
+
+def register_invalidation_callback(callback: Callable[[], None]) -> None:
+    """Register a callback to be called when BM25 cache should be invalidated.
+
+    Used by HybridRetrievalService instances to subscribe to data changes.
+    """
+    key = _callback_key(callback)
+    active_refs: list[weakref.ReferenceType | weakref.WeakMethod] = []
+    for existing_ref in _INVALIDATION_CALLBACKS:
+        existing = existing_ref()
+        if existing is None:
+            continue
+        if _callback_key(existing) == key:
+            return
+        active_refs.append(existing_ref)
+    active_refs.append(_callback_ref(callback))
+    _INVALIDATION_CALLBACKS[:] = active_refs
+
+
+def _notify_invalidation() -> None:
+    """Notify all registered callbacks that BM25 cache should be invalidated."""
+    active_refs: list[weakref.ReferenceType | weakref.WeakMethod] = []
+    for cb_ref in list(_INVALIDATION_CALLBACKS):
+        cb = cb_ref()
+        if cb is None:
+            continue
+        active_refs.append(cb_ref)
+        try:
+            cb()
+        except Exception:
+            logger.warning("BM25 invalidation callback failed", exc_info=True)
+    _INVALIDATION_CALLBACKS[:] = active_refs
 
 
 class HybridRetrievalService:
@@ -168,6 +217,18 @@ class HybridRetrievalService:
         self._rrf_k = rrf_k
         self._bm25_index: BM25Index | None = None
         self._built = False
+        register_invalidation_callback(self.invalidate_cache)
+
+    def invalidate_cache(self) -> None:
+        """Reset the BM25 index so it is rebuilt on the next retrieval request.
+
+        Call this after documents are added, modified, or deleted in Chroma
+        to ensure the BM25 index stays in sync with the vectorstore.
+        """
+        with _BUILD_LOCK:
+            self._bm25_index = None
+            self._built = False
+        logger.debug("BM25 index cache invalidated")
 
     def _ensure_bm25_ready(self) -> None:
         """Lazily build BM25 index from Chroma's current content.

@@ -21,6 +21,8 @@ URL_FETCH_RETRY_BACKOFF_SECONDS = 0.5
 URL_FETCH_VERIFY_SSL = True
 URL_FETCH_ALLOW_INSECURE_FALLBACK = False
 URL_FETCH_USER_AGENT = "MindDock/0.1 (+https://example.invalid/minddock)"
+URL_FETCH_MAX_BYTES = 2_000_000
+URL_FETCH_BLOCK_PRIVATE_NETWORKS = True
 IMAGE_OCR_ENABLED = True
 IMAGE_OCR_PROVIDER = "rapidocr"
 IMAGE_OCR_MAX_CHARS = 20000
@@ -87,6 +89,8 @@ class Settings(BaseSettings):
     url_fetch_verify_ssl: bool = URL_FETCH_VERIFY_SSL
     url_fetch_allow_insecure_fallback: bool = URL_FETCH_ALLOW_INSECURE_FALLBACK
     url_fetch_user_agent: str = URL_FETCH_USER_AGENT
+    url_fetch_max_bytes: int = URL_FETCH_MAX_BYTES
+    url_fetch_block_private_networks: bool = URL_FETCH_BLOCK_PRIVATE_NETWORKS
     image_ocr_enabled: bool = IMAGE_OCR_ENABLED
     image_ocr_provider: str = IMAGE_OCR_PROVIDER
     image_ocr_max_chars: int = IMAGE_OCR_MAX_CHARS

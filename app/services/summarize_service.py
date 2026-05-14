@@ -12,10 +12,18 @@ from app.core.exceptions import SummarizeError
 from app.llm.factory import get_generation_runtime
 from app.llm.mock import INSUFFICIENT_EVIDENCE
 from app.prompts import GROUNDED_SUMMARY_PROFILE_ID, get_prompt_profile, prompt_profile_trace
-from app.rag.retrieval_models import ContextBlock, GroundedAnswer, RetrievalFilters, RetrievedChunk
+from app.rag.retrieval_models import ContextBlock, GroundedAnswer, RefusalReason, RetrievalFilters, RetrievedChunk, SupportStatus
 from app.rag.postprocess import Compressor, Reranker, get_compressor, get_reranker
 from app.runtime import GenerationRuntime, RuntimeRequest
-from app.services.grounded_generation import assess_grounding, build_citation, build_context, build_evidence, format_evidence_block
+from app.services.grounded_generation import (
+    assess_grounding,
+    build_citation,
+    build_context,
+    build_evidence,
+    detect_model_refusal,
+    format_evidence_block,
+    GroundingAssessment,
+)
 from app.services.search_service import SearchService
 from app.services.service_models import (
     DocumentEvidenceGroup,
@@ -250,8 +258,31 @@ class SummarizeService:
                 fallback_used = runtime_response.used_fallback
             generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
 
+            # Post-generation evidence gate: detect model refusal
+            model_refusal = detect_model_refusal(summary)
+            if model_refusal:
+                grounding = GroundingAssessment(
+                    support_status=SupportStatus.INSUFFICIENT_EVIDENCE,
+                    refusal_reason=RefusalReason.MODEL_REFUSED,
+                )
+                citations = []
+                evidence = []
+                workflow_trace["final_citation_count"] = 0
+                workflow_trace["final_evidence_count"] = 0
+                workflow_trace["final_sources"] = []
+                workflow_trace["evidence_gate"] = {
+                    "evaluated": True,
+                    "triggered": True,
+                    "reason": f"model_refused_due_to_insufficient_evidence: {model_refusal}",
+                    "action": "force_insufficient_evidence",
+                }
+                logger.info(
+                    "Summarize post-generation evidence gate triggered: topic_preview=%s pattern=%s",
+                    topic[:60], model_refusal,
+                )
+
             structured_output = None
-            if output_format == "mermaid":
+            if output_format == "mermaid" and not model_refusal:
                 structured_output = self.structured_output_service.render_mermaid(
                     topic=topic,
                     evidence=context.to_evidence_items(),
@@ -277,6 +308,7 @@ class SummarizeService:
                     retrieved_count=len(compressed_hits),
                     mode=mode,
                     output_format=output_format,
+                    insufficient_evidence=grounding.support_status == SupportStatus.INSUFFICIENT_EVIDENCE,
                     support_status=grounding.support_status.value,
                     refusal_reason=None if grounding.refusal_reason is None else grounding.refusal_reason.value,
                     timing=UseCaseTiming(

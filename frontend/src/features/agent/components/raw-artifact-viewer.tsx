@@ -2,6 +2,10 @@ import { ArtifactResponseItem, CitationItem } from '../../../core/types/api';
 import { CitationList } from './citation-list';
 import { useWorkspacePreferences } from '../../settings/workspace-preferences';
 
+function truthyMetadataFlag(value: unknown): boolean {
+  return value === true || String(value ?? '').toLowerCase() === 'true';
+}
+
 // Helper to normalize evidence items to CitationItem format
 function normalizeToCitationItem(item: any): CitationItem {
   return {
@@ -43,6 +47,13 @@ function normalizeToCitationItem(item: any): CitationItem {
         : false
     ),
     evidence_window_reason: item.evidence_window_reason ?? null,
+    is_derived: truthyMetadataFlag(item.is_derived),
+    derived_kind: item.derived_kind ?? null,
+    derived_from: item.derived_from ?? null,
+    derived_basis: item.derived_basis ?? null,
+    evidence_basis: item.evidence_basis ?? null,
+    transcript_provider: item.transcript_provider ?? null,
+    retrieval_basis: item.retrieval_basis ?? null,
   };
 }
 

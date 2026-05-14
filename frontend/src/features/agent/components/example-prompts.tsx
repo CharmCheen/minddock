@@ -12,16 +12,19 @@ export const ExamplePrompts: React.FC<ExamplePromptsProps> = ({ taskType, onSele
       "Compare the methodologies proposed in the two selected sources."
     ],
     chat: [
-      "Can you explain the main concepts discussed in the selected document?",
-      "What are the key takeaways from this source for a beginner?"
+      "What does this source say about the system architecture?",
+      "Which evidence supports this conclusion?",
+      "Where is this design choice mentioned in the documents?"
     ],
     summarize: [
-      "Generate a comprehensive summary of the current document.",
-      "Summarize the technical architecture mentioned here."
+      "Summarize the main ideas of the selected sources.",
+      "Extract the key design points from these documents.",
+      "Give me a concise chapter-style summary."
     ],
     compare: [
-      "Compare the methodologies proposed in the two selected sources.",
-      "What are the common points and conflicts between these views?"
+      "Compare these sources in terms of system design.",
+      "What are the common points and differences?",
+      "Are there any conflicting claims between these documents?"
     ]
   };
 

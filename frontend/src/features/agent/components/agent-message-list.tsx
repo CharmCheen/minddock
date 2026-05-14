@@ -304,7 +304,8 @@ const TurnView: React.FC<{ turn: ConversationTurn; isActive: boolean; density: '
   const currentPhaseText = rawPhase ? PHASE_LABELS[rawPhase] ?? rawPhase : null;
 
   const taskLabel = effectiveTaskType === 'compare' ? 'Compare' : effectiveTaskType === 'summarize' ? 'Summarize' : effectiveTaskType === 'auto' ? 'Auto' : 'Chat';
-  const resultLabel = effectiveTaskType === 'compare' ? 'Document Comparison Result' : effectiveTaskType === 'summarize' ? 'Summary Result' : 'AI Response';
+  const resultLabel = effectiveTaskType === 'compare' ? 'Comparison' : effectiveTaskType === 'summarize' ? 'Summary' : 'Answer';
+  const resultDescription = effectiveTaskType === 'compare' ? 'Cross-source comparison analysis' : effectiveTaskType === 'summarize' ? 'Structured summary with grounded takeaways' : effectiveTaskType === 'auto' ? 'Auto-detected task' : 'Evidence-backed answer';
 
   const statusBadgeConfig: Record<string, { color: string; bg: string; label: string }> = {
     completed: { color: 'var(--color-success-text)', bg: 'var(--color-success-bg)', label: 'Completed' },
@@ -348,15 +349,18 @@ const TurnView: React.FC<{ turn: ConversationTurn; isActive: boolean; density: '
             fontSize: '11px',
             fontWeight: 700,
             letterSpacing: '0.04em',
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-border-subtle)',
-            color: effectiveTaskType === 'compare' ? '#8b5cf6' : effectiveTaskType === 'summarize' ? '#10b981' : effectiveTaskType === 'auto' ? '#f59e0b' : 'var(--color-brand-600)',
+            background: effectiveTaskType === 'compare' ? '#f5f3ff' : effectiveTaskType === 'summarize' ? '#f0fdf4' : effectiveTaskType === 'auto' ? '#fffbeb' : '#eff6ff',
+            border: `1px solid ${effectiveTaskType === 'compare' ? '#ede9fe' : effectiveTaskType === 'summarize' ? '#dcfce7' : effectiveTaskType === 'auto' ? '#fef3c7' : '#dbeafe'}`,
+            color: effectiveTaskType === 'compare' ? '#7c3aed' : effectiveTaskType === 'summarize' ? '#059669' : effectiveTaskType === 'auto' ? '#d97706' : '#2563eb',
             textTransform: 'uppercase',
             boxShadow: 'var(--shadow-sm)',
           }}>
             {taskLabel}
           </span>
-          <span style={{ fontSize: '14px', color: 'var(--color-text-primary)', fontWeight: 600, letterSpacing: '0.01em' }}>{resultLabel}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+            <span style={{ fontSize: '14px', color: 'var(--color-text-primary)', fontWeight: 600, letterSpacing: '0.01em' }}>{resultLabel}</span>
+            <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', fontWeight: 400 }}>{resultDescription}</span>
+          </div>
           {turn.taskType === 'auto' && detectedIntent && (
             <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>
               Detected {detectedIntent.task_type} ({Math.round((detectedIntent.confidence ?? 0) * 100)}%)
@@ -522,7 +526,7 @@ const TurnView: React.FC<{ turn: ConversationTurn; isActive: boolean; density: '
 };
 
 export const AgentMessageList: React.FC = () => {
-  const { turns, status, activeTurnId, clearConversation } = useAgentStore();
+  const { turns, status, activeTurnId, clearConversation, taskType } = useAgentStore();
   const { density } = useWorkspacePreferences();
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -533,6 +537,48 @@ export const AgentMessageList: React.FC = () => {
   }, [turns, status]);
 
   if (turns.length === 0 && status === 'idle') {
+    const emptyStateConfig: Record<string, { title: string; subtitle: string; features: { label: string; desc: string }[] }> = {
+      auto: {
+        title: 'MindDock Knowledge Workspace',
+        subtitle: 'Ask questions, summarize, or compare across your indexed sources. Every answer includes verifiable citations.',
+        features: [
+          { label: 'Chat', desc: 'Ask questions about your documents' },
+          { label: 'Summarize', desc: 'Extract key points from selected sources' },
+          { label: 'Compare', desc: 'Compare views and find conflicts' },
+        ],
+      },
+      chat: {
+        title: 'Evidence-backed Q&A',
+        subtitle: 'Ask specific questions and get answers grounded in your indexed sources with verifiable citations.',
+        features: [
+          { label: 'Citations', desc: 'Every claim links to source evidence' },
+          { label: 'Follow-up', desc: 'Build on previous answers in context' },
+          { label: 'Verification', desc: 'Open source drawer to verify any claim' },
+        ],
+      },
+      summarize: {
+        title: 'Structured Summary',
+        subtitle: 'Condense documents into key points, design decisions, and grounded takeaways.',
+        features: [
+          { label: 'Core Summary', desc: 'Main ideas distilled from sources' },
+          { label: 'Key Takeaways', desc: 'Actionable insights and findings' },
+          { label: 'Source Coverage', desc: 'Trace which sources informed each point' },
+        ],
+      },
+      compare: {
+        title: 'Cross-source Comparison',
+        subtitle: 'Analyze multiple sources to surface shared claims, differences, and conflicts.',
+        features: [
+          { label: 'Common Points', desc: 'Shared claims across sources' },
+          { label: 'Differences', desc: 'Distinct perspectives and approaches' },
+          { label: 'Conflicts', desc: 'Contradictory claims that need resolution' },
+          { label: 'Conclusion', desc: 'Grounded synthesis from evidence' },
+        ],
+      },
+    };
+
+    const emptyCfg = emptyStateConfig[taskType] || emptyStateConfig.auto;
+
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-canvas)', flexDirection: 'column', padding: d === 'compact' ? '16px' : '24px' }}>
         <div style={{ textAlign: 'center', marginBottom: d === 'compact' ? '20px' : '28px' }}>
@@ -552,22 +598,17 @@ export const AgentMessageList: React.FC = () => {
             <IconSearch size={22} />
           </div>
           <h3 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 8px 0' }}>
-            MindDock Knowledge Workspace
+            {emptyCfg.title}
           </h3>
           <p style={{ fontSize: '13px', color: 'var(--color-text-tertiary)', margin: '0 0 4px', maxWidth: '420px', lineHeight: 1.5 }}>
-            Ask questions, summarize, or compare across your indexed sources.
-            Every answer includes verifiable citations.
+            {emptyCfg.subtitle}
           </p>
         </div>
 
         <div style={{ display: 'flex', gap: d === 'compact' ? '8px' : '12px', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '640px' }}>
-          {[
-            { title: 'Chat', desc: 'Ask questions about your documents', color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' },
-            { title: 'Summarize', desc: 'Extract key points from selected sources', color: '#10b981', bg: '#f0fdf4', border: '#bbf7d0' },
-            { title: 'Compare', desc: 'Compare views and find conflicts', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
-          ].map((item) => (
+          {emptyCfg.features.map((item) => (
             <div
-              key={item.title}
+              key={item.label}
               style={{
                 background: 'var(--color-surface)',
                 border: '1px solid var(--color-border-subtle)',
@@ -581,23 +622,21 @@ export const AgentMessageList: React.FC = () => {
               }}
               onMouseOver={(e) => {
                 e.currentTarget.style.boxShadow = 'var(--shadow-md)';
-                e.currentTarget.style.borderColor = item.border;
                 e.currentTarget.style.transform = 'translateY(-2px)';
               }}
               onMouseOut={(e) => {
                 e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
-                e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
                 e.currentTarget.style.transform = 'translateY(0)';
               }}
             >
               <div style={{
                 fontSize: '12px',
                 fontWeight: 700,
-                color: item.color,
+                color: 'var(--color-text-secondary)',
                 marginBottom: '6px',
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
-              }}>{item.title}</div>
+              }}>{item.label}</div>
               <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{item.desc}</div>
             </div>
           ))}

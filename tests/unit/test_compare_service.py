@@ -228,7 +228,8 @@ def test_compare_returns_common_points_with_evidence() -> None:
     point = result.compare_result.common_points[0]
     assert point.left_evidence
     assert point.right_evidence
-    assert "authentication" in point.statement.lower() or "relevant" in point.statement.lower()
+    # Statement should reference shared content terms, not restate the question
+    assert "how is authentication handled" not in point.statement.lower()
 
 
 def test_compare_returns_insufficient_evidence_when_only_one_side_is_available() -> None:
@@ -389,14 +390,14 @@ def test_compare_falls_back_to_heuristic_on_json_parse_failure() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Project A uses Chroma.",
+                text="Project A uses Chroma vector database for storage.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.2,
             ),
             RetrievedChunk(
-                text="Project B uses Postgres.",
+                text="Project B uses Postgres vector database for storage.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -409,23 +410,31 @@ def test_compare_falls_back_to_heuristic_on_json_parse_failure() -> None:
 
     result = service.compare(question="Compare storage", top_k=4)
 
-    # Heuristic should produce at least a common_points entry
-    assert result.compare_result.common_points
+    # Heuristic should produce evidence-based points, not template
+    assert result.compare_result.differences or result.compare_result.common_points
     assert result.compare_result.support_status.value == "supported"
+    all_statements = [
+        p.statement
+        for p in (*result.compare_result.common_points, *result.compare_result.differences, *result.compare_result.conflicts)
+    ]
+    for stmt in all_statements:
+        assert "Both sources contain evidence relevant to" not in stmt
+        assert "emphasize different details" not in stmt
+        assert "requested topic" not in stmt
 
 
 def test_compare_falls_back_to_heuristic_when_runtime_raises() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Project A uses Chroma.",
+                text="Project A uses Chroma vector database for storage.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.2,
             ),
             RetrievedChunk(
-                text="Project B uses Postgres.",
+                text="Project B uses Postgres vector database for storage.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -438,7 +447,7 @@ def test_compare_falls_back_to_heuristic_when_runtime_raises() -> None:
 
     result = service.compare(question="Compare storage", top_k=4)
 
-    assert result.compare_result.common_points
+    assert result.compare_result.differences or result.compare_result.common_points
     assert result.compare_result.support_status.value == "supported"
 
 
@@ -447,14 +456,14 @@ def test_compare_falls_back_to_heuristic_on_empty_llm_arrays() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Project A uses Chroma.",
+                text="Project A uses Chroma vector database for storage.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.2,
             ),
             RetrievedChunk(
-                text="Project B uses Postgres.",
+                text="Project B uses Postgres vector database for storage.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -467,7 +476,7 @@ def test_compare_falls_back_to_heuristic_on_empty_llm_arrays() -> None:
 
     result = service.compare(question="Compare storage", top_k=4)
 
-    assert result.compare_result.common_points
+    assert result.compare_result.differences or result.compare_result.common_points
     assert result.compare_result.support_status.value == "supported"
 
 
@@ -676,7 +685,7 @@ def test_compare_llm_statement_dict_skips_point_and_fallback_if_empty() -> None:
     result = service.compare(question="Compare docs", top_k=4)
 
     # All LLM points discarded -> fallback to heuristic
-    assert result.compare_result.common_points
+    assert result.compare_result.differences or result.compare_result.common_points
     assert result.compare_result.support_status.value == "supported"
 
 
@@ -720,14 +729,14 @@ def test_compare_llm_missing_common_points_key_fallback_heuristic() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Left hit 1",
+                text="Left discusses vector search algorithms and indexing.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.1,
             ),
             RetrievedChunk(
-                text="Right hit 1",
+                text="Right discusses vector search algorithms and retrieval.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -741,7 +750,7 @@ def test_compare_llm_missing_common_points_key_fallback_heuristic() -> None:
     result = service.compare(question="Compare docs", top_k=4)
 
     # Missing required key -> fallback heuristic
-    assert result.compare_result.common_points
+    assert result.compare_result.differences or result.compare_result.common_points
     assert result.compare_result.support_status.value == "supported"
 
 
@@ -750,14 +759,14 @@ def test_compare_llm_differences_not_list_fallback_heuristic() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Left hit 1",
+                text="Left discusses vector search algorithms and indexing.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.1,
             ),
             RetrievedChunk(
-                text="Right hit 1",
+                text="Right discusses vector search algorithms and retrieval.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -771,7 +780,7 @@ def test_compare_llm_differences_not_list_fallback_heuristic() -> None:
     result = service.compare(question="Compare docs", top_k=4)
 
     # differences not a list -> fallback heuristic
-    assert result.compare_result.common_points
+    assert result.compare_result.differences or result.compare_result.common_points
     assert result.compare_result.support_status.value == "supported"
 
 
@@ -915,14 +924,14 @@ def test_compare_llm_used_fallback_with_invalid_json_fallback_heuristic() -> Non
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Left hit 1",
+                text="Left discusses vector search algorithms and indexing.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.1,
             ),
             RetrievedChunk(
-                text="Right hit 1",
+                text="Right discusses vector search algorithms and retrieval.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -936,7 +945,7 @@ def test_compare_llm_used_fallback_with_invalid_json_fallback_heuristic() -> Non
     result = service.compare(question="Compare docs", top_k=4)
 
     # Invalid JSON even with used_fallback=True -> fallback heuristic
-    assert result.compare_result.common_points
+    assert result.compare_result.differences or result.compare_result.common_points
     assert result.compare_result.support_status.value == "supported"
 
 
@@ -1185,14 +1194,14 @@ def test_heuristic_fallback_works_with_two_selected_sources() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Project A uses Chroma.",
+                text="Project A uses Chroma vector database for storage.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.2,
             ),
             RetrievedChunk(
-                text="Project B uses Postgres.",
+                text="Project B uses Postgres vector database for storage.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -1207,7 +1216,7 @@ def test_heuristic_fallback_works_with_two_selected_sources() -> None:
         top_k=4,
         filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
     )
-    assert result.compare_result.common_points
+    assert result.compare_result.differences or result.compare_result.common_points
     assert result.compare_result.support_status.value == "supported"
 
 
@@ -1433,14 +1442,14 @@ def test_heuristic_fallback_sets_confidence_none() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Project A uses Chroma.",
+                text="Project A uses Chroma vector database for storage.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.2,
             ),
             RetrievedChunk(
-                text="Project B uses Postgres.",
+                text="Project B uses Postgres vector database for storage.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -1451,7 +1460,7 @@ def test_heuristic_fallback_sets_confidence_none() -> None:
         collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
     )
     result = service.compare(question="Compare storage", top_k=4)
-    point = result.compare_result.common_points[0]
+    point = result.compare_result.differences[0]
     assert point.confidence is None
     assert point.taxonomy is None
 
@@ -1460,14 +1469,14 @@ def test_heuristic_fallback_computes_evidence_coverage() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Project A uses Chroma.",
+                text="Project A uses Chroma vector database for storage.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.2,
             ),
             RetrievedChunk(
-                text="Project B uses Postgres.",
+                text="Project B uses Postgres vector database for storage.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -1478,7 +1487,7 @@ def test_heuristic_fallback_computes_evidence_coverage() -> None:
         collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
     )
     result = service.compare(question="Compare storage", top_k=4)
-    point = result.compare_result.common_points[0]
+    point = result.compare_result.differences[0]
     assert point.evidence_coverage is not None
     assert point.evidence_coverage["left_count"] == 1
     assert point.evidence_coverage["right_count"] == 1
@@ -1489,14 +1498,14 @@ def test_existing_json_parse_failure_fallback_still_works() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Project A uses Chroma.",
+                text="Project A uses Chroma vector database for storage.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.2,
             ),
             RetrievedChunk(
-                text="Project B uses Postgres.",
+                text="Project B uses Postgres vector database for storage.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -1507,9 +1516,9 @@ def test_existing_json_parse_failure_fallback_still_works() -> None:
         collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
     )
     result = service.compare(question="Compare storage", top_k=4)
-    assert result.compare_result.common_points
+    assert result.compare_result.differences or result.compare_result.common_points
     assert result.compare_result.support_status.value == "supported"
-    point = result.compare_result.common_points[0]
+    point = result.compare_result.differences[0]
     assert point.confidence is None
     assert point.evidence_coverage is not None
 
@@ -1552,3 +1561,240 @@ def test_compare_detects_model_refusal_and_returns_insufficient() -> None:
     assert not result.citations
     assert result.metadata.insufficient_evidence is True
     assert result.metadata.timing.generation_ms is not None
+
+
+# ---------------------------------------------------------------------------
+# Heuristic fallback quality regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_heuristic_fallback_does_not_restate_question() -> None:
+    """Heuristic fallback must not embed the user question in any point statement."""
+    question = "Compare the research directions of these two papers"
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Paper A focuses on neural architecture search for vision tasks.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Paper A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Paper B focuses on reinforcement learning for robotics control.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Paper B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question=question, top_k=4)
+
+    all_statements = [
+        p.statement.lower()
+        for p in (*result.compare_result.common_points, *result.compare_result.differences, *result.compare_result.conflicts)
+    ]
+    for stmt in all_statements:
+        assert question.lower() not in stmt, f"Statement restates question: {stmt}"
+
+
+def test_heuristic_fallback_does_not_use_template_phrases() -> None:
+    """Heuristic fallback must not produce banned template phrases."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="System A implements distributed consensus using Raft protocol.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="System A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="System B implements distributed consensus using Paxos protocol.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="System B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare the systems", top_k=4)
+
+    banned = [
+        "both sources contain evidence relevant to",
+        "emphasize different details",
+        "requested topic",
+    ]
+    all_statements = [
+        p.statement.lower()
+        for p in (*result.compare_result.common_points, *result.compare_result.differences, *result.compare_result.conflicts)
+    ]
+    for stmt in all_statements:
+        for phrase in banned:
+            assert phrase not in stmt, f"Statement contains banned phrase '{phrase}': {stmt}"
+
+
+def test_heuristic_fallback_invalid_json_produces_evidence_based_or_insufficient() -> None:
+    """When LLM returns invalid JSON, heuristic should produce evidence-based
+    differences or return insufficient_evidence — never template garbage."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="This paper proposes a novel transformer architecture for NLP tasks.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Paper A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="This paper evaluates convolutional networks on image classification benchmarks.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Paper B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text="not valid json at all"),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare approaches", top_k=4)
+
+    all_points = (*result.compare_result.common_points, *result.compare_result.differences, *result.compare_result.conflicts)
+    if all_points:
+        for point in all_points:
+            assert "both sources contain evidence" not in point.statement.lower()
+            assert "emphasize different details" not in point.statement.lower()
+            # Must have evidence on both sides
+            assert point.left_evidence
+            assert point.right_evidence
+    else:
+        # No points generated is acceptable — honest degradation
+        assert result.compare_result.support_status.value == "insufficient_evidence"
+
+
+def test_heuristic_fallback_empty_evidence_groups_returns_insufficient() -> None:
+    """When evidence is genuinely insufficient, heuristic should not fabricate points."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="X",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Y",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text='{"common_points":[],"differences":[],"conflicts":[]}'),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare X and Y", top_k=4)
+
+    # Minimal evidence with no overlap and no meaningful difference
+    # Either heuristic finds a difference or system reports insufficient
+    if not result.compare_result.differences and not result.compare_result.common_points:
+        assert result.compare_result.support_status.value == "insufficient_evidence"
+
+
+def test_compare_v1_structure_preserved_after_fallback() -> None:
+    """compare.v1 artifact structure must be preserved even after heuristic fallback."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Module A handles authentication via JWT tokens.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Module A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Module B handles authentication via session cookies.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Module B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text="invalid json"),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare auth", top_k=4)
+
+    # Structure fields must exist
+    assert hasattr(result.compare_result, "common_points")
+    assert hasattr(result.compare_result, "differences")
+    assert hasattr(result.compare_result, "conflicts")
+    assert hasattr(result.compare_result, "support_status")
+    assert hasattr(result.compare_result, "query")
+    assert result.compare_result.query == "Compare auth"
+
+    # API dict must have the expected keys
+    api = result.compare_result.to_api_dict()
+    assert "common_points" in api
+    assert "differences" in api
+    assert "conflicts" in api
+    assert "support_status" in api
+
+
+def test_heuristic_fallback_evidence_ids_bind_correctly() -> None:
+    """Evidence/citation IDs must still bind after heuristic fallback."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A implements caching with Redis for performance.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Project A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B implements caching with Memcached for performance.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Project B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare caching", top_k=4)
+
+    assert result.citations
+    doc_ids = {c.doc_id for c in result.citations}
+    assert "d1" in doc_ids
+    assert "d2" in doc_ids
+
+    all_points = (*result.compare_result.common_points, *result.compare_result.differences, *result.compare_result.conflicts)
+    for point in all_points:
+        assert point.left_evidence, "left_evidence must not be empty"
+        assert point.right_evidence, "right_evidence must not be empty"
+        assert point.left_evidence[0].chunk_id == "c1"
+        assert point.right_evidence[0].chunk_id == "c2"

@@ -76,6 +76,11 @@ def _compare_json_prompt_builder(
             "1. Evidence ids MUST come from the L1..Ln and R1..Rn labels above.",
             "2. Every point must have evidence from BOTH sides. Omit any point that cannot be supported by both left and right evidence.",
             "3. Do not invent evidence IDs or output one-sided points.",
+            "4. Do not restate the user question in any statement.",
+            "5. Do not produce generic relevance statements such as 'both are relevant', 'both discuss the requested topic', or 'they emphasize different details'.",
+            "6. Focus on research direction, methodology, contribution, evaluation approach, assumptions, and key findings when relevant.",
+            "7. If the provided evidence is insufficient for a common point, difference, or conflict, leave that list empty rather than inventing claims.",
+            "8. Every statement must be a concrete comparison claim grounded in cited evidence, not a retrieval relevance statement.",
         ]
     )
     return "\n".join(lines)

@@ -70,6 +70,13 @@ _STOPWORDS = {
     "with",
 }
 _NEGATION_WORDS = {"no", "not", "never", "without", "none"}
+_GENERIC_TERMS = {
+    "paper", "article", "document", "source", "research", "study",
+    "system", "model", "method", "approach", "data", "result", "results",
+    "experiment", "experiments", "evaluation", "analysis", "information",
+    "content", "text", "section", "chapter", "figure", "table",
+    "description", "discussion", "conclusion", "introduction",
+}
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 _NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?")
 _OVERLAP_THRESHOLD = 0.2
@@ -653,8 +660,13 @@ class CompareService:
             )
         except _CompareRefusedError:
             raise
-        except Exception:
-            logger.info("Compare LLM path failed; falling back to heuristic compare.")
+        except Exception as exc:
+            reason = type(exc).__name__
+            logger.warning(
+                "Compare LLM path failed (%s: %s); falling back to heuristic compare.",
+                reason,
+                str(exc)[:200],
+            )
             return self._compare_groups_heuristic(
                 question=question,
                 left_group=left_group,
@@ -890,29 +902,46 @@ class CompareService:
         left_evidence = (build_evidence(left_hit),)
         right_evidence = (build_evidence(right_hit),)
 
-        common_points = (
-            ComparedPoint(
-                statement=f"Both sources contain evidence relevant to: {question}",
-                left_evidence=left_evidence,
-                right_evidence=right_evidence,
-                summary_note=f"{left_group.label} and {right_group.label} both discuss the requested topic.",
-                confidence=None,
-                taxonomy=None,
-                evidence_coverage=self._compute_evidence_coverage(left_evidence, right_evidence),
-            ),
-        )
+        common_points: tuple[ComparedPoint, ...] = ()
+        left_preview = self._preview(left_hit.text, limit=120)
+        right_preview = self._preview(right_hit.text, limit=120)
+        common_terms = self._extract_common_terms(left_hit.text, right_hit.text)
 
-        differences: tuple[ComparedPoint, ...] = ()
-        if self._normalized_text(left_hit) != self._normalized_text(right_hit):
-            differences = (
+        if common_terms:
+            terms_str = ", ".join(common_terms)
+            common_points = (
                 ComparedPoint(
-                    statement=f"{left_group.label} and {right_group.label} emphasize different details.",
+                    statement=f"Both sources address overlapping topics: {terms_str}.",
                     left_evidence=left_evidence,
                     right_evidence=right_evidence,
-                    summary_note=(
-                        f"Left focus: {self._preview(left_hit.text)} | "
-                        f"Right focus: {self._preview(right_hit.text)}"
+                    summary_note=f"Shared terms found in {left_group.label} and {right_group.label}.",
+                    confidence=None,
+                    taxonomy=None,
+                    evidence_coverage=self._compute_evidence_coverage(left_evidence, right_evidence),
+                ),
+            )
+
+        differences: tuple[ComparedPoint, ...] = ()
+        left_tokens = self._tokenize(left_hit.text)
+        right_tokens = self._tokenize(right_hit.text)
+        _MIN_DIFFERENCE_TOKENS = 5
+        if (
+            self._normalized_text(left_hit) != self._normalized_text(right_hit)
+            and len(left_tokens) >= _MIN_DIFFERENCE_TOKENS
+            and len(right_tokens) >= _MIN_DIFFERENCE_TOKENS
+        ):
+            left_label = left_group.label or "the left source"
+            right_label = right_group.label or "the right source"
+            differences = (
+                ComparedPoint(
+                    statement=(
+                        f"The available excerpts point to different focuses: "
+                        f"the left source ({left_label}) discusses {left_preview}, "
+                        f"while the right source ({right_label}) discusses {right_preview}."
                     ),
+                    left_evidence=left_evidence,
+                    right_evidence=right_evidence,
+                    summary_note=None,
                     confidence=None,
                     taxonomy=None,
                     evidence_coverage=self._compute_evidence_coverage(left_evidence, right_evidence),
@@ -923,7 +952,10 @@ class CompareService:
         if self._looks_conflicting(left_hit.text, right_hit.text):
             conflicts = (
                 ComparedPoint(
-                    statement=f"{left_group.label} and {right_group.label} appear to conflict on the requested topic.",
+                    statement=(
+                        f"The excerpts contain conflicting details: "
+                        f"{left_preview} vs. {right_preview}."
+                    ),
                     left_evidence=left_evidence,
                     right_evidence=right_evidence,
                     summary_note="The paired evidence shares topic terms but differs in numbers or polarity.",
@@ -932,7 +964,31 @@ class CompareService:
                     evidence_coverage=self._compute_evidence_coverage(left_evidence, right_evidence),
                 ),
             )
+
+        if not common_points and not differences and not conflicts:
+            logger.info(
+                "Heuristic compare produced no points; "
+                "left=%s right=%s common_terms=%d",
+                left_group.label,
+                right_group.label,
+                len(common_terms),
+            )
+
         return common_points, differences, conflicts
+
+    @staticmethod
+    def _extract_common_terms(left_text: str, right_text: str) -> list[str]:
+        stop = _STOPWORDS | _NEGATION_WORDS | _GENERIC_TERMS
+        left_tokens = {
+            t for t in _TOKEN_PATTERN.findall(left_text.lower())
+            if t not in stop and len(t) > 3
+        }
+        right_tokens = {
+            t for t in _TOKEN_PATTERN.findall(right_text.lower())
+            if t not in stop and len(t) > 3
+        }
+        overlap = sorted(left_tokens & right_tokens)
+        return overlap[:5]
 
     def _build_compare_result(
         self,

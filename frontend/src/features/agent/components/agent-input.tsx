@@ -130,14 +130,32 @@ export const AgentInput: React.FC<{
     { id: 'compare', label: 'Compare' }
   ];
 
-  const PLACEHOLDERS: Record<string, string> = {
-    auto: 'Ask anything - Auto mode will choose the task type...',
-    chat: 'Ask a question about your knowledge base...',
-    summarize: 'What would you like to summarize?',
-    compare: 'Compare perspectives across your sources...',
+  const MODE_INFO: Record<string, { title: string; subtitle: string; placeholder: string }> = {
+    auto: {
+      title: 'Auto mode',
+      subtitle: 'The system will automatically detect the best task type for your query.',
+      placeholder: 'Ask anything - Auto mode will choose the task type...',
+    },
+    chat: {
+      title: 'Ask with evidence',
+      subtitle: 'Question-answering over indexed sources with verifiable citations.',
+      placeholder: 'Ask a specific question about your knowledge base...',
+    },
+    summarize: {
+      title: 'Summarize sources',
+      subtitle: 'Condense selected documents into key points and grounded takeaways.',
+      placeholder: 'Summarize the selected source, topic, or set of documents...',
+    },
+    compare: {
+      title: 'Compare sources',
+      subtitle: 'Find shared claims, differences, conflicts, and a grounded conclusion.',
+      placeholder: 'Compare two or more sources on...',
+    },
   };
 
-  const getPlaceholder = () => PLACEHOLDERS[taskType] || 'Ask MindDock anything...';
+  const currentModeInfo = MODE_INFO[taskType] || MODE_INFO.auto;
+
+  const getPlaceholder = () => currentModeInfo.placeholder || 'Ask MindDock anything...';
 
   const getButtonLabel = () => {
     if (isCancelling) return 'Cancelling';
@@ -187,6 +205,28 @@ export const AgentInput: React.FC<{
           ))}
         </div>
       </div>
+
+      {!isRunning && turns.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '0 16px' }}>
+          <div style={{
+            fontSize: '15px',
+            fontWeight: 600,
+            color: 'var(--color-text-primary)',
+            marginBottom: '4px',
+          }}>
+            {currentModeInfo.title}
+          </div>
+          <div style={{
+            fontSize: '12px',
+            color: 'var(--color-text-tertiary)',
+            lineHeight: 1.5,
+            maxWidth: '420px',
+            margin: '0 auto',
+          }}>
+            {currentModeInfo.subtitle}
+          </div>
+        </div>
+      )}
 
       {!isRunning && turns.length === 0 && (
         <ExamplePrompts taskType={taskType} onSelect={(text) => setQuery(text)} />

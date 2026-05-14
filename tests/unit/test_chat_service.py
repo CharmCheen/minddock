@@ -5,7 +5,7 @@ import pytest
 
 from app.llm.mock import INSUFFICIENT_EVIDENCE
 from app.rag.postprocess import HeuristicReranker
-from app.services.grounded_generation import HELPFUL_CHAT_INSUFFICIENT_EVIDENCE
+from app.services.grounded_generation import HELPFUL_CHAT_INSUFFICIENT_EVIDENCE, detect_model_refusal
 from app.rag.retrieval_models import RetrievedChunk, RetrievalFilters
 from app.runtime import RuntimeRequest, RuntimeResponse
 from app.services.chat_service import ChatService
@@ -1148,12 +1148,24 @@ def test_post_generation_gate_overrides_english_model_refusal(refusal_text: str)
     )
     assert result.citations == [], f"Expected empty citations, got {len(result.citations)}"
     assert result.metadata.support_status == "insufficient_evidence"
+    assert result.metadata.insufficient_evidence is True
+    assert result.metadata.refusal_reason == "model_refused"
     trace = result.metadata.workflow_trace
     assert trace is not None
     gate = trace["evidence_gate"]
     assert gate["triggered"] is True
     assert gate["action"] == "force_insufficient_evidence"
     assert "model_refused_due_to_insufficient_evidence" in gate["reason"]
+
+
+def test_model_refusal_detection_allows_supported_english_negative_claims() -> None:
+    answer = (
+        "The evidence does not support the claim that Milvus stores data in SQLite; "
+        "instead, it describes segment files and metadata coordination."
+    )
+
+    assert detect_model_refusal(answer) is None
+    assert detect_model_refusal("The evidence is insufficient to answer the question.") is not None
 
 
 def test_post_generation_gate_overrides_chinese_model_refusal() -> None:

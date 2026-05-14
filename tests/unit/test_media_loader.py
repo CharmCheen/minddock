@@ -337,6 +337,15 @@ def test_build_media_transcription_client_mock_by_default(monkeypatch) -> None:
     from app.runtime.media_transcript_active_config import ActiveMediaTranscriptConfig
 
     monkeypatch.setattr(
+        "app.rag.media_loader.get_settings",
+        lambda: Settings(
+            media_transcript_enabled=True,
+            media_transcript_provider="mock",
+            media_transcript_api_key="",
+            media_transcript_api_base_url="",
+        ),
+    )
+    monkeypatch.setattr(
         "app.runtime.media_transcript_active_config.get_active_media_transcript_config",
         lambda: ActiveMediaTranscriptConfig(enabled=False),
     )

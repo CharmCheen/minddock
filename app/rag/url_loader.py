@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import ipaddress
 import re
 import time
 from dataclasses import dataclass
@@ -34,6 +35,8 @@ _NOISY_CONTAINER_HINTS = (
     "breadcrumb",
     "advert",
 )
+_PRIVATE_HOSTNAMES = {"localhost", "localhost.localdomain"}
+_DEFAULT_MAX_RESPONSE_BYTES = 2_000_000
 
 
 @dataclass(frozen=True)
@@ -185,11 +188,8 @@ def _normalize_text(text: str) -> str:
 def fetch_url_content(url: str) -> URLContent:
     """Fetch a URL and extract a best-effort article/body text."""
 
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise RuntimeError(f"invalid URL `{url}`: expected absolute http(s) URL")
-
     settings = get_settings()
+    _validate_fetch_url(url, settings=settings)
     headers = {
         "User-Agent": settings.url_fetch_user_agent,
         "Accept": "text/html,application/xhtml+xml",
@@ -220,6 +220,7 @@ def fetch_url_content(url: str) -> URLContent:
 
 def _fetch_once(url: str, headers: dict[str, str], verify_ssl: bool) -> URLContent:
     settings = get_settings()
+    _validate_fetch_url(url, settings=settings)
     try:
         response = httpx.get(
             url,
@@ -237,17 +238,19 @@ def _fetch_once(url: str, headers: dict[str, str], verify_ssl: bool) -> URLConte
             raise
         raise RuntimeError(str(exc)) from exc
 
+    _validate_fetch_url(str(response.url), settings=settings)
     content_type = response.headers.get("content-type", "").lower()
+    response_text = _bounded_response_text(response, settings=settings)
     warnings: list[str] = []
     if "html" not in content_type:
         warnings.append("non_html_content_type")
-    if "html" not in content_type and "<html" not in response.text.lower():
+    if "html" not in content_type and "<html" not in response_text.lower():
         raise RuntimeError(
             f"URL `{url}` returned non-HTML content: status={response.status_code} content_type={content_type or 'unknown'}"
         )
 
     parser = _MainTextHTMLParser()
-    parser.feed(response.text)
+    parser.feed(response_text)
     text = parser.get_text()
     final_url = str(response.url)
 
@@ -297,3 +300,48 @@ def _fetch_once(url: str, headers: dict[str, str], verify_ssl: bool) -> URLConte
 def _is_ssl_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return "certificate" in message or "ssl" in message or "tls" in message
+
+
+def _validate_fetch_url(url: str, *, settings) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeError(f"invalid URL `{url}`: expected absolute http(s) URL")
+    if getattr(settings, "url_fetch_block_private_networks", True) and _is_private_or_local_host(parsed.hostname):
+        raise RuntimeError(f"blocked URL `{url}`: private or local network hosts are not allowed")
+
+
+def _is_private_or_local_host(hostname: str | None) -> bool:
+    if not hostname:
+        return True
+    normalized = hostname.strip().strip("[]").lower().rstrip(".")
+    if normalized in _PRIVATE_HOSTNAMES or normalized.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    return any(
+        (
+            address.is_private,
+            address.is_loopback,
+            address.is_link_local,
+            address.is_multicast,
+            address.is_reserved,
+            address.is_unspecified,
+        )
+    )
+
+
+def _bounded_response_text(response, *, settings) -> str:
+    max_bytes = int(getattr(settings, "url_fetch_max_bytes", _DEFAULT_MAX_RESPONSE_BYTES) or _DEFAULT_MAX_RESPONSE_BYTES)
+    content_length = response.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                raise RuntimeError(f"URL response too large: content_length={content_length} max_bytes={max_bytes}")
+        except ValueError:
+            pass
+    text = response.text
+    if len(text.encode("utf-8", errors="ignore")) > max_bytes:
+        raise RuntimeError(f"URL response too large: max_bytes={max_bytes}")
+    return text

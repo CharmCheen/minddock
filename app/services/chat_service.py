@@ -22,6 +22,7 @@ from app.services.grounded_generation import (
     build_context,
     build_evidence,
     assess_evidence_query_alignment,
+    detect_model_refusal,
     expand_evidence_windows,
     format_evidence_block,
     GroundingAssessment,
@@ -49,27 +50,6 @@ _STRUCTURED_REF_RE = re.compile(
     r"(?i)(?:\b(?:table|figure|fig\.?|algorithm)\s*(?:\d+|[ivxlcdm]+)\b|\bappendix\s+[a-z0-9]+\b|(?:表|图|算法)\s*[0-9一二三四五六七八九十]+|附录\s*[A-Za-z0-9一二三四五六七八九十]+)"
 )
 _SOURCE_POINTER_RE = re.compile(r"(?i)\b(?:this|the|milvus|rag|local)?\s*(?:paper|document|doc|file|pdf)\b")
-_MODEL_REFUSAL_PATTERNS = (
-    "evidence is insufficient",
-    "evidence does not contain",
-    "evidence provided does not",
-    "evidence provided is insufficient",
-    "insufficient to answer",
-    "insufficient to explain",
-    "does not contain any information",
-    "not enough evidence",
-    "no relevant evidence",
-    "cannot answer from the provided",
-    "cannot be answered from",
-    "the evidence does not",
-    "当前知识库中没有足够证据",
-    "没有在当前知识库中找到",
-    "不能给出带引用的结论",
-    "证据不足",
-    "没有找到足够",
-    "无法从提供的证据",
-)
-
 _CROSS_SOURCE_INTENT_PHRASES = (
     "compare",
     "comparison",
@@ -346,7 +326,7 @@ class ChatService:
             if model_refusal:
                 grounding = GroundingAssessment(
                     support_status=SupportStatus.INSUFFICIENT_EVIDENCE,
-                    refusal_reason=RefusalReason.NO_RELEVANT_EVIDENCE,
+                    refusal_reason=RefusalReason.MODEL_REFUSED,
                 )
                 citations = []
                 evidence = []
@@ -402,6 +382,7 @@ class ChatService:
                 metadata=UseCaseMetadata(
                     retrieved_count=len(compressed_hits),
                     mode="grounded",
+                    insufficient_evidence=grounding.support_status == SupportStatus.INSUFFICIENT_EVIDENCE,
                     support_status=grounding.support_status.value,
                     refusal_reason=None if grounding.refusal_reason is None else grounding.refusal_reason.value,
                     timing=UseCaseTiming(
@@ -522,15 +503,7 @@ class ChatService:
     @staticmethod
     def _detect_model_refusal(answer: str) -> str | None:
         """Return the matched refusal pattern if the answer expresses evidence insufficiency, else None."""
-        if not answer:
-            return None
-        normalized = answer.lower().strip()
-        # Check first 300 chars — refusal language typically appears at the start
-        check_region = normalized[:300]
-        for pattern in _MODEL_REFUSAL_PATTERNS:
-            if pattern.lower() in check_region:
-                return pattern
-        return None
+        return detect_model_refusal(answer)
 
     def _build_prompt(self):
         return self._prompt_profile().builder()

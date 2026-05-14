@@ -148,6 +148,7 @@ class RefusalReason(StrEnum):
     NO_RELEVANT_EVIDENCE = "no_relevant_evidence"
     INSUFFICIENT_CONTEXT = "insufficient_context"
     CONFLICTING_SOURCES = "conflicting_sources"
+    MODEL_REFUSED = "model_refused"
     OUT_OF_SCOPE = "out_of_scope"
 
 

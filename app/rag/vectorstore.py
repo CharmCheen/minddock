@@ -28,6 +28,15 @@ _VECTORSTORE_LOCK = Lock()
 DEFAULT_CHUNK_PREVIEW_LENGTH = 220
 
 
+def _notify_bm25_invalidation() -> None:
+    try:
+        from app.rag.hybrid_retrieval import _notify_invalidation
+
+        _notify_invalidation()
+    except ImportError:
+        pass
+
+
 class LangChainChromaStore:
     """Project-facing wrapper around langchain_chroma.Chroma."""
 
@@ -73,6 +82,7 @@ class LangChainChromaStore:
             "embeddings": embeddings,
         }
         self._store._collection.upsert(**payload)
+        _notify_bm25_invalidation()
 
     def upsert_documents(self, documents) -> None:
         if not documents:
@@ -114,6 +124,7 @@ class LangChainChromaStore:
         if not ids:
             return 0
         self._store.delete(ids=ids)
+        _notify_bm25_invalidation()
         return len(ids)
 
     def replace_document(
@@ -201,6 +212,7 @@ class LangChainChromaStore:
             return 0
 
         self._store.delete(where={"doc_id": doc_id})
+        _notify_bm25_invalidation()
         return len(ids)
 
     def count_document_chunks(self, doc_id: str) -> int:

@@ -664,14 +664,14 @@ def test_compare_llm_statement_dict_skips_point_and_fallback_if_empty() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="Left hit 1",
+                text="Left document discusses caching strategies for web applications.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
                 distance=0.1,
             ),
             RetrievedChunk(
-                text="Right hit 1",
+                text="Right document discusses load balancing strategies for web servers.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -1019,7 +1019,7 @@ def test_two_selected_sources_result_contains_evidence_from_both() -> None:
     service = _make_service(
         hits=[
             RetrievedChunk(
-                text="A uses Chroma vector store.",
+                text="Project A implements Chroma vector database for local storage and retrieval.",
                 doc_id="d1",
                 chunk_id="c1",
                 source="kb/a.md",
@@ -1027,7 +1027,7 @@ def test_two_selected_sources_result_contains_evidence_from_both() -> None:
                 distance=0.2,
             ),
             RetrievedChunk(
-                text="B uses Postgres vector store.",
+                text="Project B implements Postgres relational database for remote storage and queries.",
                 doc_id="d2",
                 chunk_id="c2",
                 source="kb/b.md",
@@ -1043,8 +1043,9 @@ def test_two_selected_sources_result_contains_evidence_from_both() -> None:
         filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
     )
     assert result.compare_result.support_status.value == "supported"
-    assert result.compare_result.differences
-    point = result.compare_result.differences[0]
+    all_points = (*result.compare_result.common_points, *result.compare_result.differences, *result.compare_result.conflicts)
+    assert all_points, "At least one comparison point expected"
+    point = all_points[0]
     assert point.left_evidence[0].source == "kb/a.md"
     assert point.right_evidence[0].source == "kb/b.md"
 
@@ -1798,3 +1799,150 @@ def test_heuristic_fallback_evidence_ids_bind_correctly() -> None:
         assert point.right_evidence, "right_evidence must not be empty"
         assert point.left_evidence[0].chunk_id == "c1"
         assert point.right_evidence[0].chunk_id == "c2"
+
+
+# ---------------------------------------------------------------------------
+# Quality gate: generic term filtering and minimum evidence threshold
+# ---------------------------------------------------------------------------
+
+
+def test_common_term_extraction_filters_generic_terms() -> None:
+    """_extract_common_terms should not return generic/domain-neutral words."""
+    from app.services.compare_service import CompareService
+
+    # These texts share only generic terms: research, model, system, method, data
+    left = "The research model uses a novel system method for data processing."
+    right = "The research model proposes a different system method for data analysis."
+    terms = CompareService._extract_common_terms(left, right)
+    generic = {"research", "model", "system", "method", "data", "paper", "study", "approach", "result", "analysis"}
+    for term in terms:
+        assert term not in generic, f"Generic term leaked through: {term}"
+
+
+def test_generic_only_overlap_does_not_produce_common_points() -> None:
+    """When evidence texts share only generic terms, common_points should be empty."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="The research model uses a system method for data.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Paper A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="The research model proposes a system method for data.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Paper B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare approaches", top_k=4)
+
+    # Only generic overlap → no common_points
+    assert result.compare_result.common_points == ()
+
+
+def test_specific_overlap_still_produces_common_points() -> None:
+    """When evidence texts share specific domain terms, common_points should appear."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Both papers use transformer attention mechanism for encoding.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Paper A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Both papers use transformer attention mechanism for decoding.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Paper B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare models", top_k=4)
+
+    # Specific terms: transformer, attention, mechanism
+    assert result.compare_result.common_points
+    stmt = result.compare_result.common_points[0].statement.lower()
+    assert "overlapping topics" in stmt
+
+
+def test_very_short_evidence_does_not_produce_difference() -> None:
+    """Evidence with fewer than 5 tokens should not generate a difference statement."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="short",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="brief",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="B",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare X", top_k=4)
+
+    # Both snippets under 5 tokens → no difference, no common → insufficient
+    assert result.compare_result.differences == ()
+    assert result.compare_result.common_points == ()
+    assert result.compare_result.support_status.value == "insufficient_evidence"
+
+
+def test_borderline_evidence_with_five_tokens_produces_difference() -> None:
+    """Evidence with exactly 5 tokens should be allowed to produce a difference."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Alpha focuses on neural network training.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Alpha",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Beta focuses on distributed systems architecture design.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Beta",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare", top_k=4)
+
+    # Both have >= 5 tokens, no generic-only overlap → difference should appear
+    assert result.compare_result.differences
+    assert "different focuses" in result.compare_result.differences[0].statement.lower()

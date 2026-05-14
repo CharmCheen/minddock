@@ -70,6 +70,13 @@ _STOPWORDS = {
     "with",
 }
 _NEGATION_WORDS = {"no", "not", "never", "without", "none"}
+_GENERIC_TERMS = {
+    "paper", "article", "document", "source", "research", "study",
+    "system", "model", "method", "approach", "data", "result", "results",
+    "experiment", "experiments", "evaluation", "analysis", "information",
+    "content", "text", "section", "chapter", "figure", "table",
+    "description", "discussion", "conclusion", "introduction",
+}
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 _NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?")
 _OVERLAP_THRESHOLD = 0.2
@@ -915,7 +922,14 @@ class CompareService:
             )
 
         differences: tuple[ComparedPoint, ...] = ()
-        if self._normalized_text(left_hit) != self._normalized_text(right_hit):
+        left_tokens = self._tokenize(left_hit.text)
+        right_tokens = self._tokenize(right_hit.text)
+        _MIN_DIFFERENCE_TOKENS = 5
+        if (
+            self._normalized_text(left_hit) != self._normalized_text(right_hit)
+            and len(left_tokens) >= _MIN_DIFFERENCE_TOKENS
+            and len(right_tokens) >= _MIN_DIFFERENCE_TOKENS
+        ):
             left_label = left_group.label or "the left source"
             right_label = right_group.label or "the right source"
             differences = (
@@ -964,7 +978,7 @@ class CompareService:
 
     @staticmethod
     def _extract_common_terms(left_text: str, right_text: str) -> list[str]:
-        stop = _STOPWORDS | _NEGATION_WORDS
+        stop = _STOPWORDS | _NEGATION_WORDS | _GENERIC_TERMS
         left_tokens = {
             t for t in _TOKEN_PATTERN.findall(left_text.lower())
             if t not in stop and len(t) > 3

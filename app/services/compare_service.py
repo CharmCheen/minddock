@@ -12,7 +12,6 @@ from typing import Optional
 
 from app.core.exceptions import ChatError
 from app.llm.factory import get_generation_runtime
-from app.llm.mock import INSUFFICIENT_EVIDENCE
 from app.prompts import GROUNDED_COMPARE_JSON_PROFILE_ID, get_prompt_profile, prompt_profile_trace
 from app.rag.retrieval_models import (
     ComparedPoint,
@@ -255,6 +254,36 @@ class CompareService:
                 conflicts=conflicts,
             )
             compare_result = refresh_compare_result_freshness(compare_result, collection=self.collection)
+
+            # If the compare result has no points, route through insufficient result
+            # to ensure consistent metadata (insufficient_evidence flag, empty citations).
+            if compare_result.support_status == SupportStatus.INSUFFICIENT_EVIDENCE:
+                logger.info(
+                    "Compare produced no usable points; returning insufficient_evidence: question_preview=%s",
+                    question[:60],
+                )
+                generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
+                return self._insufficient_result(
+                    question=question,
+                    hits=state.hits,
+                    grounded_hits=state.grounded_hits,
+                    returned_hits=state.compressed_hits,
+                    retrieval_ms=state.retrieval_ms,
+                    rerank_ms=state.rerank_ms,
+                    compress_ms=state.compress_ms,
+                    generation_ms=generation_ms,
+                    started=started,
+                    filters=filters,
+                    reason="insufficient_context",
+                    workflow_trace=self._finalize_insufficient_trace(
+                        workflow_trace_base,
+                        after_rerank_count=len(state.reranked_hits),
+                        final_candidate_count=len(state.compressed_hits),
+                        extra_warnings=tuple(state.source_warnings) + ("Compare produced no usable points from available evidence.",),
+                    ),
+                    extra_warnings=tuple(state.source_warnings) + ("Compare produced no usable points from available evidence.",),
+                )
+
             citations = self._collect_citations(compare_result)
 
             trace_warnings = build_trace_warnings(citations=citations)
@@ -273,10 +302,11 @@ class CompareService:
                 "trace_warnings": trace_warnings,
             }
             logger.info(
-                "Compare completed: question_preview=%s groups=%d returned=%d",
+                "Compare completed: question_preview=%s groups=%d returned=%d citations=%d",
                 question[:60],
                 len(state.groups),
                 len(state.compressed_hits),
+                len(citations),
             )
 
             metadata_warnings = list(state.source_warnings)
@@ -296,7 +326,7 @@ class CompareService:
                 metadata=UseCaseMetadata(
                     retrieved_count=len(state.compressed_hits),
                     mode="grounded_compare",
-                    insufficient_evidence=compare_result.support_status == SupportStatus.INSUFFICIENT_EVIDENCE,
+                    insufficient_evidence=False,
                     support_status=compare_result.support_status.value,
                     refusal_reason=None if compare_result.refusal_reason is None else compare_result.refusal_reason.value,
                     warnings=tuple(metadata_warnings),
@@ -332,9 +362,10 @@ class CompareService:
         precomputed_hits: list[RetrievedChunk] | None,
     ) -> _PreparedCompareState:
         selected_sources = filters.sources if filters is not None else ()
+        selected_doc_ids = filters.doc_ids if filters is not None else ()
 
         if precomputed_hits is not None:
-            hits = precomputed_hits
+            hits = self._filter_hits(precomputed_hits, filters)
             retrieval_ms = 0.0
             source_warnings: list[str] = []
             grounded_hits = select_grounded_hits(hits).hits
@@ -357,6 +388,23 @@ class CompareService:
                 source_warnings=source_warnings,
             )
 
+        if len(selected_doc_ids) >= 2:
+            source_warnings = []
+            if len(selected_doc_ids) > 2:
+                source_warnings.append(
+                    "Compare currently supports two selected sources; additional sources were ignored."
+                )
+            doc_a, doc_b = selected_doc_ids[0], selected_doc_ids[1]
+            left_state = self._retrieve_process_scope(question, top_k, filters, doc_id=doc_a)
+            right_state = self._retrieve_process_scope(question, top_k, filters, doc_id=doc_b)
+            return self._prepared_from_two_sides(
+                left_state=left_state,
+                right_state=right_state,
+                left_key=doc_a,
+                right_key=doc_b,
+                retrieval_source_warnings=source_warnings,
+            )
+
         if len(selected_sources) >= 2:
             source_warnings = []
             if len(selected_sources) > 2:
@@ -364,49 +412,19 @@ class CompareService:
                     "Compare currently supports two sources; additional sources were ignored."
                 )
             source_a, source_b = selected_sources[0], selected_sources[1]
-            left_state = self._retrieve_process_source(question, top_k, filters, source_a)
-            right_state = self._retrieve_process_source(question, top_k, filters, source_b)
-
-            hits = left_state.hits + right_state.hits
-            grounded_hits = left_state.grounded_hits + right_state.grounded_hits
-            reranked_hits = left_state.reranked_hits + right_state.reranked_hits
-            compressed_hits = left_state.compressed_hits + right_state.compressed_hits
-            retrieval_ms = round(left_state.retrieval_ms + right_state.retrieval_ms, 2)
-            rerank_ms = round(left_state.rerank_ms + right_state.rerank_ms, 2)
-            compress_ms = round(left_state.compress_ms + right_state.compress_ms, 2)
-
-            groups: list[_EvidenceGroup] = []
-            if left_state.compressed_hits:
-                groups.append(
-                    _EvidenceGroup(
-                        key=source_a,
-                        label=self._group_label(left_state.compressed_hits[0]),
-                        hits=tuple(sorted(left_state.compressed_hits, key=self._hit_sort_key)),
-                    )
-                )
-            if right_state.compressed_hits:
-                groups.append(
-                    _EvidenceGroup(
-                        key=source_b,
-                        label=self._group_label(right_state.compressed_hits[0]),
-                        hits=tuple(sorted(right_state.compressed_hits, key=self._hit_sort_key)),
-                    )
-                )
-            return _PreparedCompareState(
-                hits=hits,
-                grounded_hits=grounded_hits,
-                reranked_hits=reranked_hits,
-                compressed_hits=compressed_hits,
-                groups=groups,
-                retrieval_ms=retrieval_ms,
-                rerank_ms=rerank_ms,
-                compress_ms=compress_ms,
-                source_warnings=source_warnings,
+            left_state = self._retrieve_process_scope(question, top_k, filters, source=source_a)
+            right_state = self._retrieve_process_scope(question, top_k, filters, source=source_b)
+            return self._prepared_from_two_sides(
+                left_state=left_state,
+                right_state=right_state,
+                left_key=source_a,
+                right_key=source_b,
+                retrieval_source_warnings=source_warnings,
             )
 
         # Standard single-retrieval path
         retrieval_started = time.perf_counter()
-        hits = self.search_service.retrieve(query=question, top_k=top_k, filters=filters)
+        hits = self._filter_hits(self.search_service.retrieve(query=question, top_k=top_k, filters=filters), filters)
         retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
         source_warnings = []
         grounded_hits = select_grounded_hits(hits).hits
@@ -429,16 +447,21 @@ class CompareService:
             source_warnings=source_warnings,
         )
 
-    def _retrieve_process_source(
+    def _retrieve_process_scope(
         self,
         question: str,
         top_k: int,
         filters: RetrievalFilters,
-        source: str,
+        source: str | None = None,
+        doc_id: str | None = None,
     ) -> _SourceRetrievalState:
-        source_filters = replace(filters, sources=(source,))
+        source_filters = replace(
+            filters,
+            sources=(source,) if source is not None else filters.sources,
+            doc_ids=(doc_id,) if doc_id is not None else filters.doc_ids,
+        )
         retrieval_started = time.perf_counter()
-        hits = self.search_service.retrieve(query=question, top_k=top_k, filters=source_filters)
+        hits = self._filter_hits(self.search_service.retrieve(query=question, top_k=top_k, filters=source_filters), source_filters)
         retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
         grounded_hits = select_grounded_hits(hits).hits
         rerank_started = time.perf_counter()
@@ -455,6 +478,52 @@ class CompareService:
             retrieval_ms=retrieval_ms,
             rerank_ms=rerank_ms,
             compress_ms=compress_ms,
+        )
+
+    def _prepared_from_two_sides(
+        self,
+        *,
+        left_state: _SourceRetrievalState,
+        right_state: _SourceRetrievalState,
+        left_key: str,
+        right_key: str,
+        retrieval_source_warnings: list[str],
+    ) -> _PreparedCompareState:
+        hits = left_state.hits + right_state.hits
+        grounded_hits = left_state.grounded_hits + right_state.grounded_hits
+        reranked_hits = left_state.reranked_hits + right_state.reranked_hits
+        compressed_hits = left_state.compressed_hits + right_state.compressed_hits
+        retrieval_ms = round(left_state.retrieval_ms + right_state.retrieval_ms, 2)
+        rerank_ms = round(left_state.rerank_ms + right_state.rerank_ms, 2)
+        compress_ms = round(left_state.compress_ms + right_state.compress_ms, 2)
+
+        groups: list[_EvidenceGroup] = []
+        if left_state.compressed_hits:
+            groups.append(
+                _EvidenceGroup(
+                    key=left_key,
+                    label=self._group_label(left_state.compressed_hits[0]),
+                    hits=tuple(sorted(left_state.compressed_hits, key=self._hit_sort_key)),
+                )
+            )
+        if right_state.compressed_hits:
+            groups.append(
+                _EvidenceGroup(
+                    key=right_key,
+                    label=self._group_label(right_state.compressed_hits[0]),
+                    hits=tuple(sorted(right_state.compressed_hits, key=self._hit_sort_key)),
+                )
+            )
+        return _PreparedCompareState(
+            hits=hits,
+            grounded_hits=grounded_hits,
+            reranked_hits=reranked_hits,
+            compressed_hits=compressed_hits,
+            groups=groups,
+            retrieval_ms=retrieval_ms,
+            rerank_ms=rerank_ms,
+            compress_ms=compress_ms,
+            source_warnings=retrieval_source_warnings,
         )
 
     def _insufficient_result(
@@ -728,6 +797,7 @@ class CompareService:
             left_evidence=tuple(hit.text for hit in left_group.hits),
             right_label=right_group.label,
             right_evidence=tuple(hit.text for hit in right_group.hits),
+            response_language="Chinese" if _contains_cjk(question) else "English",
         )
 
     def _prompt_profile(self):
@@ -911,10 +981,18 @@ class CompareService:
             terms_str = ", ".join(common_terms)
             common_points = (
                 ComparedPoint(
-                    statement=f"Both sources address overlapping topics: {terms_str}.",
+                    statement=(
+                        f"两篇资料都涉及这些共同主题：{terms_str}。"
+                        if _contains_cjk(question)
+                        else f"Both sources address overlapping topics: {terms_str}."
+                    ),
                     left_evidence=left_evidence,
                     right_evidence=right_evidence,
-                    summary_note=f"Shared terms found in {left_group.label} and {right_group.label}.",
+                    summary_note=(
+                        f"共同主题来自 {left_group.label} 和 {right_group.label} 的证据片段。"
+                        if _contains_cjk(question)
+                        else f"Shared terms found in {left_group.label} and {right_group.label}."
+                    ),
                     confidence=None,
                     taxonomy=None,
                     evidence_coverage=self._compute_evidence_coverage(left_evidence, right_evidence),
@@ -935,7 +1013,10 @@ class CompareService:
             differences = (
                 ComparedPoint(
                     statement=(
-                        f"The available excerpts point to different focuses: "
+                        f"现有证据显示两篇资料的侧重点不同：左侧资料（{left_label}）主要涉及 {left_preview}，"
+                        f"右侧资料（{right_label}）主要涉及 {right_preview}。"
+                        if _contains_cjk(question)
+                        else f"The available excerpts point to different focuses: "
                         f"the left source ({left_label}) discusses {left_preview}, "
                         f"while the right source ({right_label}) discusses {right_preview}."
                     ),
@@ -953,12 +1034,18 @@ class CompareService:
             conflicts = (
                 ComparedPoint(
                     statement=(
-                        f"The excerpts contain conflicting details: "
+                        f"证据片段中存在可能冲突的细节：{left_preview} vs. {right_preview}."
+                        if _contains_cjk(question)
+                        else f"The excerpts contain conflicting details: "
                         f"{left_preview} vs. {right_preview}."
                     ),
                     left_evidence=left_evidence,
                     right_evidence=right_evidence,
-                    summary_note="The paired evidence shares topic terms but differs in numbers or polarity.",
+                    summary_note=(
+                        "配对证据具有相同主题词，但在数字或否定表达上不一致。"
+                        if _contains_cjk(question)
+                        else "The paired evidence shares topic terms but differs in numbers or polarity."
+                    ),
                     confidence=None,
                     taxonomy=None,
                     evidence_coverage=self._compute_evidence_coverage(left_evidence, right_evidence),
@@ -1093,3 +1180,29 @@ class CompareService:
         if len(normalized) <= limit:
             return normalized
         return f"{normalized[: limit - 3]}..."
+
+    @staticmethod
+    def _filter_hits(hits: list[RetrievedChunk], filters: RetrievalFilters | None) -> list[RetrievedChunk]:
+        filtered: list[RetrievedChunk] = []
+        for hit in hits:
+            if not isinstance(hit.text, str) or not hit.text.strip():
+                continue
+            if filters is not None and not filters.matches_metadata(
+                {
+                    "doc_id": hit.doc_id,
+                    "source": hit.source,
+                    "source_type": hit.source_type,
+                    "section": hit.section,
+                    "title": hit.title,
+                    "page": hit.page,
+                    "requested_url": hit.requested_url,
+                    **hit.extra_metadata,
+                }
+            ):
+                continue
+            filtered.append(hit)
+        return filtered
+
+
+def _contains_cjk(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text)

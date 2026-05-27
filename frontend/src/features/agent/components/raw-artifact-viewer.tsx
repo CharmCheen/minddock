@@ -79,16 +79,64 @@ function humanizeStatus(value: string): string {
     .join(' ');
 }
 
-function buildStatusBadges(metadata: Record<string, unknown> | undefined): StatusBadge[] {
+function normalizeMetadataString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function nestedSupportStatus(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  return normalizeMetadataString((value as Record<string, unknown>).support_status);
+}
+
+function isInsufficientEvidenceRefusalText(value: string | undefined): boolean {
+  if (!value) return false;
+  const textStart = value.trim().slice(0, 300).toLowerCase();
+  return /证据不足|根据.{0,30}证据.{0,30}无法|无法.{0,20}(回答|介绍|确定|判断|给出)|未包含.{0,20}(信息|内容)|不包含.{0,20}相关|insufficient evidence|not enough evidence|provided evidence.{0,80}(does not|doesn't|cannot|can't)|cannot answer/.test(textStart);
+}
+
+function isInsufficientEvidenceArtifact(
+  metadata: Record<string, unknown> | undefined,
+  content: Record<string, unknown>,
+  answerText?: string,
+): boolean {
+  const grounded = metadata?.grounded_answer as Record<string, unknown> | undefined;
+  const compare = metadata?.compare_result as Record<string, unknown> | undefined;
+  const rawData = content.data as Record<string, unknown> | undefined;
+  const refusalReason = metadata?.refusal_reason || grounded?.refusal_reason || compare?.refusal_reason || rawData?.refusal_reason;
+  const hasRefusal = refusalReason !== null && refusalReason !== undefined && String(refusalReason).trim() !== '';
+
+  return truthyMetadataFlag(metadata?.insufficient_evidence)
+    || normalizeMetadataString(metadata?.support_status) === 'insufficient_evidence'
+    || nestedSupportStatus(grounded) === 'insufficient_evidence'
+    || nestedSupportStatus(compare) === 'insufficient_evidence'
+    || nestedSupportStatus(rawData) === 'insufficient_evidence'
+    || hasRefusal
+    || isInsufficientEvidenceRefusalText(answerText);
+}
+
+function buildStatusBadges(metadata: Record<string, unknown> | undefined, answerText?: string): StatusBadge[] {
   if (!metadata) return [];
 
   const grounded = metadata.grounded_answer as Record<string, unknown> | undefined;
-  const supportStatus = String(metadata.support_status || grounded?.support_status || '');
-  const refusalReason = metadata.refusal_reason || grounded?.refusal_reason;
+  const compare = metadata.compare_result as Record<string, unknown> | undefined;
+  const metadataSupportStatus = normalizeMetadataString(metadata.support_status);
+  const groundedSupportStatus = nestedSupportStatus(grounded);
+  const compareSupportStatus = nestedSupportStatus(compare);
+  const refusalReason = metadata.refusal_reason || grounded?.refusal_reason || compare?.refusal_reason;
   const fallbackUsed = metadata.fallback_used === true;
   const mockUsed = metadata.mock_used === true;
   const runtimeStatus = String(metadata.runtime_status || '');
-  const insufficientEvidence = metadata.insufficient_evidence === true || supportStatus === 'insufficient_evidence';
+  const hasRefusal = refusalReason !== null && refusalReason !== undefined && String(refusalReason).trim() !== '';
+  const refusedByAnswerText = isInsufficientEvidenceRefusalText(answerText);
+  const insufficientEvidence = truthyMetadataFlag(metadata.insufficient_evidence)
+    || metadataSupportStatus === 'insufficient_evidence'
+    || groundedSupportStatus === 'insufficient_evidence'
+    || compareSupportStatus === 'insufficient_evidence'
+    || hasRefusal
+    || refusedByAnswerText;
+  const supportStatus = insufficientEvidence
+    ? 'insufficient_evidence'
+    : metadataSupportStatus || groundedSupportStatus || compareSupportStatus;
   const badges: StatusBadge[] = [];
 
   if (runtimeStatus === 'mock' || mockUsed) {
@@ -316,16 +364,22 @@ function renderComparePointBadges(pt: any, sectionKey: CompareSectionKey) {
 export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = ({ artifact }) => {
   const { kind, content, metadata, citations: artifactCitations } = artifact;
   const { density } = useWorkspacePreferences();
-  const statusBadges = buildStatusBadges(metadata);
+  const answerText = kind === 'text' ? String(content.text || '') : undefined;
+  const statusBadges = buildStatusBadges(metadata, answerText);
 
   // Extract citations from multiple possible locations
+  // Skip citations when evidence is insufficient (refusal response)
+  const insufficientEvidence = isInsufficientEvidenceArtifact(metadata, content, answerText);
+
   let citations: CitationItem[] | undefined;
-  if (artifactCitations && artifactCitations.length > 0) {
-    citations = artifactCitations.map(normalizeToCitationItem);
-  } else if (metadata?.grounded_answer) {
-    const evidence = (metadata.grounded_answer as any)?.evidence;
-    if (Array.isArray(evidence) && evidence.length > 0) {
-      citations = evidence.map(normalizeToCitationItem);
+  if (!insufficientEvidence) {
+    if (artifactCitations && artifactCitations.length > 0) {
+      citations = artifactCitations.map(normalizeToCitationItem);
+    } else if (metadata?.grounded_answer) {
+      const evidence = (metadata.grounded_answer as any)?.evidence;
+      if (Array.isArray(evidence) && evidence.length > 0) {
+        citations = evidence.map(normalizeToCitationItem);
+      }
     }
   }
 
@@ -402,6 +456,32 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
     // Special rendering for Compare Task schema
     if (typeof rawData === 'object' && rawData !== null && ('common_points' in rawData || 'differences' in rawData)) {
       const dataObj = rawData as any;
+      const commonPoints = Array.isArray(dataObj.common_points) ? dataObj.common_points : [];
+      const differences = Array.isArray(dataObj.differences) ? dataObj.differences : [];
+      const conflicts = Array.isArray(dataObj.conflicts) ? dataObj.conflicts : [];
+      const hasCompareContent = commonPoints.length > 0 || differences.length > 0 || conflicts.length > 0;
+
+      if (!hasCompareContent) {
+        // Check support_status from the data payload as well
+        const dataSupportStatus = typeof dataObj.support_status === 'string' ? dataObj.support_status : '';
+        const isInsufficient = insufficientEvidence || dataSupportStatus === 'insufficient_evidence';
+        if (isInsufficient) {
+          return null;
+        }
+        return (
+          <div style={{
+            ...cardBase(density),
+            animation: 'fadeSlideUp 250ms ease-out forwards',
+          }}>
+            <span style={typeBadge('#b45309', '#fffbeb', density)}>
+              Comparison
+            </span>
+            <div style={{ marginTop: '12px', color: 'var(--color-text-secondary)', fontSize: '14px', lineHeight: 1.7 }}>
+              暂无可展示的结构化对比结果。
+            </div>
+          </div>
+        );
+      }
 
       const getStatement = (pt: any): string => {
         return pt?.statement || pt?.summary_note || String(pt) || '';
@@ -463,16 +543,16 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
             </span>
           </div>
 
-          {dataObj.common_points && dataObj.common_points.length > 0 && sectionCard(
-            'Common Points', dataObj.common_points.length, '#15803d', '#f0fdf4', '#bbf7d0', dataObj.common_points, 'common_points'
+          {commonPoints.length > 0 && sectionCard(
+            'Common Points', commonPoints.length, '#15803d', '#f0fdf4', '#bbf7d0', commonPoints, 'common_points'
           )}
 
-          {dataObj.differences && dataObj.differences.length > 0 && sectionCard(
-            'Differences', dataObj.differences.length, '#b45309', '#fffbeb', '#fde68a', dataObj.differences, 'differences'
+          {differences.length > 0 && sectionCard(
+            'Differences', differences.length, '#b45309', '#fffbeb', '#fde68a', differences, 'differences'
           )}
 
-          {dataObj.conflicts && dataObj.conflicts.length > 0 && sectionCard(
-            'Conflicts', dataObj.conflicts.length, '#dc2626', '#fef2f2', '#fecaca', dataObj.conflicts, 'conflicts'
+          {conflicts.length > 0 && sectionCard(
+            'Conflicts', conflicts.length, '#dc2626', '#fef2f2', '#fecaca', conflicts, 'conflicts'
           )}
 
           {citations && citations.length > 0 && <div style={{ marginTop: density === 'compact' ? '14px' : '20px' }}><CitationList citations={citations} /></div>}

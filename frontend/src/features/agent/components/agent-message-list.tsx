@@ -63,6 +63,12 @@ function formatEvidenceSummary(trace: Record<string, unknown>): string | null {
   const citationCount = asNonNegativeInteger(trace.final_citation_count);
   const sourceCount = asNonNegativeInteger(trace.selected_sources_count);
 
+  // Don't show "0 citations" — it's misleading when the result already shows
+  // an insufficient-evidence message.
+  if (citationCount !== null && citationCount === 0) {
+    return null;
+  }
+
   if (citationCount !== null && sourceCount !== null && sourceCount > 0) {
     return `Evidence: ${citationCount} ${pluralize(citationCount, 'citation', 'citations')} from ${sourceCount} ${pluralize(sourceCount, 'source', 'sources')}`;
   }

@@ -17,6 +17,8 @@ class FakeSearchService:
         self.last_filters = filters
         self.calls.append((query, filters))
         hits = self._hits
+        if filters is not None and filters.doc_ids:
+            hits = [h for h in hits if h.doc_id in filters.doc_ids]
         if filters is not None and len(filters.sources) == 1:
             source = filters.sources[0]
             hits = [h for h in hits if h.source == source]
@@ -1564,6 +1566,90 @@ def test_compare_detects_model_refusal_and_returns_insufficient() -> None:
     assert result.metadata.timing.generation_ms is not None
 
 
+def test_compare_selected_doc_ids_scope_excludes_unselected_source() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Selected A discusses Prompt Profile based generation.",
+                doc_id="a",
+                chunk_id="a1",
+                source="kb/a.md",
+                title="A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Selected B discusses workflow trace observability.",
+                doc_id="b",
+                chunk_id="b1",
+                source="kb/b.md",
+                title="B",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Unselected C has a much higher matching retrieval score.",
+                doc_id="c",
+                chunk_id="c1",
+                source="kb/c.md",
+                title="C",
+                distance=0.01,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("a", ["a1"]), "kb/b.md": ("b", ["b1"])}),
+    )
+
+    result = service.compare(
+        question="这两个文献有什么区别",
+        top_k=4,
+        filters=RetrievalFilters(doc_ids=("a", "b"), sources=("kb/a.md", "kb/b.md")),
+    )
+
+    cited_doc_ids = {citation.doc_id for citation in result.citations}
+    assert cited_doc_ids <= {"a", "b"}
+    assert "c" not in cited_doc_ids
+    all_points = (*result.compare_result.common_points, *result.compare_result.differences, *result.compare_result.conflicts)
+    assert all_points
+    assert all(
+        evidence.doc_id in {"a", "b"}
+        for point in all_points
+        for evidence in (*point.left_evidence, *point.right_evidence)
+    )
+
+
+def test_compare_chinese_query_heuristic_fallback_is_chinese() -> None:
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Paper A focuses on retrieval augmented generation and citation binding.",
+                doc_id="a",
+                chunk_id="a1",
+                source="kb/a.md",
+                title="A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Paper B focuses on runtime workflow trace and execution observability.",
+                doc_id="b",
+                chunk_id="b1",
+                source="kb/b.md",
+                title="B",
+                distance=0.2,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("a", ["a1"]), "kb/b.md": ("b", ["b1"])}),
+    )
+
+    result = service.compare(
+        question="这两个文献有什么区别",
+        top_k=4,
+        filters=RetrievalFilters(doc_ids=("a", "b")),
+    )
+
+    assert result.compare_result.differences
+    assert "侧重点不同" in result.compare_result.differences[0].statement
+
+
 # ---------------------------------------------------------------------------
 # Heuristic fallback quality regression tests
 # ---------------------------------------------------------------------------
@@ -1946,3 +2032,301 @@ def test_borderline_evidence_with_five_tokens_produces_difference() -> None:
     # Both have >= 5 tokens, no generic-only overlap → difference should appear
     assert result.compare_result.differences
     assert "different focuses" in result.compare_result.differences[0].statement.lower()
+
+
+# ---------------------------------------------------------------------------
+# Compare empty-result / insufficient_evidence metadata tests
+# ---------------------------------------------------------------------------
+
+
+def test_compare_empty_llm_output_returns_insufficient_with_proper_metadata() -> None:
+    """When LLM returns empty arrays and heuristic also fails, the result must have
+    insufficient_evidence=True in metadata and empty citations."""
+    llm_json = '{"common_points":[],"differences":[],"conflicts":[]}'
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="X",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Y",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text=llm_json),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare X and Y", top_k=4)
+
+    # Must be insufficient_evidence, not supported with empty content
+    assert result.compare_result.support_status.value == "insufficient_evidence"
+    assert result.metadata.insufficient_evidence is True
+    assert result.metadata.support_status == "insufficient_evidence"
+    assert result.citations == []
+    assert result.metadata.warnings  # Should have warnings
+
+
+def test_compare_one_source_no_chunks_returns_insufficient() -> None:
+    """When one selected source returns no chunks, compare must return
+    insufficient_evidence with proper metadata."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Source A has content about machine learning algorithms.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Paper A",
+                distance=0.2,
+            ),
+        ],
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare the two papers",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
+    )
+
+    assert result.compare_result.support_status.value == "insufficient_evidence"
+    assert result.metadata.insufficient_evidence is True
+    assert result.citations == []
+
+
+def test_compare_both_sources_no_chunks_returns_insufficient() -> None:
+    """When both selected sources return no chunks, compare must return
+    insufficient_evidence."""
+    service = _make_service(
+        hits=[],
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare the papers",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
+    )
+
+    assert result.compare_result.support_status.value == "insufficient_evidence"
+    assert result.metadata.insufficient_evidence is True
+    assert result.citations == []
+
+
+def test_compare_supported_result_has_citations() -> None:
+    """When compare is supported, citations must be non-empty."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Project A implements Chroma vector database for local storage and retrieval.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Project A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Project B implements Postgres relational database for remote storage.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Project B",
+                distance=0.3,
+            ),
+        ],
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare storage", top_k=4)
+
+    assert result.compare_result.support_status.value == "supported"
+    assert result.metadata.insufficient_evidence is False
+    assert len(result.citations) > 0
+    doc_ids = {c.doc_id for c in result.citations}
+    assert "d1" in doc_ids
+    assert "d2" in doc_ids
+
+
+def test_compare_supported_citations_only_from_selected_sources() -> None:
+    """Citations must only come from selected sources, not from unselected ones."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Selected A discusses Prompt Profile based generation workflow.",
+                doc_id="a",
+                chunk_id="a1",
+                source="kb/a.md",
+                title="A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Selected B discusses workflow trace observability and debugging.",
+                doc_id="b",
+                chunk_id="b1",
+                source="kb/b.md",
+                title="B",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Unselected C has a much higher matching retrieval score.",
+                doc_id="c",
+                chunk_id="c1",
+                source="kb/c.md",
+                title="C",
+                distance=0.01,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("a", ["a1"]), "kb/b.md": ("b", ["b1"])}),
+    )
+
+    result = service.compare(
+        question="Compare these documents",
+        top_k=4,
+        filters=RetrievalFilters(doc_ids=("a", "b"), sources=("kb/a.md", "kb/b.md")),
+    )
+
+    cited_doc_ids = {c.doc_id for c in result.citations}
+    assert cited_doc_ids <= {"a", "b"}
+    assert "c" not in cited_doc_ids
+
+
+def test_compare_chinese_query_returns_chinese_output() -> None:
+    """Chinese query must produce Chinese comparison text."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Paper A focuses on retrieval augmented generation and citation binding for knowledge systems.",
+                doc_id="a",
+                chunk_id="a1",
+                source="kb/a.md",
+                title="A",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Paper B focuses on runtime workflow trace and execution observability for debugging.",
+                doc_id="b",
+                chunk_id="b1",
+                source="kb/b.md",
+                title="B",
+                distance=0.2,
+            ),
+        ],
+        runtime=FakeRuntime(raise_on_generate=True),
+        collection=FakeCollection(sources={"kb/a.md": ("a", ["a1"]), "kb/b.md": ("b", ["b1"])}),
+    )
+
+    result = service.compare(
+        question="这两个文章的区别是什么",
+        top_k=4,
+        filters=RetrievalFilters(doc_ids=("a", "b")),
+    )
+
+    assert result.compare_result.differences
+    # Statement should be in Chinese
+    stmt = result.compare_result.differences[0].statement
+    assert any("一" <= char <= "鿿" for char in stmt)
+
+
+def test_compare_insufficient_result_has_workflow_trace() -> None:
+    """Insufficient result must have a workflow trace with expected fields."""
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="X",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+        ],
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
+    )
+
+    assert result.compare_result.support_status.value == "insufficient_evidence"
+    assert result.metadata.insufficient_evidence is True
+    trace = result.metadata.workflow_trace
+    assert trace is not None
+    assert trace["operation"] == "compare"
+    assert trace["final_citation_count"] == 0
+    assert trace["final_evidence_count"] == 0
+
+
+def test_compare_llm_refusal_returns_insufficient_with_model_refused() -> None:
+    """When LLM explicitly refuses, result must have model_refused refusal reason."""
+    refusal_text = "证据不足，无法从提供的证据中进行对比。"
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="Some content about topic A.",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                title="Doc A",
+                distance=0.5,
+            ),
+            RetrievedChunk(
+                text="Some content about topic B.",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                title="Doc B",
+                distance=0.6,
+            ),
+        ],
+        runtime=FakeRuntime(text=refusal_text),
+        collection=FakeCollection(sources={"kb/a.md": ("d1", ["c1"]), "kb/b.md": ("d2", ["c2"])}),
+    )
+
+    result = service.compare(question="Compare the documents", top_k=4)
+
+    assert result.compare_result.support_status.value == "insufficient_evidence"
+    assert result.compare_result.refusal_reason.value == "model_refused"
+    assert result.metadata.insufficient_evidence is True
+    assert result.citations == []
+
+
+def test_compare_empty_llm_with_source_scoped_returns_insufficient() -> None:
+    """When using source-scoped retrieval and LLM returns empty,
+    result must be insufficient_evidence with proper metadata."""
+    llm_json = '{"common_points":[],"differences":[],"conflicts":[]}'
+    service = _make_service(
+        hits=[
+            RetrievedChunk(
+                text="X",
+                doc_id="d1",
+                chunk_id="c1",
+                source="kb/a.md",
+                distance=0.2,
+            ),
+            RetrievedChunk(
+                text="Y",
+                doc_id="d2",
+                chunk_id="c2",
+                source="kb/b.md",
+                distance=0.3,
+            ),
+        ],
+        runtime=FakeRuntime(text=llm_json),
+        collection=FakeCollection(sources={}),
+    )
+    result = service.compare(
+        question="Compare",
+        top_k=4,
+        filters=RetrievalFilters(sources=("kb/a.md", "kb/b.md")),
+    )
+
+    assert result.compare_result.support_status.value == "insufficient_evidence"
+    assert result.metadata.insufficient_evidence is True
+    assert result.citations == []

@@ -11,6 +11,7 @@ from app.evaluation.models import (
     CitationConsistencyEvaluation,
     EvaluationCaseResult,
     EvaluationSummary,
+    InsufficientEvidenceEvaluation,
     LatencySummary,
     RetrievalEvaluation,
     RetrievalReference,
@@ -139,6 +140,21 @@ def evaluate_retrieval(case: BenchmarkCase, references: list[RetrievalReference]
     )
 
 
+def evaluate_insufficient_evidence(
+    case: BenchmarkCase,
+    response: UnifiedExecutionResponse,
+) -> InsufficientEvidenceEvaluation:
+    """Check whether the system's insufficient-evidence detection matches the expected label."""
+
+    actual = response.metadata.insufficient_evidence
+    expected = case.expected_insufficient_evidence
+    return InsufficientEvidenceEvaluation(
+        expected=expected,
+        actual=actual,
+        correct=expected == actual,
+    )
+
+
 def evaluate_citation_consistency(
     case: BenchmarkCase,
     response: UnifiedExecutionResponse,
@@ -235,12 +251,28 @@ def summarize_results(results: list[EvaluationCaseResult]) -> EvaluationSummary:
         "by_task_type": {task_type: summarize_latencies(values).to_dict() for task_type, values in sorted(by_task.items())},
     }
 
+    # Insufficient evidence detection
+    ie_cases = [result for result in results if result.insufficient_evidence_eval.expected]
+    non_ie_cases = [result for result in results if not result.insufficient_evidence_eval.expected]
+    ie_correct = sum(1 for result in ie_cases if result.insufficient_evidence_eval.correct)
+    non_ie_correct = sum(1 for result in non_ie_cases if result.insufficient_evidence_eval.correct)
+    ie_all_correct = sum(1 for result in results if result.insufficient_evidence_eval.correct)
+    insufficient_evidence = {
+        "accuracy": _safe_rate(ie_all_correct, total),
+        "refusal_precision": _safe_rate(ie_correct, len(ie_cases)) if ie_cases else None,
+        "refusal_recall": _safe_rate(ie_correct, len(ie_cases)) if ie_cases else None,
+        "non_refusal_accuracy": _safe_rate(non_ie_correct, len(non_ie_cases)) if non_ie_cases else None,
+        "expected_refusal_count": len(ie_cases),
+        "actual_refusal_count": sum(1 for result in results if result.insufficient_evidence_eval.actual),
+    }
+
     failed_case_count = sum(1 for result in results if result.failure_reasons)
     return EvaluationSummary(
         dataset_size=total,
         task_counts=task_counts,
         retrieval=retrieval,
         citation=citation,
+        insufficient_evidence=insufficient_evidence,
         latency=latency,
         failed_case_count=failed_case_count,
     )

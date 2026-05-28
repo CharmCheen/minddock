@@ -8,11 +8,12 @@ from app.application.models import TaskType, UnifiedExecutionResponse
 from app.evaluation.datasets import load_benchmark_dataset
 from app.evaluation.metrics import (
     evaluate_citation_consistency,
+    evaluate_insufficient_evidence,
     evaluate_retrieval,
     extract_retrieval_references,
     summarize_latencies,
 )
-from app.evaluation.models import BenchmarkCase, EvaluationReport, EvaluationRunArtifacts, EvaluationSummary
+from app.evaluation.models import BenchmarkCase, EvaluationReport, EvaluationRunArtifacts, EvaluationSummary, InsufficientEvidenceEvaluation
 from app.evaluation.runner import run_evaluation_from_dataset
 from app.rag.retrieval_models import CitationRecord, ComparedPoint, EvidenceObject, GroundedAnswer, GroundedCompareResult
 from app.services.service_models import UseCaseMetadata, UseCaseTiming
@@ -186,6 +187,8 @@ def test_run_evaluation_from_dataset_happy_path(tmp_path: Path) -> None:
     assert result.report.summary.dataset_size == 3
     assert result.report.summary.retrieval["hit_at_5"] == 1.0
     assert result.report.summary.citation["overall_consistency_rate"] == 1.0
+    assert result.report.summary.insufficient_evidence["accuracy"] == 1.0
+    assert result.report.summary.insufficient_evidence["expected_refusal_count"] == 0
     assert Path(result.json_path).exists()
     assert Path(result.markdown_path).exists()
     assert "compare-case" in Path(result.markdown_path).read_text(encoding="utf-8")
@@ -454,6 +457,129 @@ def test_search_results_artifact_takes_priority_over_citations() -> None:
     assert references[0].chunk_id == "artifact-chunk"
 
 
+# ---------------------------------------------------------------------------
+# Insufficient evidence detection tests
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_insufficient_evidence_correct_refusal() -> None:
+    """System correctly refuses when evidence is insufficient."""
+    case = BenchmarkCase(
+        id="ie-case",
+        task_type="chat",
+        query="unanswerable question",
+        expected_insufficient_evidence=True,
+    )
+    response = UnifiedExecutionResponse(
+        task_type=TaskType.CHAT,
+        artifacts=(),
+        citations=(),
+        metadata=UseCaseMetadata(insufficient_evidence=True),
+    )
+
+    result = evaluate_insufficient_evidence(case, response)
+
+    assert result.expected is True
+    assert result.actual is True
+    assert result.correct is True
+
+
+def test_evaluate_insufficient_evidence_missed_refusal() -> None:
+    """System fails to refuse when evidence is actually insufficient."""
+    case = BenchmarkCase(
+        id="ie-case",
+        task_type="chat",
+        query="unanswerable question",
+        expected_insufficient_evidence=True,
+    )
+    response = UnifiedExecutionResponse(
+        task_type=TaskType.CHAT,
+        artifacts=(),
+        citations=(CitationRecord(doc_id="d1", chunk_id="c1", source="doc.md", snippet="text"),),
+        metadata=UseCaseMetadata(insufficient_evidence=False),
+    )
+
+    result = evaluate_insufficient_evidence(case, response)
+
+    assert result.expected is True
+    assert result.actual is False
+    assert result.correct is False
+
+
+def test_evaluate_insufficient_evidence_false_refusal() -> None:
+    """System incorrectly refuses when evidence is actually sufficient."""
+    case = BenchmarkCase(
+        id="ie-case",
+        task_type="chat",
+        query="answerable question",
+        expected_insufficient_evidence=False,
+    )
+    response = UnifiedExecutionResponse(
+        task_type=TaskType.CHAT,
+        artifacts=(),
+        citations=(),
+        metadata=UseCaseMetadata(insufficient_evidence=True),
+    )
+
+    result = evaluate_insufficient_evidence(case, response)
+
+    assert result.expected is False
+    assert result.actual is True
+    assert result.correct is False
+
+
+def test_evaluate_insufficient_evidence_correct_answer() -> None:
+    """System correctly answers when evidence is sufficient."""
+    case = BenchmarkCase(
+        id="ie-case",
+        task_type="chat",
+        query="answerable question",
+        expected_insufficient_evidence=False,
+    )
+    response = UnifiedExecutionResponse(
+        task_type=TaskType.CHAT,
+        artifacts=(),
+        citations=(CitationRecord(doc_id="d1", chunk_id="c1", source="doc.md", snippet="text"),),
+        metadata=UseCaseMetadata(insufficient_evidence=False),
+    )
+
+    result = evaluate_insufficient_evidence(case, response)
+
+    assert result.expected is False
+    assert result.actual is False
+    assert result.correct is True
+
+
+def test_run_evaluation_from_dataset_with_insufficient_evidence_case(tmp_path: Path) -> None:
+    """Evaluation pipeline correctly evaluates insufficient-evidence detection end-to-end."""
+    dataset = tmp_path / "cases.jsonl"
+    dataset.write_text(
+        "\n".join(
+            [
+                '{"id":"normal-case","task_type":"chat","query":"answerable","expected_doc_ids":["d-chat"],"expected_chunk_ids":["d-chat:1"]}',
+                '{"id":"ie-case","task_type":"chat","query":"unanswerable","expected_doc_ids":[],"expected_chunk_ids":[],"expected_insufficient_evidence":true}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_evaluation_from_dataset(
+        dataset_path=dataset,
+        output_dir=tmp_path / "reports",
+        facade=FakeFacade(),
+    )
+
+    # FakeFacade returns insufficient_evidence=False for all cases
+    # normal-case: expected=False, actual=False -> correct
+    # ie-case: expected=True, actual=False -> incorrect
+    assert result.report.summary.insufficient_evidence["accuracy"] == 0.5
+    assert result.report.summary.insufficient_evidence["expected_refusal_count"] == 1
+    assert result.report.summary.insufficient_evidence["actual_refusal_count"] == 0
+    # ie-case should have insufficient_evidence_mismatch failure reason
+    ie_result = next(r for r in result.report.results if r.case_id == "ie-case")
+    assert "insufficient_evidence_mismatch" in ie_result.failure_reasons
+
+
 def test_sample_benchmark_dataset_covers_all_task_types() -> None:
     """Verify the sample benchmark dataset covers search, chat, and compare task types.
 
@@ -504,6 +630,14 @@ def test_benchmark_script_runs_successfully_with_sample_dataset(tmp_path: Path, 
                 "structure_consistency_rate": 1.0,
                 "expected_source_consistency_rate": 1.0,
                 "expected_source_case_count": 1,
+            },
+            insufficient_evidence={
+                "accuracy": 1.0,
+                "refusal_precision": None,
+                "refusal_recall": None,
+                "non_refusal_accuracy": 1.0,
+                "expected_refusal_count": 0,
+                "actual_refusal_count": 0,
             },
             latency={
                 "overall": {"avg_ms": 10.0, "p50_ms": 10.0, "p95_ms": 10.0, "max_ms": 10.0, "sample_count": 1},

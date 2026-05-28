@@ -21,6 +21,14 @@ def test_legacy_evaluate_cases_delegates_to_new_module(monkeypatch) -> None:
                     "expected_source_consistency_rate": 1.0,
                     "expected_source_case_count": 1,
                 },
+                insufficient_evidence={
+                    "accuracy": 1.0,
+                    "refusal_precision": None,
+                    "refusal_recall": None,
+                    "non_refusal_accuracy": 1.0,
+                    "expected_refusal_count": 0,
+                    "actual_refusal_count": 0,
+                },
                 latency={
                     "overall": {"avg_ms": 10.0, "p50_ms": 10.0, "p95_ms": 10.0, "max_ms": 10.0, "sample_count": 1},
                     "by_task_type": {},

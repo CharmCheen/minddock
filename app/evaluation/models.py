@@ -18,6 +18,7 @@ class BenchmarkCase:
     expected_doc_ids: tuple[str, ...] = ()
     expected_chunk_ids: tuple[str, ...] = ()
     expected_citation_doc_ids: tuple[str, ...] = ()
+    expected_insufficient_evidence: bool = False
     notes: str | None = None
     top_k: int = 5
 
@@ -40,6 +41,7 @@ class BenchmarkCase:
             expected_doc_ids=_normalize_str_list(payload.get("expected_doc_ids")),
             expected_chunk_ids=_normalize_str_list(payload.get("expected_chunk_ids")),
             expected_citation_doc_ids=_normalize_str_list(payload.get("expected_citation_doc_ids")),
+            expected_insufficient_evidence=bool(payload.get("expected_insufficient_evidence", False)),
             notes=_normalize_optional_text(payload.get("notes")),
             top_k=_normalize_top_k(payload.get("top_k")),
         )
@@ -52,6 +54,7 @@ class BenchmarkCase:
             "expected_doc_ids": list(self.expected_doc_ids),
             "expected_chunk_ids": list(self.expected_chunk_ids),
             "expected_citation_doc_ids": list(self.expected_citation_doc_ids),
+            "expected_insufficient_evidence": self.expected_insufficient_evidence,
             "notes": self.notes,
             "top_k": self.top_k,
         }
@@ -115,6 +118,22 @@ class CitationConsistencyEvaluation:
 
 
 @dataclass(frozen=True)
+class InsufficientEvidenceEvaluation:
+    """Insufficient-evidence detection accuracy for one benchmark case."""
+
+    expected: bool
+    actual: bool
+    correct: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "expected": self.expected,
+            "actual": self.actual,
+            "correct": self.correct,
+        }
+
+
+@dataclass(frozen=True)
 class EvaluationCaseResult:
     """Full execution outcome and metrics for one benchmark case."""
 
@@ -124,6 +143,7 @@ class EvaluationCaseResult:
     top_k: int
     retrieval: RetrievalEvaluation
     citation: CitationConsistencyEvaluation
+    insufficient_evidence_eval: InsufficientEvidenceEvaluation
     latency_ms: float
     insufficient_evidence: bool
     response_preview: str
@@ -138,6 +158,7 @@ class EvaluationCaseResult:
             "top_k": self.top_k,
             "retrieval": self.retrieval.to_dict(),
             "citation": self.citation.to_dict(),
+            "insufficient_evidence_eval": self.insufficient_evidence_eval.to_dict(),
             "latency_ms": self.latency_ms,
             "insufficient_evidence": self.insufficient_evidence,
             "response_preview": self.response_preview,
@@ -168,6 +189,7 @@ class EvaluationSummary:
     task_counts: dict[str, int]
     retrieval: dict[str, float]
     citation: dict[str, float | int | None]
+    insufficient_evidence: dict[str, float | int]
     latency: dict[str, Any]
     failed_case_count: int
 

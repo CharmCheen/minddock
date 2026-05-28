@@ -11,6 +11,7 @@ from app.application.models import UnifiedExecutionResponse
 from app.evaluation.datasets import load_benchmark_dataset
 from app.evaluation.metrics import (
     evaluate_citation_consistency,
+    evaluate_insufficient_evidence,
     evaluate_retrieval,
     extract_retrieval_references,
     summarize_results,
@@ -65,7 +66,8 @@ def run_case(case: BenchmarkCase, *, facade) -> EvaluationCaseResult:
     references = extract_retrieval_references(response)
     retrieval = evaluate_retrieval(case, references)
     citation = evaluate_citation_consistency(case, response, references)
-    failure_reasons = _build_failure_reasons(retrieval, citation)
+    ie_eval = evaluate_insufficient_evidence(case, response)
+    failure_reasons = _build_failure_reasons(retrieval, citation, ie_eval)
     return EvaluationCaseResult(
         case_id=case.id,
         task_type=case.task_type,
@@ -73,6 +75,7 @@ def run_case(case: BenchmarkCase, *, facade) -> EvaluationCaseResult:
         top_k=case.top_k,
         retrieval=retrieval,
         citation=citation,
+        insufficient_evidence_eval=ie_eval,
         latency_ms=float(latency_ms),
         insufficient_evidence=response.metadata.insufficient_evidence,
         response_preview=_response_preview(response),
@@ -104,7 +107,7 @@ def _response_preview(response: UnifiedExecutionResponse) -> str:
     return f"{preview[:157]}..."
 
 
-def _build_failure_reasons(retrieval, citation) -> tuple[str, ...]:
+def _build_failure_reasons(retrieval, citation, ie_eval) -> tuple[str, ...]:
     reasons: list[str] = []
     if not retrieval.hit_at_5:
         reasons.append("retrieval_miss@5")
@@ -112,4 +115,6 @@ def _build_failure_reasons(retrieval, citation) -> tuple[str, ...]:
         reasons.append("citation_structure_mismatch")
     if citation.expected_source_consistent is False:
         reasons.append("citation_expected_source_miss")
+    if not ie_eval.correct:
+        reasons.append("insufficient_evidence_mismatch")
     return tuple(reasons)

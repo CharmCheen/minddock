@@ -11,6 +11,7 @@ from app.evaluation.models import EvaluationReport
 def render_console_summary(report: EvaluationReport, *, json_path: str | None = None, markdown_path: str | None = None) -> str:
     """Render a concise console summary for one evaluation run."""
 
+    ie = report.summary.insufficient_evidence
     lines = [
         f"Evaluation dataset: {report.dataset_path}",
         f"Cases: {report.summary.dataset_size} | Failed cases: {report.summary.failed_case_count}",
@@ -26,6 +27,13 @@ def render_console_summary(report: EvaluationReport, *, json_path: str | None = 
             f"overall={report.summary.citation['overall_consistency_rate']:.2%} "
             f"structure={report.summary.citation['structure_consistency_rate']:.2%} "
             f"expected_source={_format_optional_rate(report.summary.citation['expected_source_consistency_rate'])}"
+        ),
+        (
+            "Insufficient Evidence: "
+            f"accuracy={ie['accuracy']:.2%} "
+            f"refusal_precision={_format_optional_rate(ie['refusal_precision'])} "
+            f"expected_refusals={ie['expected_refusal_count']} "
+            f"actual_refusals={ie['actual_refusal_count']}"
         ),
         (
             "Latency: "
@@ -70,6 +78,16 @@ def render_markdown_report(report: EvaluationReport) -> str:
         f"| Expected-source consistency rate | {_format_optional_rate(report.summary.citation['expected_source_consistency_rate'])} |",
         f"| Expected-source case count | {report.summary.citation['expected_source_case_count']} |",
         "",
+        "## Insufficient Evidence Detection",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+        f"| Overall accuracy | {report.summary.insufficient_evidence['accuracy']:.2%} |",
+        f"| Refusal precision | {_format_optional_rate(report.summary.insufficient_evidence['refusal_precision'])} |",
+        f"| Non-refusal accuracy | {_format_optional_rate(report.summary.insufficient_evidence['non_refusal_accuracy'])} |",
+        f"| Expected refusal count | {report.summary.insufficient_evidence['expected_refusal_count']} |",
+        f"| Actual refusal count | {report.summary.insufficient_evidence['actual_refusal_count']} |",
+        "",
         "## Latency Summary",
         "",
         "| Scope | Avg (ms) | P50 (ms) | P95 (ms) | Max (ms) | Samples |",
@@ -100,8 +118,8 @@ def render_markdown_report(report: EvaluationReport) -> str:
             "",
             "## Case Details",
             "",
-            "| Case | Task | hit@1 | hit@3 | hit@5 | Citation | Latency (ms) |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+            "| Case | Task | hit@1 | hit@3 | hit@5 | Citation | IE Correct | Latency (ms) |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     lines.extend(
@@ -111,6 +129,7 @@ def render_markdown_report(report: EvaluationReport) -> str:
             f"{_bool_flag(result.retrieval.hit_at_3)} | "
             f"{_bool_flag(result.retrieval.hit_at_5)} | "
             f"{_bool_flag(result.citation.overall_consistent)} | "
+            f"{_bool_flag(result.insufficient_evidence_eval.correct)} | "
             f"{result.latency_ms:.2f} |"
         )
         for result in report.results

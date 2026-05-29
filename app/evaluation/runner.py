@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from app.application import CitationPolicy, OutputMode, RetrievalOptions, SkillPolicy, TaskType, UnifiedExecutionRequest, get_frontend_facade
 from app.application.models import UnifiedExecutionResponse
@@ -19,6 +23,34 @@ from app.evaluation.metrics import (
 from app.evaluation.models import BenchmarkCase, EvaluationCaseResult, EvaluationReport, EvaluationRunArtifacts
 from app.evaluation.reporting import write_report_files
 
+_VALID_RETRIEVAL_MODES = ("dense", "hybrid")
+
+
+@contextmanager
+def _retrieval_mode_override(mode: str | None):
+    """Temporarily override hybrid_retrieval_enabled in settings."""
+    if mode is None:
+        yield
+        return
+
+    if mode not in _VALID_RETRIEVAL_MODES:
+        raise ValueError(f"Invalid retrieval_mode '{mode}'. Must be one of: {_VALID_RETRIEVAL_MODES}")
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    desired = mode == "hybrid"
+    original = settings.hybrid_retrieval_enabled
+    if original == desired:
+        yield
+        return
+
+    settings.hybrid_retrieval_enabled = desired
+    try:
+        yield
+    finally:
+        settings.hybrid_retrieval_enabled = original
+
 
 def run_evaluation_from_dataset(
     dataset_path: str | Path,
@@ -26,33 +58,132 @@ def run_evaluation_from_dataset(
     output_dir: str | Path = "data/eval",
     task_types: tuple[str, ...] = (),
     facade=None,
+    retrieval_mode: str | None = None,
 ) -> EvaluationRunArtifacts:
-    """Load a dataset, run all requested cases, and persist JSON/Markdown reports."""
+    """Load a dataset, run all requested cases, and persist JSON/Markdown reports.
 
-    cases = load_benchmark_dataset(dataset_path)
-    filtered_cases = [case for case in cases if not task_types or case.task_type in task_types]
-    if not filtered_cases:
-        raise ValueError("No benchmark cases matched the requested task-type filter.")
+    Args:
+        retrieval_mode: Override retrieval strategy for this run.
+            ``"dense"`` forces dense-only, ``"hybrid"`` forces dense+BM25+RRF.
+            ``None`` (default) uses whatever the current settings specify.
+    """
 
-    active_facade = facade or get_frontend_facade()
-    results = [run_case(case, facade=active_facade) for case in filtered_cases]
-    report = EvaluationReport(
-        dataset_path=str(Path(dataset_path)),
-        generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        cases=tuple(filtered_cases),
-        results=tuple(results),
-        summary=summarize_results(results),
-    )
-    json_path, markdown_path = write_report_files(
-        report,
+    with _retrieval_mode_override(retrieval_mode):
+        cases = load_benchmark_dataset(dataset_path)
+        filtered_cases = [case for case in cases if not task_types or case.task_type in task_types]
+        if not filtered_cases:
+            raise ValueError("No benchmark cases matched the requested task-type filter.")
+
+        active_facade = facade or get_frontend_facade()
+        results = [run_case(case, facade=active_facade) for case in filtered_cases]
+        report = EvaluationReport(
+            dataset_path=str(Path(dataset_path)),
+            generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            cases=tuple(filtered_cases),
+            results=tuple(results),
+            summary=summarize_results(results),
+        )
+        json_path, markdown_path = write_report_files(
+            report,
+            output_dir=output_dir,
+            dataset_stem=_output_stem(Path(dataset_path).stem, retrieval_mode),
+        )
+        return EvaluationRunArtifacts(
+            report=report,
+            json_path=json_path,
+            markdown_path=markdown_path,
+        )
+
+
+def _output_stem(base_stem: str, retrieval_mode: str | None) -> str:
+    if retrieval_mode is None:
+        return base_stem
+    return f"{base_stem}_{retrieval_mode}"
+
+
+@dataclass(frozen=True)
+class ComparisonEvaluationResult:
+    """Result of a dense-vs-hybrid comparison evaluation."""
+
+    dense_report: EvaluationReport
+    hybrid_report: EvaluationReport
+    comparison: dict[str, Any]
+    dense_json_path: str
+    dense_markdown_path: str
+    hybrid_json_path: str
+    hybrid_markdown_path: str
+
+
+def run_comparison_evaluation(
+    dataset_path: str | Path,
+    *,
+    output_dir: str | Path = "data/eval",
+    task_types: tuple[str, ...] = (),
+    facade=None,
+) -> ComparisonEvaluationResult:
+    """Run evaluation in both dense-only and hybrid modes, return delta metrics."""
+
+    dense_result = run_evaluation_from_dataset(
+        dataset_path=dataset_path,
         output_dir=output_dir,
-        dataset_stem=Path(dataset_path).stem,
+        task_types=task_types,
+        facade=facade,
+        retrieval_mode="dense",
     )
-    return EvaluationRunArtifacts(
-        report=report,
-        json_path=json_path,
-        markdown_path=markdown_path,
+    hybrid_result = run_evaluation_from_dataset(
+        dataset_path=dataset_path,
+        output_dir=output_dir,
+        task_types=task_types,
+        facade=facade,
+        retrieval_mode="hybrid",
     )
+    comparison = _build_comparison_delta(dense_result.report, hybrid_result.report)
+    return ComparisonEvaluationResult(
+        dense_report=dense_result.report,
+        hybrid_report=hybrid_result.report,
+        comparison=comparison,
+        dense_json_path=dense_result.json_path,
+        dense_markdown_path=dense_result.markdown_path,
+        hybrid_json_path=hybrid_result.json_path,
+        hybrid_markdown_path=hybrid_result.markdown_path,
+    )
+
+
+def _build_comparison_delta(
+    dense: EvaluationReport,
+    hybrid: EvaluationReport,
+) -> dict[str, Any]:
+    """Build a comparison delta dict between dense and hybrid reports."""
+
+    def _delta(d: dict[str, Any], h: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key in keys:
+            d_val = d.get(key)
+            h_val = h.get(key)
+            result[key] = {"dense": d_val, "hybrid": h_val}
+            if isinstance(d_val, (int, float)) and isinstance(h_val, (int, float)):
+                result[key]["delta"] = round(h_val - d_val, 6)
+        return result
+
+    retrieval_keys = ("hit_at_1", "hit_at_3", "hit_at_5")
+    citation_keys = ("overall_consistency_rate", "expected_source_consistency_rate")
+    ie_keys = ("accuracy", "non_refusal_accuracy")
+    latency_overall_dense = dense.summary.latency.get("overall", {})
+    latency_overall_hybrid = hybrid.summary.latency.get("overall", {})
+
+    return {
+        "retrieval": _delta(dense.summary.retrieval, hybrid.summary.retrieval, retrieval_keys),
+        "citation": _delta(dense.summary.citation, hybrid.summary.citation, citation_keys),
+        "insufficient_evidence": _delta(
+            dense.summary.insufficient_evidence,
+            hybrid.summary.insufficient_evidence,
+            ie_keys,
+        ),
+        "latency": {
+            "dense_avg_ms": latency_overall_dense.get("avg_ms"),
+            "hybrid_avg_ms": latency_overall_hybrid.get("avg_ms"),
+        },
+    }
 
 
 def run_case(case: BenchmarkCase, *, facade) -> EvaluationCaseResult:

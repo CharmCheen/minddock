@@ -348,12 +348,16 @@ class HybridRetrievalService:
         )
         bm25_only_hits_by_id = {hit.chunk_id: hit for hit in bm25_only_hits}
 
-        # Reconstruct result in RRF order
-        result: list[RetrievedChunk] = []
+        # Reconstruct result in RRF order, preserving dense rank within same doc.
+        # RRF fusion can reorder chunks within the same document when BM25
+        # promotes a different chunk from the same doc.  To prevent this, we
+        # group candidates by doc_id and sort within each group by dense rank.
+        candidates: list[tuple[int, float, RetrievedChunk]] = []  # (dense_rank, rrf_score, hit)
         seen_ids: set[str] = set()
-        for rank_pos, _ in fused:
+        for rank_pos, rrf_score in fused:
             if rank_pos < n:
                 hit = dense_hits[rank_pos]
+                dense_rank = rank_pos
             else:
                 bm25_chunk_id = bm25_only_chunk_ids_by_rank_pos.get(rank_pos)
                 if not bm25_chunk_id:
@@ -361,9 +365,29 @@ class HybridRetrievalService:
                 hit = bm25_only_hits_by_id.get(bm25_chunk_id)
                 if hit is None:
                     continue
+                dense_rank = dense_pos_map.get(hit.chunk_id, n + rank_pos)
             if hit.chunk_id not in seen_ids:
-                result.append(hit.with_updates(retrieval_rank=len(result) + 1))
+                candidates.append((dense_rank, rrf_score, hit))
                 seen_ids.add(hit.chunk_id)
+
+        # Group by doc_id, sort within each group by dense rank (ascending).
+        # Across groups, preserve the RRF ordering (best RRF score first).
+        doc_groups: dict[str, list[tuple[int, float, RetrievedChunk]]] = {}
+        doc_group_order: list[str] = []
+        for dense_rank, rrf_score, hit in candidates:
+            if hit.doc_id not in doc_groups:
+                doc_groups[hit.doc_id] = []
+                doc_group_order.append(hit.doc_id)
+            doc_groups[hit.doc_id].append((dense_rank, rrf_score, hit))
+
+        result: list[RetrievedChunk] = []
+        for doc_id in doc_group_order:
+            group = doc_groups[doc_id]
+            group.sort(key=lambda x: x[0])  # sort by dense_rank ascending
+            for _, _, hit in group:
+                if len(result) >= top_k:
+                    break
+                result.append(hit.with_updates(retrieval_rank=len(result) + 1))
 
         # If RRF gave fewer than top_k, fill from dense
         for hit in dense_hits:

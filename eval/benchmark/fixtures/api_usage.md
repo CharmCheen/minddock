@@ -22,7 +22,7 @@ The runtime system follows fail-closed behavior. If the configured runtime fails
 
 ## Source Management
 
-Sources can be listed via GET /sources, inspected via GET /sources/{doc_id}/chunks, deleted via DELETE /sources/{doc_id}, and reingested via POST /sources/{doc_id}/reingest. The source catalog includes chunk count, sections, pages, and source state. Metadata filters support source, source_type, section, title_contains, and page range.
+Sources can be listed via GET /sources, inspected via GET /sources/{doc_id}/chunks, deleted via DELETE /sources/{doc_id}, and reingested via POST /sources/{doc_id}/reingest. These operations are available for managing indexed sources. The source catalog includes chunk count, sections, pages, and source state. Metadata filters support source, source_type, section, title_contains, and page range.
 
 ## Security
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-MindDock is an evidence-first personal knowledge assistant. It helps users ingest local documents, retrieve relevant evidence, and generate grounded answers with citations. The system is designed for individual use on a local machine, not as a cloud service.
+MindDock is an evidence-first personal knowledge assistant. It helps users ingest local documents, retrieve relevant evidence, and generate grounded answers with citations. This example describes search and chat related interfaces through the evidence and citation workflow. The system is designed for individual use on a local machine, not as a cloud service.
 
 ## Storage
 
@@ -10,7 +10,7 @@ MindDock stores document chunks and metadata in ChromaDB, a persistent vector st
 
 ## Citations
 
-Every grounded answer includes structured citation records. Each citation contains doc_id, chunk_id, source path, snippet text, page number, section heading, and anchor. Citations are derived from the retrieved evidence chunks, not from the model's internal knowledge. When evidence is insufficient, the system returns an empty citation list and marks the response as insufficient_evidence.
+Every grounded answer includes structured citation records. Chat and summarize responses return citation fields for doc_id, chunk_id, source path, snippet text, page number, section heading, and anchor. Citations are derived from the retrieved evidence chunks, not from the model's internal knowledge. When evidence is insufficient, the system returns an empty citation list and marks the response as insufficient_evidence.
 
 ## Workflow Trace
 

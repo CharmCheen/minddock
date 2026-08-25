@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     llm_model: str = LLM_MODEL
     llm_timeout_seconds: float = LLM_TIMEOUT_SECONDS
     rerank_enabled: bool = True
+    frontmatter_rerank_enabled: bool = False
     compress_enabled: bool = True
     rerank_provider: str = RERANK_PROVIDER
     compress_provider: str = COMPRESS_PROVIDER

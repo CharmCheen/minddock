@@ -21,6 +21,7 @@ from app.rag.source_models import utc_now_iso
 from app.rag.splitter import _chunk_by_tokens, split_text
 from app.rag.vectorstore import clear_vectorstore_cache, get_vectorstore
 from app.rag.structured_chunker import structured_pdf_chunks, ChunkMeta
+from app.rag.frontmatter_metadata import extract_academic_metadata, is_academic_metadata_eligible
 from app.rag.media_transcript_postprocessor import MediaTranscriptPostprocessor
 from app.skills.source_binding import resolve_source_skill_binding_with_reason
 
@@ -263,6 +264,22 @@ def _metadata_with_loader_warnings(
 
     # Add transcript_status for media files
     _inject_transcript_status(metadata, load_result)
+
+    # Academic front-matter hints (PRD FR-3): doc_authors / doc_year for
+    # text-like sources only; omitted entirely when nothing is extracted.
+    try:
+        loader_name = str(metadata.get("loader_name") or "").strip() or None
+        if is_academic_metadata_eligible(
+            source_type=load_result.descriptor.source_type,
+            loader_name=loader_name,
+        ):
+            academic = extract_academic_metadata(
+                load_result.text,
+                title_hint=str(load_result.title or "").strip() or None,
+            )
+            metadata.update(academic.to_metadata_pairs())
+    except Exception:  # extraction must never break ingestion
+        pass
 
     return metadata
 

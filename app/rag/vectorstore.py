@@ -412,11 +412,14 @@ def health_check_vectorstore() -> bool:
         return False
 
 
-def _build_where(filters: RetrievalFilters | dict[str, object] | None) -> dict[str, str] | None:
+def _build_where(filters: RetrievalFilters | dict[str, object] | None) -> dict[str, object] | None:
     """Normalize supported metadata filters for Chroma `where` queries.
 
     Accepts ``RetrievalFilters`` as the formal path and a legacy mapping as a
-    compatibility fallback for older tests and utility code.
+    compatibility fallback for older tests and utility code. Year-range
+    academic filters (PRD FR-3) translate into Chroma operator conditions;
+    author filters intentionally stay out of the where clause because they
+    need case-insensitive substring matching in the post-filter layer.
     """
 
     if not filters:
@@ -429,16 +432,31 @@ def _build_where(filters: RetrievalFilters | dict[str, object] | None) -> dict[s
             section=filters.get("section"),
         )
 
-    where: dict[str, str] = {}
+    flat: list[tuple[str, object]] = []
     if filters.section:
-        where["section"] = filters.section
+        flat.append(("section", filters.section))
     single_source = filters.normalized_single_source()
     if single_source:
-        where["source"] = single_source
+        flat.append(("source", single_source))
     single_source_type = filters.normalized_single_source_type()
     if single_source_type:
-        where["source_type"] = single_source_type
+        flat.append(("source_type", single_source_type))
 
+    year_conditions: dict[str, int] = {}
+    if filters.year_from is not None:
+        year_conditions["$gte"] = int(filters.year_from)
+    if filters.year_to is not None:
+        year_conditions["$lte"] = int(filters.year_to)
+
+    if year_conditions:
+        # Mix exact and operator conditions via explicit $and composition.
+        conditions: list[dict[str, object]] = [{key: value} for key, value in flat]
+        conditions.append({"doc_year": year_conditions})
+        return {"$and": conditions}
+
+    where: dict[str, object] = {}
+    for key, value in flat:
+        where[key] = value
     return where or None
 
 
@@ -453,6 +471,8 @@ def _candidate_fetch_k(*, total: int, top_k: int, filters: RetrievalFilters | No
         or filters.requested_url_contains is not None
         or filters.page_from is not None
         or filters.page_to is not None
+        # Author matching is substring-based post-filtering only.
+        or bool(filters.authors)
     )
     if not needs_post_filter:
         return min(top_k, total)

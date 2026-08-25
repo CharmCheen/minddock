@@ -111,6 +111,12 @@ class MetadataFilters(BaseModel):
     )
     page_from: int | None = Field(default=None, ge=1, description="Lower bound for PDF page filtering")
     page_to: int | None = Field(default=None, ge=1, description="Upper bound for PDF page filtering")
+    authors: list[str] | None = Field(
+        default=None,
+        description="Filter by author names extracted from academic front matter (case-insensitive contains)",
+    )
+    year_from: int | None = Field(default=None, ge=1900, le=2100, description="Lower bound for publication-year filtering")
+    year_to: int | None = Field(default=None, ge=1900, le=2100, description="Upper bound for publication-year filtering")
 
     @field_validator("section", "title_contains", "requested_url_contains")
     @classmethod
@@ -133,10 +139,20 @@ class MetadataFilters(BaseModel):
     ) -> Literal["file", "url"] | list[Literal["file", "url"]] | None:
         return cls._normalize_text_or_list(value)
 
+    @field_validator("authors")
+    @classmethod
+    def normalize_author_values(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [str(item).strip() for item in value if str(item).strip()]
+        return normalized or None
+
     @model_validator(mode="after")
     def validate_page_range(self) -> "MetadataFilters":
         if self.page_from is not None and self.page_to is not None and self.page_from > self.page_to:
             raise ValueError("page_from must be less than or equal to page_to")
+        if self.year_from is not None and self.year_to is not None and self.year_from > self.year_to:
+            raise ValueError("year_from must be less than or equal to year_to")
         return self
 
     def to_retrieval_filters(self) -> RetrievalFilters:
@@ -148,6 +164,9 @@ class MetadataFilters(BaseModel):
             requested_url_contains=self.requested_url_contains,
             page_from=self.page_from,
             page_to=self.page_to,
+            authors=_ensure_tuple(self.authors),
+            year_from=self.year_from,
+            year_to=self.year_to,
         )
 
     @staticmethod

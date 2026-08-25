@@ -19,12 +19,20 @@ class RetrievalFilters:
     requested_url_contains: str | None = None
     page_from: int | None = None
     page_to: int | None = None
+    authors: tuple[str, ...] = ()
+    year_from: int | None = None
+    year_to: int | None = None
 
     def normalized_single_source(self) -> str | None:
         return self.sources[0] if len(self.sources) == 1 else None
 
     def normalized_single_source_type(self) -> str | None:
         return self.source_types[0] if len(self.source_types) == 1 else None
+
+    def has_academic_filters(self) -> bool:
+        """True when any academic (author/year) filter is active."""
+
+        return bool(self.authors) or self.year_from is not None or self.year_to is not None
 
     def matches_metadata(self, metadata: dict[str, object]) -> bool:
         source = str(metadata.get("source") or metadata.get("source_path") or "").strip()
@@ -43,6 +51,25 @@ class RetrievalFilters:
             return False
         if self.requested_url_contains and self.requested_url_contains.lower() not in requested_url:
             return False
+
+        # Academic filters (PRD FR-3). Authors match case-insensitively as a
+        # substring against the joined doc_authors string; chunks without the
+        # extracted field cannot satisfy an explicit filter.
+        if self.authors:
+            doc_authors = str(metadata.get("doc_authors") or "").lower()
+            wanted = [author.strip().lower() for author in self.authors if str(author).strip()]
+            if not wanted or not doc_authors:
+                return False
+            if not any(author in doc_authors for author in wanted):
+                return False
+
+        doc_year = _parse_page(metadata.get("doc_year"))
+        if self.year_from is not None:
+            if doc_year is None or doc_year < self.year_from:
+                return False
+        if self.year_to is not None:
+            if doc_year is None or doc_year > self.year_to:
+                return False
 
         page = _parse_page(metadata.get("page"))
         if self.page_from is not None:

@@ -1441,6 +1441,35 @@ class RunTraceResponse(BaseModel):
     data: dict[str, Any] | None = None
 
 
+class CitationExportRequestBody(BaseModel):
+    """Request body for citation format export (PRD FR-4)."""
+
+    format: Literal["bibtex", "gbt7714", "apa"]
+    entries: list[dict[str, Any]] = Field(default_factory=list, description="Citation payloads (title/authors/year/source/page/...)")
+
+    @field_validator("entries")
+    @classmethod
+    def limit_entries(cls, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if len(value) > 100:
+            raise ValueError("entries is limited to 100 citations per export")
+        return value
+
+
+class CitationExportItem(BaseModel):
+    index: int
+    text: str
+    missing: list[str] = Field(default_factory=list)
+
+
+class CitationExportResponse(BaseModel):
+    """Formatted citation export result."""
+
+    format: str
+    count: int
+    text: str
+    items: list[CitationExportItem] = Field(default_factory=list)
+
+
 class CancelRunResponse(BaseModel):
     """Serializable response for a cancel request."""
 

@@ -33,6 +33,9 @@ from app.api.schemas import (
     CancelRunResponse,
     ChatRequest,
     ChatResponse,
+    CitationExportRequestBody,
+    CitationExportResponse,
+    CitationExportItem,
     CompareRequest,
     CompareResponse,
     DeleteSourceResponse,
@@ -74,6 +77,7 @@ from app.api.schemas import (
 from app.api.streaming import inject_heartbeat_events, project_run_events, serialize_client_event_sse
 from app.application.events import ExecutionRun, ExecutionRunStatus
 from app.application.run_trace_archive import list_run_traces, load_run_trace
+from app.services.citation_export_service import format_citation_entries
 from app.application.client_events import (
     ClientEvent,
     ClientEventChannel,
@@ -1166,3 +1170,15 @@ def get_archived_trace(run_id: str) -> RunTraceResponse:
     if data is None:
         return RunTraceResponse(run_id=run_id, found=False, data=None)
     return RunTraceResponse(run_id=run_id, found=True, data=data)
+
+
+@router.post("/frontend/citations/export", response_model=CitationExportResponse, summary="Export citations as BibTeX / GB/T 7714 / APA")
+def export_citations(payload: CitationExportRequestBody) -> CitationExportResponse:
+    logger.debug("Citation export endpoint called: format=%s entries=%s", payload.format, len(payload.entries))
+    result = format_citation_entries(payload.entries, payload.format)
+    return CitationExportResponse(
+        format=str(result["format"]),
+        count=int(result["count"]),
+        text=str(result["text"]),
+        items=[CitationExportItem(**item) for item in result["items"]],
+    )

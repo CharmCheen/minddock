@@ -5,7 +5,16 @@ Update it before every push.
 
 ## Unreleased
 
-### Added — Verifiable Literature Workbench (PRD `docs/PRD_可验证文献工作台_v1.0.md`)
+### Documentation
+
+- PRD upgraded to v1.1 (`docs/PRD_可验证文献工作台_v1.1.md`, renamed from v1.0):
+  added revision history, appendix C implementation-status matrix mapping every
+  FR to its commit with remaining gaps and honest deviations (FR-3b flag-off,
+  FR-9 delivered early, self-check LLM layer sequencing), annotated appendix B
+  open questions as resolved/open, and recorded milestone progress against the
+  M1–M3 plan.
+
+### Added — Verifiable Literature Workbench (PRD `docs/PRD_可验证文献工作台_v1.1.md`)
 
 - **FR-1 Evidence-sufficiency badge** (`app/application/evidence_badge.py`):
   deterministic mapping over existing signals only (support_status,

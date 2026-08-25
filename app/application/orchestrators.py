@@ -69,7 +69,7 @@ from app.services.service_models import (
     UseCaseMetadata,
 )
 from app.services.summarize_service import SummarizeService
-from app.services.workflow_trace import merge_quality_trace_fields
+from app.services.workflow_trace import build_compare_quality_trace, merge_quality_trace_fields
 from app.application.run_trace_archive import persist_run_trace
 from app.services.citation_self_check import run_citation_self_check
 from app.skills import (
@@ -98,7 +98,7 @@ _SUMMARIZE_RETRIEVAL_POOL_MAX = 24
 _CHAT_RETRIEVAL_POOL_MULTIPLIER = 3
 _CHAT_RETRIEVAL_POOL_MIN = 6
 _CHAT_RETRIEVAL_POOL_MAX = 12
-_SELF_CHECK_TASK_TYPES = frozenset({TaskType.CHAT, TaskType.SUMMARIZE})
+_SELF_CHECK_TASK_TYPES = frozenset({TaskType.CHAT, TaskType.SUMMARIZE, TaskType.COMPARE})
 _USER_PREFERENCE_PROFILE_ID = "workspace_preference_v1"
 _USER_PREFERENCE_PROFILE_VERSION = "1.0.0"
 _ALLOWED_PREFERENCE_KEYS = {
@@ -1245,6 +1245,14 @@ class FrontendFacade:
                     filters=request.retrieval.filters,
                     precomputed_hits=None,
                 )
+            # FR-6: derive pipeline-style quality signals so evidence badges
+            # and self-checks work on compare outputs too.
+            quality_trace = build_compare_quality_trace(result.compare_result, result.citations)
+            merged_trace = merge_quality_trace_fields(
+                {**(result.metadata.workflow_trace or {})},
+                quality_trace,
+            )
+            result = replace(result, metadata=replace(result.metadata, workflow_trace=merged_trace))
             response = self._build_compare_response(request=request, result=result)
         else:
             raise UnsupportedExecutionModeError(detail=f"Task type '{request.task_type.value}' is not supported yet.")
@@ -1311,7 +1319,9 @@ class FrontendFacade:
             return None
         if request.citation_policy == CitationPolicy.NONE:
             return None
-        if not response.citations or response.grounded_answer is None:
+        if not response.citations:
+            return None
+        if response.grounded_answer is None and response.compare_result is None:
             return None
         try:
             report = run_citation_self_check(

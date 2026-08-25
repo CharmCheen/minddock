@@ -47,6 +47,47 @@ def merge_quality_trace_fields(
     return trace
 
 
+def build_compare_quality_trace(compare_result, citations) -> dict[str, object]:
+    """Derive unified-pipeline-style quality fields for COMPARE results (PRD FR-6).
+
+    CompareService owns its internal retrieval and never flows through the
+    shared RetrievalPipeline, so its results previously carried no
+    quality_ok/low_confidence signals and evidence badges degraded to
+    "unknown". This derives equivalent signals from the compare payload:
+    zero evidence across all points or an insufficient-evidence verdict map
+    to low confidence.
+    """
+
+    points = list(getattr(compare_result, "common_points", []) or [])
+    points += list(getattr(compare_result, "differences", []) or [])
+    points += list(getattr(compare_result, "conflicts", []) or [])
+    evidence_count = sum(
+        len(list(point.left_evidence or [])) + len(list(point.right_evidence or []))
+        for point in points
+    )
+    citation_count = len(list(citations or []))
+
+    reasons: list[str] = []
+    low_confidence = False
+
+    support_status = str(getattr(compare_result, "support_status", "") or "")
+    if support_status == "insufficient_evidence":
+        low_confidence = True
+        reasons.append("insufficient_evidence")
+    if citation_count == 0 and evidence_count == 0:
+        low_confidence = True
+        reasons.append("No compressed hits")
+
+    return {
+        "quality_ok": not low_confidence,
+        "quality_reasons": reasons,
+        "low_confidence": low_confidence,
+        "retry_count": 0,
+        "max_retries": 0,
+        "compare_evidence_count": evidence_count,
+    }
+
+
 def final_source_summary(records) -> list[dict[str, object]]:
     grouped: dict[str, list[Any]] = {}
     for record in records or []:

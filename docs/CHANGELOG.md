@@ -62,6 +62,24 @@ Update it before every push.
   (status filter: confirmed/pending/dismissed/all); timed and all-day events,
   text escaping, default one-hour duration, evidence/source in DESCRIPTION.
   Closes the schedule-candidate review loop without OAuth or write access.
+- **FR-5 Eval set expansion (partial)**: `eval/benchmark/sample_eval_set.jsonl`
+  grows 13 → 29 hand-curated cases with offline-verified chunk maps over the
+  four bundled markdown sources (search 7 / chat 6 / compare 3 additions plus
+  a second evidence-insufficient scenario); dataset-guard test updated from
+  the old ≤15 small-set cap to the FR-5 growth floor with an anti-bloat
+  ceiling. Remaining ~21 cases require runtime annotation against the bundled
+  academic PDFs.
+- **FR-7 Review Workbench MVP** (`app/services/review_workbench_service.py`):
+  multi-source related-work generation at `POST /frontend/review-workbench` —
+  per-source scoped retrieval, LLM synthesis into a `review.v1` payload
+  (overview / dimension table / takeaways) with deterministic extractive
+  fallback when no runtime, deduplicated unified citations, quality trace
+  fields so evidence badges apply, and citation self-check summary.
+- **FR-8 MCP server POC** (`tools/minddock_mcp_server.py`): read-only
+  Model Context Protocol server over stdio (newline-delimited JSON-RPC 2.0,
+  no SDK) exposing `minddock_search` against the running backend; transport
+  separated from protocol handling for unit testing. Run:
+  `python tools/minddock_mcp_server.py`.
 
 ### Fixed
 

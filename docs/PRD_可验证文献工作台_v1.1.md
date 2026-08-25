@@ -11,6 +11,7 @@
 |---|---|---|
 | v1.0 | 2026-08-25 | 双 agent（PM × CTO）评审定稿：定位、P0 范围、修正后排期、Non-goals、决策纪要 |
 | v1.1 | 2026-08-25 | 同步首轮实现状态（FR-1/2/3/4/6/9 完成，FR-3b 移植完成待回归开启）；FR-9 提前交付；附录 B 开放问题部分关闭；新增第 13 节实现状态与偏差记录 |
+| v1.1.1 | 2026-08-25 | 二轮开发同步：FR-5 扩容至 29 例（部分）、FR-7 综述工作台 MVP、FR-8 MCP POC 完成；附录 C 状态矩阵更新；评测护栏测试随 FR-5 政策调整 |
 
 ---
 
@@ -296,9 +297,9 @@
 | FR-6 compare 信号 | ✅ 完成 | `a9f4b1c` | 无 |
 | FR-3b ranking 移植 | 🟡 移植完成，**flag 默认关闭** | `95bdfd6` | `frontmatter_rerank_enabled=false`；开启前置条件：联网环境跑 `eval_cases_front_matter_multi.json`（13 例）出基线 + 10 例基准双回归（维持 v1.0 决议） |
 | FR-9 .ics 导出 | ✅ **提前完成**（原 P2） | `c13736a` | RFC 5545 合规，status 过滤 confirmed/pending/dismissed/all |
-| FR-5 评测集扩容 50 例 | ⏳ 未开工 | — | **阻塞 G2 指标承诺**；需真实语料与人工标注，属持续性工作 |
-| FR-7 综述工作台 | ⏳ 未开工 | — | M3 余力项 |
-| FR-8 MCP POC | ⏳ 未开工 | — | P2，与 Source Skill 边界问题联动（附录 B#4） |
+| FR-5 评测集扩容 50 例 | 🟡 部分完成（13→29 例，离线验证 chunk 映射） | `2203823` | 数据集护栏测试同步更新；剩余 ~21 例需对内置学术 PDF 做运行时解析与人工标注；**G2 指标承诺仍挂起** |
+| FR-7 综述工作台 | ✅ MVP 完成（后端） | `f25d285` | `POST /frontend/review-workbench`：review.v1 结构化负载 + 可点击引用 + 无 runtime 时确定性抽取降级；前端专用渲染面板未做（当前走通用 JSON 渲染） |
+| FR-8 MCP POC | ✅ POC 完成 | `dbbf881` | `tools/minddock_mcp_server.py` 只读 stdio server（minddock_search）；未做真实客户端联调（需 Claude Desktop/Cursor 环境） |
 
 ### 里程碑实际进展（对照第 8 节）
 

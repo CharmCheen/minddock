@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from app.application.artifacts import ArtifactBuilder, ArtifactKind, ArtifactMapper, TextArtifact
+from app.application.artifacts import ArtifactBuilder, ArtifactKind, ArtifactMapper, BaseArtifact, TextArtifact
 from app.application.client_events import EventProjector, get_event_projector
 from app.application.events import (
     ArtifactEmittedPayload,
@@ -23,6 +25,7 @@ from app.application.events import (
     RunStartedPayload,
     StepCompletedPayload,
     StepStartedPayload,
+    VerificationCompletedPayload,
     WarningEmittedPayload,
     build_run_id,
 )
@@ -67,6 +70,8 @@ from app.services.service_models import (
 )
 from app.services.summarize_service import SummarizeService
 from app.services.workflow_trace import merge_quality_trace_fields
+from app.application.run_trace_archive import persist_run_trace
+from app.services.citation_self_check import run_citation_self_check
 from app.skills import (
     SkillCatalogDetail,
     SkillCatalogEntry,
@@ -80,12 +85,20 @@ from app.skills import (
 from app.skills.policy import SkillAccessDecision, SkillAccessEvaluator
 from app.workflows.unified_pipeline import RetrievalPipeline
 
+logger = logging.getLogger(__name__)
+
+
+class _RunCancelledError(RuntimeError):
+    """Raised at a safe execution boundary when cancellation was requested."""
+
+
 _SUMMARIZE_RETRIEVAL_POOL_MULTIPLIER = 3
 _SUMMARIZE_RETRIEVAL_POOL_MIN = 12
 _SUMMARIZE_RETRIEVAL_POOL_MAX = 24
 _CHAT_RETRIEVAL_POOL_MULTIPLIER = 3
 _CHAT_RETRIEVAL_POOL_MIN = 6
 _CHAT_RETRIEVAL_POOL_MAX = 12
+_SELF_CHECK_TASK_TYPES = frozenset({TaskType.CHAT, TaskType.SUMMARIZE})
 _USER_PREFERENCE_PROFILE_ID = "workspace_preference_v1"
 _USER_PREFERENCE_PROFILE_VERSION = "1.0.0"
 _ALLOWED_PREFERENCE_KEYS = {
@@ -798,6 +811,17 @@ class FrontendFacade:
                 run.run_id,
                 self.event_projector.project_many(final_events, debug=False),
             )
+            # Archive the run trace to disk (PRD FR-2): best-effort so
+            # persistence problems never break a completed run.
+            try:
+                persist_run_trace(
+                    run_id=run.run_id,
+                    task_type=request.task_type.value,
+                    request_summary=run.request_summary,
+                    final_response=final_response,
+                )
+            except Exception:
+                logger.debug("Run trace archive failed for %s", run.run_id, exc_info=True)
             return run
         except Exception as exc:
             collector.emit(
@@ -1240,6 +1264,14 @@ class FrontendFacade:
                 metadata=replace(response.metadata, warnings=existing_warnings + (warning_msg,)),
             )
 
+        # Citation self-check (PRD FR-2): rule layer synchronous, optional LLM
+        # layer bounded; failures degrade gracefully and never break the run.
+        verification_summary = self._apply_citation_self_check(
+            response=response,
+            request=request,
+            runtime=runtime,
+        )
+
         for step in base_steps:
             collector.emit(
                 kind=ExecutionEventKind.STEP_COMPLETED,
@@ -1253,7 +1285,71 @@ class FrontendFacade:
                 payload=ArtifactEmittedPayload(artifact=artifact, artifact_index=index),
                 step_id=artifact.source_step_id,
             )
+
+        # Emit after artifacts so SSE consumers see the answer first and the
+        # verification report as a follow-up event.
+        if verification_summary is not None:
+            collector.emit(
+                kind=ExecutionEventKind.VERIFICATION_COMPLETED,
+                payload=VerificationCompletedPayload(summary=verification_summary),
+            )
         return response
+
+    def _apply_citation_self_check(
+        self,
+        *,
+        response: UnifiedExecutionResponse,
+        request: UnifiedExecutionRequest,
+        runtime: GenerationRuntime | None,
+    ) -> dict[str, object] | None:
+        """Attach a citation self-check report to grounded text artifacts.
+
+        Returns a compact summary for event emission, or None when skipped.
+        """
+
+        if request.task_type not in _SELF_CHECK_TASK_TYPES:
+            return None
+        if request.citation_policy == CitationPolicy.NONE:
+            return None
+        if not response.citations or response.grounded_answer is None:
+            return None
+        try:
+            report = run_citation_self_check(
+                answer_text=response.primary_text(),
+                citations=response.citations,
+                runtime=runtime,
+            )
+        except Exception as exc:
+            logger.warning("Citation self-check failed for task %s: %s", request.task_type.value, exc)
+            return None
+        if not report.items:
+            return None
+
+        report_dict = report.to_api_dict()
+        rebuilt_artifacts: list[BaseArtifact] = []
+        for artifact in response.artifacts:
+            if isinstance(artifact, TextArtifact) and artifact.metadata.get("evidence_badge") is not None:
+                metadata = dict(artifact.metadata)
+                metadata["citation_self_check"] = report_dict
+                artifact = replace(artifact, metadata=metadata)
+            rebuilt_artifacts.append(artifact)
+
+        trace = dict(response.metadata.workflow_trace or {})
+        trace["citation_self_check"] = {
+            "overall": report.overall,
+            "counts": report.counts(),
+            "layers": dict(report.layers),
+        }
+        response = replace(
+            response,
+            artifacts=tuple(rebuilt_artifacts),
+            metadata=replace(response.metadata, workflow_trace=trace),
+        )
+        return {
+            "overall": report.overall,
+            "counts": report.counts(),
+            "layers": dict(report.layers),
+        }
 
     def _execute_plan_skills_with_events(
         self,

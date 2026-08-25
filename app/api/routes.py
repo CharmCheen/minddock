@@ -29,6 +29,7 @@ from app.api.presenters import (
     present_unified_execution_response,
 )
 from app.api.schemas import (
+    ArchivedTraceSummaryItem,
     CancelRunResponse,
     ChatRequest,
     ChatResponse,
@@ -52,6 +53,7 @@ from app.api.schemas import (
     LocalAsrStatusResponse,
     LocalAsrModelStatusResponse,
     LocalAsrModelPreloadRequest,
+    RunTraceResponse,
     SearchRequest,
     SearchResponse,
     SkillDetailResponse,
@@ -65,12 +67,20 @@ from app.api.schemas import (
     SourceDetailResponse,
     SummarizeRequest,
     SummarizeResponse,
+    TraceArchiveListResponse,
     UnifiedExecutionRequestBody,
     UnifiedExecutionResponseBody,
 )
 from app.api.streaming import inject_heartbeat_events, project_run_events, serialize_client_event_sse
-from app.application.events import ExecutionRunStatus
-from app.application.client_events import ClientEventKind
+from app.application.events import ExecutionRun, ExecutionRunStatus
+from app.application.run_trace_archive import list_run_traces, load_run_trace
+from app.application.client_events import (
+    ClientEvent,
+    ClientEventChannel,
+    ClientEventKind,
+    ClientHeartbeatPayload,
+    EventVisibility,
+)
 from app.core.config import get_settings
 from app.core.exceptions import RunNotFoundError, SkillNotFoundError, SkillNotPublicError
 from app.core.logging import TRACE_LEVEL_NUM
@@ -1140,3 +1150,19 @@ def cancel_run(run_id: str) -> CancelRunResponse:
     if updated.status in {ExecutionRunStatus.COMPLETED, ExecutionRunStatus.FAILED, ExecutionRunStatus.CANCELLED, ExecutionRunStatus.EXPIRED}:
         return present_cancel_run_response(updated, accepted=False, detail="Run is no longer active; cancellation request recorded but will not change the outcome.")
     return present_cancel_run_response(updated, accepted=True, detail="Cancellation requested. Best-effort cancellation will be attempted at safe execution boundaries.")
+
+
+@router.get("/frontend/traces", response_model=TraceArchiveListResponse, summary="List archived run traces (survive restarts)")
+def list_archived_traces(limit: int = Query(default=50, ge=1, le=500)) -> TraceArchiveListResponse:
+    logger.debug("Trace archive list endpoint called: limit=%s", limit)
+    traces = list_run_traces(limit=limit)
+    return TraceArchiveListResponse(traces=[ArchivedTraceSummaryItem(**item) for item in traces], count=len(traces))
+
+
+@router.get("/frontend/traces/{run_id}", response_model=RunTraceResponse, summary="Load one archived run trace (survive restarts)")
+def get_archived_trace(run_id: str) -> RunTraceResponse:
+    logger.debug("Trace archive load endpoint called: run_id=%s", run_id)
+    data = load_run_trace(run_id)
+    if data is None:
+        return RunTraceResponse(run_id=run_id, found=False, data=None)
+    return RunTraceResponse(run_id=run_id, found=True, data=data)

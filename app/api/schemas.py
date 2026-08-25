@@ -22,6 +22,7 @@ from app.application.client_events import (
     ClientEvent,
     ClientFailedPayload,
     ClientHeartbeatPayload,
+    ClientInfoPayload,
     ClientProgressPayload,
     ClientRunStartedPayload,
     ClientWarningPayload,
@@ -1397,6 +1398,30 @@ class RunEventListResponse(BaseModel):
     items: list[ClientEventResponseItem] = Field(default_factory=list)
 
 
+class ArchivedTraceSummaryItem(BaseModel):
+    """Summary entry for one archived run trace (PRD FR-2)."""
+
+    run_id: str
+    task_type: str | None = None
+    archived_at: str | None = None
+    self_check_overall: str | None = None
+
+
+class TraceArchiveListResponse(BaseModel):
+    """List of archived run traces."""
+
+    traces: list[ArchivedTraceSummaryItem] = Field(default_factory=list)
+    count: int = 0
+
+
+class RunTraceResponse(BaseModel):
+    """Full archived trace for one run (survives backend restarts)."""
+
+    run_id: str
+    found: bool
+    data: dict[str, Any] | None = None
+
+
 class CancelRunResponse(BaseModel):
     """Serializable response for a cancel request."""
 
@@ -2378,6 +2403,8 @@ def _client_event_payload_to_dict(payload) -> dict[str, Any]:
         return {"message": payload.message}
     if isinstance(payload, ClientHeartbeatPayload):
         return {"message": payload.message}
+    if isinstance(payload, ClientInfoPayload):
+        return {"message": payload.message, "data": dict(payload.data or {})}
     if isinstance(payload, ClientCompletedPayload):
         return {
             "artifact_count": payload.artifact_count,

@@ -17,6 +17,7 @@ from app.application.events import (
     RunStartedPayload,
     StepCompletedPayload,
     StepStartedPayload,
+    VerificationCompletedPayload,
     WarningEmittedPayload,
 )
 
@@ -103,6 +104,14 @@ class ClientHeartbeatPayload:
 
 
 @dataclass(frozen=True)
+class ClientInfoPayload:
+    """Client-facing informational payload (e.g. verification results)."""
+
+    message: str
+    data: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
 class ClientCompletedPayload:
     """Client-facing completion payload."""
 
@@ -125,6 +134,7 @@ ClientEventPayload = (
     | ClientArtifactPayload
     | ClientWarningPayload
     | ClientHeartbeatPayload
+    | ClientInfoPayload
     | ClientCompletedPayload
     | ClientFailedPayload
 )
@@ -274,6 +284,24 @@ class EventProjector:
                 kind=ClientEventKind.PROGRESS,
                 visibility=EventVisibility.PUBLIC,
                 payload=ClientProgressPayload(phase=phase, status="completed"),
+            )
+
+        if event.kind == ExecutionEventKind.VERIFICATION_COMPLETED:
+            payload = self._require_payload(event, VerificationCompletedPayload)
+            summary = payload.summary if isinstance(payload.summary, dict) else {}
+            counts = summary.get("counts") if isinstance(summary.get("counts"), dict) else {}
+            message = (
+                "Citation self-check: "
+                f"{counts.get('supported', 0)} supported, "
+                f"{counts.get('partial', 0)} partial, "
+                f"{counts.get('unsupported', 0)} unsupported "
+                f"(overall: {summary.get('overall', 'unknown')})"
+            )
+            return self._client_event(
+                event=event,
+                kind=ClientEventKind.INFO,
+                visibility=EventVisibility.PUBLIC,
+                payload=ClientInfoPayload(message=message, data=summary),
             )
 
         if event.kind == ExecutionEventKind.RUN_COMPLETED:

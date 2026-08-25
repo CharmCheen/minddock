@@ -34,6 +34,8 @@ class ExecutionEventKind(StrEnum):
     RERANK_COMPLETED = "rerank_completed"
     COMPRESS_COMPLETED = "compress_completed"
     RETRIEVAL_PIPELINE_COMPLETED = "retrieval_pipeline_completed"
+    # Citation self-check (PRD FR-2)
+    VERIFICATION_COMPLETED = "verification_completed"
 
 
 class ExecutionRunStatus(StrEnum):
@@ -172,6 +174,13 @@ class RetrievalPipelineCompletedPayload:
     total_ms: float = 0.0
 
 
+@dataclass(frozen=True)
+class VerificationCompletedPayload:
+    """Payload emitted when the citation self-check finishes (PRD FR-2)."""
+
+    summary: dict[str, object] = field(default_factory=dict)
+
+
 ExecutionEventPayload = (
     RunStartedPayload
     | PlanBuiltPayload
@@ -184,6 +193,7 @@ ExecutionEventPayload = (
     | RunFailedPayload
     | RetrievalPipelineProgressPayload
     | RetrievalPipelineCompletedPayload
+    | VerificationCompletedPayload
 )
 
 

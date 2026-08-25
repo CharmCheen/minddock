@@ -201,6 +201,17 @@ Source 生命周期：
 - `GET /frontend/media-transcript-config/local/model/status`
 - `POST /frontend/media-transcript-config/local/model/preload`
 
+可验证文献工作台（PRD v1.0）：
+
+- `GET /frontend/traces` — 归档 run trace 列表（重启后仍可查）
+- `GET /frontend/traces/{run_id}` — 读取单个归档 trace（含引用自检报告）
+- `POST /frontend/citations/export` — BibTeX / GB/T 7714 / APA 引用导出
+
+chat/summarize/compare 的统一执行响应中，text artifact metadata 新增
+`evidence_badge`（green/yellow/red/unknown 证据充分度）与
+`citation_self_check`（逐条引用三态自检报告）；检索过滤新增
+`authors` / `year_from` / `year_to` 学术元数据过滤。
+
 Source Skill 和日程候选：
 
 - `GET /frontend/skills`

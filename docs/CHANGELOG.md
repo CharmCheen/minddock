@@ -5,6 +5,53 @@ Update it before every push.
 
 ## Unreleased
 
+### Added — Verifiable Literature Workbench (PRD `docs/PRD_可验证文献工作台_v1.0.md`)
+
+- **FR-1 Evidence-sufficiency badge** (`app/application/evidence_badge.py`):
+  deterministic mapping over existing signals only (support_status,
+  low_confidence, quality_reasons, trace_warnings, mock/fallback flags) into
+  green/yellow/red/unknown levels; attached to chat/summarize/compare text
+  artifacts as `evidence_badge` metadata and rendered as an "Evidence:" chip
+  in the frontend. Compare runs degrade to `unknown` until pipeline-style
+  quality fields exist. No numeric thresholds before the 50-case eval set.
+- **FR-2 Citation self-check** (`app/services/citation_self_check.py`):
+  two-layer per-citation verification — a synchronous rule layer (structural
+  validity + lexical alignment with conservative thresholds) plus one bounded
+  LLM layer (NLI-style three-state verdicts; skipped without runtime; failures
+  degrade to rule results). Report attaches as `citation_self_check` artifact
+  metadata, summarizes into workflow_trace, streams after the answer via a new
+  `verification_completed` internal event projected to an `info` client event.
+  Unsupported citations render grayed with a "Not supported" chip in the UI.
+- **Run-trace archive** (`app/application/run_trace_archive.py`): best-effort
+  JSON persistence of workflow traces/badges/self-checks under
+  `data/run_traces/` (gitignored); new read-only endpoints
+  `GET /frontend/traces` and `GET /frontend/traces/{run_id}` so verification
+  reports survive backend restarts.
+- **FR-3 Academic metadata + filters** (`app/rag/frontmatter_metadata.py`):
+  ingest-time extraction of `doc_authors` / `doc_year` for eligible file
+  sources (pdf/md/txt; media/csv excluded); `MetadataFilters` and
+  `RetrievalFilters` gained `authors` / `year_from` / `year_to`; year ranges
+  compile into Chroma `$and` operator conditions while authors use inflated
+  candidate fetch + case-insensitive substring post-filtering.
+- **FR-4 Citation export** (`app/services/citation_export_service.py`):
+  BibTeX / GB-T 7714 / APA formatters with explicit missing-field degradation;
+  new endpoint `POST /frontend/citations/export`; frontend footer buttons copy
+  formatted references to the clipboard.
+- **FR-6 Compare quality signals** (`build_compare_quality_trace`):
+  compare results now derive pipeline-style quality fields so evidence badges
+  apply the full mapping and citation self-check covers compare outputs.
+
+### Fixed
+
+- Frontend build blocker: `useAvailabilityStore` was missing the required
+  `onlineTimer: null` initial property.
+
+### Documentation
+
+- Added `docs/PRD_可验证文献工作台_v1.0.md` defining the differentiation
+  strategy ("answers that verify themselves"), P0 scope, revised milestones,
+  decision log from the PM/CTO review, and non-goals.
+
 ### Documentation
 
 - Synchronized `README.md`, `README_ZH.md`, and core `docs/` guidance with the current implementation:

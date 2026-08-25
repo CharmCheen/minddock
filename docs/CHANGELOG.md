@@ -40,6 +40,19 @@ Update it before every push.
 - **FR-6 Compare quality signals** (`build_compare_quality_trace`):
   compare results now derive pipeline-style quality fields so evidence badges
   apply the full mapping and citation self-check covers compare outputs.
+- **FR-3b Frontmatter-aware rerank port** (`app/rag/frontmatter_rerank.py`):
+  production adaptation of the experiment's `soft_rerank_v4_frontmatter` role
+  bonus/penalty layer on top of the heuristic base score; gated behind the new
+  `frontmatter_rerank_enabled` setting (default off) until the multi-document
+  regression harness reports a baseline (PRD: 先泛化验证再上线). Query-intent
+  extraction, page-1 role classification, and per-intent bonuses are ported
+  verbatim; unit tests cover intent detection, role classification, promotion,
+  and no-op behavior for non-front-matter queries.
+- **FR-9 Schedule .ics export** (`app/services/schedule_ics_service.py`):
+  RFC 5545 calendar export at `GET /frontend/schedule-candidates/export.ics`
+  (status filter: confirmed/pending/dismissed/all); timed and all-day events,
+  text escaping, default one-hour duration, evidence/source in DESCRIPTION.
+  Closes the schedule-candidate review loop without OAuth or write access.
 
 ### Fixed
 

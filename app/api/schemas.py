@@ -1470,6 +1470,35 @@ class CitationExportResponse(BaseModel):
     items: list[CitationExportItem] = Field(default_factory=list)
 
 
+class ReviewWorkbenchRequestBody(BaseModel):
+    """Request body for the review workbench MVP (PRD FR-7)."""
+
+    topic: str = Field(min_length=1, max_length=500)
+    sources: list[str] = Field(min_length=2, max_length=5)
+    top_k: int = Field(default=6, ge=3, le=12)
+
+    @field_validator("sources")
+    @classmethod
+    def normalize_sources(cls, value: list[str]) -> list[str]:
+        normalized = [str(item).strip() for item in value if str(item).strip()]
+        if len(normalized) < 2:
+            raise ValueError("sources must contain at least 2 non-empty entries")
+        return normalized
+
+
+class ReviewWorkbenchResponseBody(BaseModel):
+    """Review workbench response with review.v1 payload and citations."""
+
+    task_type: str = "review_workbench"
+    schema_name: str = "review.v1"
+    answer_markdown: str
+    payload: dict[str, Any]
+    citations: list[CitationItem] = Field(default_factory=list)
+    evidence_badge: dict[str, Any] | None = None
+    workflow_trace: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class CancelRunResponse(BaseModel):
     """Serializable response for a cancel request."""
 

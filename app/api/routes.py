@@ -36,7 +36,10 @@ from app.api.schemas import (
     CitationExportRequestBody,
     CitationExportResponse,
     CitationExportItem,
+    CitationItem,
     CompareRequest,
+    ReviewWorkbenchRequestBody,
+    ReviewWorkbenchResponseBody,
     CompareResponse,
     DeleteSourceResponse,
     IngestRequest,
@@ -78,6 +81,7 @@ from app.api.streaming import inject_heartbeat_events, project_run_events, seria
 from app.application.events import ExecutionRun, ExecutionRunStatus
 from app.application.run_trace_archive import list_run_traces, load_run_trace
 from app.services.citation_export_service import format_citation_entries
+from app.services.review_workbench_service import ReviewWorkbenchRequest, run_review_workbench
 from app.application.client_events import (
     ClientEvent,
     ClientEventChannel,
@@ -1181,4 +1185,31 @@ def export_citations(payload: CitationExportRequestBody) -> CitationExportRespon
         count=int(result["count"]),
         text=str(result["text"]),
         items=[CitationExportItem(**item) for item in result["items"]],
+    )
+
+
+@router.post("/frontend/review-workbench", response_model=ReviewWorkbenchResponseBody, summary="Multi-source related-work review table (PRD FR-7 MVP)")
+def run_review_workbench_endpoint(payload: ReviewWorkbenchRequestBody) -> ReviewWorkbenchResponseBody:
+    logger.info("Review workbench endpoint called: sources=%s topic=%s", payload.sources, payload.topic[:60])
+    request = ReviewWorkbenchRequest(topic=payload.topic, sources=tuple(payload.sources), top_k=payload.top_k)
+    result = run_review_workbench(request)
+
+    from app.application.evidence_badge import compute_evidence_badge
+
+    trace = result.metadata.workflow_trace or {}
+    badge = compute_evidence_badge(
+        task_type="summarize",
+        support_status=result.metadata.support_status,
+        insufficient_evidence=result.metadata.insufficient_evidence,
+        refusal_reason=result.metadata.refusal_reason,
+        warnings=result.metadata.warnings,
+        workflow_trace=trace,
+    )
+    return ReviewWorkbenchResponseBody(
+        answer_markdown=result.answer_markdown,
+        payload=result.payload,
+        citations=[CitationItem.from_record(record) for record in result.citations],
+        evidence_badge=badge,
+        workflow_trace=trace,
+        warnings=list(result.metadata.warnings),
     )

@@ -28,6 +28,7 @@ export const useAvailabilityStore = create<AvailabilityState>((set, get) => ({
   lastChecked: null,
   retryCount: 0,
   retryTimer: null,
+  onlineTimer: null,
 
   probe: async () => {
     // If already online, skip

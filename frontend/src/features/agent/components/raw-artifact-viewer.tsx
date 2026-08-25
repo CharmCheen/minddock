@@ -139,6 +139,19 @@ function buildStatusBadges(metadata: Record<string, unknown> | undefined, answer
     : metadataSupportStatus || groundedSupportStatus || compareSupportStatus;
   const badges: StatusBadge[] = [];
 
+  // Evidence-sufficiency badge (PRD FR-1): server-computed deterministic level.
+  const evidenceBadgeRaw = metadata.evidence_badge as Record<string, unknown> | undefined;
+  const badgeLevel = typeof evidenceBadgeRaw?.level === 'string' ? evidenceBadgeRaw.level : '';
+  if (badgeLevel) {
+    const EVIDENCE_BADGE_STYLE: Record<string, StatusBadge> = {
+      green: { label: 'Evidence: Strong', color: '#15803d', background: '#f0fdf4', border: '#bbf7d0' },
+      yellow: { label: 'Evidence: Fair', color: '#b45309', background: '#fffbeb', border: '#fde68a' },
+      red: { label: 'Evidence: Weak', color: '#b91c1c', background: '#fef2f2', border: '#fecaca' },
+      unknown: { label: 'Evidence: Unverified', color: '#64748b', background: '#f8fafc', border: '#e2e8f0' },
+    };
+    badges.push(EVIDENCE_BADGE_STYLE[badgeLevel] || EVIDENCE_BADGE_STYLE.unknown);
+  }
+
   if (runtimeStatus === 'mock' || mockUsed) {
     badges.push({
       label: 'Using mock/fallback',
@@ -367,6 +380,18 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
   const answerText = kind === 'text' ? String(content.text || '') : undefined;
   const statusBadges = buildStatusBadges(metadata, answerText);
 
+  // Citation self-check statuses by citation index (PRD FR-2).
+  const selfCheck = metadata?.citation_self_check as Record<string, unknown> | undefined;
+  const checkItems = Array.isArray(selfCheck?.items) ? (selfCheck!.items as Record<string, unknown>[]) : [];
+  const checkStatuses: Record<number, string> | undefined =
+    checkItems.length > 0
+      ? Object.fromEntries(
+          checkItems
+            .map((item) => [Number(item.index), String(item.status || '')])
+            .filter(([, status]) => status === 'unsupported' || status === 'partial'),
+        )
+      : undefined;
+
   // Extract citations from multiple possible locations
   // Skip citations when evidence is insufficient (refusal response)
   const insufficientEvidence = isInsufficientEvidenceArtifact(metadata, content, answerText);
@@ -404,7 +429,7 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
         }}>
           {renderLightMarkdown(String(content.text || ''), density)}
         </div>
-        {citations && citations.length > 0 && <CitationList citations={citations} />}
+        {citations && citations.length > 0 && <CitationList citations={citations} checkStatuses={checkStatuses} />}
       </div>
     );
   }
@@ -439,7 +464,7 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
             {String(content.mermaid_code || '')}
           </pre>
         </div>
-        {citations && citations.length > 0 && <CitationList citations={citations} />}
+        {citations && citations.length > 0 && <CitationList citations={citations} checkStatuses={checkStatuses} />}
       </div>
     );
   }
@@ -555,7 +580,7 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
             'Conflicts', conflicts.length, '#dc2626', '#fef2f2', '#fecaca', conflicts, 'conflicts'
           )}
 
-          {citations && citations.length > 0 && <div style={{ marginTop: density === 'compact' ? '14px' : '20px' }}><CitationList citations={citations} /></div>}
+          {citations && citations.length > 0 && <div style={{ marginTop: density === 'compact' ? '14px' : '20px' }}><CitationList citations={citations} checkStatuses={checkStatuses} /></div>}
         </div>
       );
     }
@@ -582,7 +607,7 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
           }}>
             {String(dataObj.summary || '')}
           </div>
-          {citations && citations.length > 0 && <CitationList citations={citations} />}
+          {citations && citations.length > 0 && <CitationList citations={citations} checkStatuses={checkStatuses} />}
         </div>
       );
     }
@@ -614,7 +639,7 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
         }}>
           {parsed}
         </pre>
-        {citations && citations.length > 0 && <CitationList citations={citations} />}
+        {citations && citations.length > 0 && <CitationList citations={citations} checkStatuses={checkStatuses} />}
       </div>
     );
   }

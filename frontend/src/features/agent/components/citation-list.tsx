@@ -2,13 +2,29 @@ import React, { useState } from 'react';
 import { CitationItem } from '../../../core/types/api';
 import { useWorkspaceStore } from '../../workspace/store';
 import { useWorkspacePreferences } from '../../settings/workspace-preferences';
+import { CitationExportFormat, exportCitations } from '../../../lib/api/services/citations';
 
-export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citations }) => {
+const CHECK_STATUS_STYLE: Record<string, { label: string; color: string; background: string; border: string }> = {
+  unsupported: { label: 'Not supported', color: '#b91c1c', background: '#fef2f2', border: '#fecaca' },
+  partial: { label: 'Partial support', color: '#b45309', background: '#fffbeb', border: '#fde68a' },
+};
+
+export const CitationList: React.FC<{
+  citations: CitationItem[];
+  checkStatuses?: Record<number, string>;
+}> = ({ citations, checkStatuses }) => {
   const { openCitationSource } = useWorkspaceStore();
   const { showTechnicalCitationMetadata, setShowTechnicalCitationMetadata, density } = useWorkspacePreferences();
   const [clickedIndex, setClickedIndex] = useState<number | null>(null);
+  const [exportState, setExportState] = useState<{ format: string; ok: boolean } | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   if (!citations || citations.length === 0) return null;
+
+  const getCheckStatus = (index: number): string | null => {
+    if (!checkStatuses) return null;
+    return checkStatuses[index] || null;
+  };
 
   const handleCitationClick = (citation: CitationItem, index: number) => {
     setClickedIndex(index);
@@ -38,6 +54,29 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
 
   const getCitationPreview = (citation: CitationItem): string | null => {
     return citation.evidence_preview || citation.snippet || null;
+  };
+
+  const handleExport = async (format: CitationExportFormat) => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const entries = citations.map((c) => ({
+        doc_id: c.doc_id,
+        title: c.title || c.source || c.doc_id,
+        source: c.source || '',
+        page: c.page_start ?? c.page_num ?? c.page ?? null,
+        snippet: c.snippet || '',
+      }));
+      const result = await exportCitations(format, entries as unknown as Record<string, unknown>[]);
+      await navigator.clipboard.writeText(result.text);
+      setExportState({ format, ok: true });
+      setTimeout(() => setExportState(null), 2000);
+    } catch {
+      setExportState({ format, ok: false });
+      setTimeout(() => setExportState(null), 2500);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const d = density;
@@ -85,7 +124,11 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
 
       {/* Citation Items */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: itemGap }}>
-        {citations.map((c, i) => (
+        {citations.map((c, i) => {
+          const checkStatus = getCheckStatus(i);
+          const checkStyle = checkStatus ? CHECK_STATUS_STYLE[checkStatus] : null;
+          const isUnsupported = checkStatus === 'unsupported';
+          return (
           <div
             key={i}
             onClick={() => handleCitationClick(c, i)}
@@ -97,22 +140,25 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
               padding: itemPadding,
               background: clickedIndex === i ? 'var(--color-brand-50)' : 'var(--color-surface)',
               border: '1px solid',
-              borderColor: clickedIndex === i ? 'var(--color-brand-200)' : 'var(--color-border-subtle)',
+              borderColor: isUnsupported
+                ? '#fecaca'
+                : clickedIndex === i ? 'var(--color-brand-200)' : 'var(--color-border-subtle)',
               borderRadius: 'var(--radius-md)',
               cursor: 'pointer',
               transition: 'all var(--transition-fast)',
               boxShadow: clickedIndex === i ? '0 0 0 1px var(--color-brand-200)' : 'none',
+              opacity: isUnsupported ? 0.62 : 1,
             }}
             onMouseOver={(e) => {
               if (clickedIndex !== i) {
-                e.currentTarget.style.borderColor = 'var(--color-border-default)';
+                e.currentTarget.style.borderColor = isUnsupported ? '#fca5a5' : 'var(--color-border-default)';
                 e.currentTarget.style.boxShadow = 'var(--shadow-md)';
                 e.currentTarget.style.transform = 'translateY(-1px)';
               }
             }}
             onMouseOut={(e) => {
               if (clickedIndex !== i) {
-                e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
+                e.currentTarget.style.borderColor = isUnsupported ? '#fecaca' : 'var(--color-border-subtle)';
                 e.currentTarget.style.boxShadow = 'none';
                 e.currentTarget.style.transform = 'translateY(0)';
               }
@@ -151,8 +197,8 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
                 {getCitationTitle(c)}
               </div>
 
-              {/* Label (page / section) + Derived badge */}
-              {(getCitationLabel(c) || getDerivedBadge(c)) && (
+              {/* Label (page / section) + Derived badge + self-check status */}
+              {(getCitationLabel(c) || getDerivedBadge(c) || checkStyle) && (
                 <div style={{
                   fontSize: labelSize,
                   color: 'var(--color-text-tertiary)',
@@ -190,6 +236,23 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
                         flexShrink: 0,
                       }} />
                       {getDerivedBadge(c)!.label} · Derived from transcript
+                    </span>
+                  )}
+                  {checkStyle && (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      background: checkStyle.background,
+                      color: checkStyle.color,
+                      padding: '1px 7px',
+                      borderRadius: 'var(--radius-full)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      border: `1px solid ${checkStyle.border}`,
+                      flexShrink: 0,
+                    }}>
+                      ✕ {checkStyle.label}
                     </span>
                   )}
                 </div>
@@ -275,6 +338,55 @@ export const CitationList: React.FC<{ citations: CitationItem[] }> = ({ citation
               )}
             </div>
           </div>
+          );
+        })}
+      </div>
+
+      {/* Citation export (PRD FR-4) */}
+      <div style={{
+        marginTop: d === 'compact' ? '8px' : '10px',
+        paddingTop: '8px',
+        borderTop: '1px solid var(--color-border-subtle)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        flexWrap: 'wrap',
+      }}>
+        <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', fontWeight: 600, marginRight: '2px' }}>
+          Export citations
+        </span>
+        {([
+          ['bibtex', 'BibTeX'],
+          ['gbt7714', 'GB/T 7714'],
+          ['apa', 'APA'],
+        ] as [CitationExportFormat, string][]).map(([format, label]) => (
+          <button
+            key={format}
+            type="button"
+            disabled={exporting}
+            onClick={() => handleExport(format)}
+            style={{
+              fontSize: '11px',
+              color: exportState?.format === format ? (exportState.ok ? 'var(--color-success-text)' : 'var(--color-error-text)') : 'var(--color-text-secondary)',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              cursor: exporting ? 'wait' : 'pointer',
+              padding: '3px 10px',
+              borderRadius: 'var(--radius-sm)',
+              fontWeight: 600,
+              transition: 'all var(--transition-fast)',
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-border-default)';
+              e.currentTarget.style.background = 'var(--color-canvas)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
+              e.currentTarget.style.background = 'var(--color-surface)';
+            }}
+          >
+            {exportState?.format === format ? (exportState.ok ? 'Copied ✓' : 'Failed') : label}
+          </button>
         ))}
       </div>
 

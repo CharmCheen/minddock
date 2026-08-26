@@ -117,3 +117,6 @@ tools/local_asr_server/*.pyc
 tools/local_asr_server/.cache/
 tools/local_asr_server/models/
 tools/local_asr_server/downloads/
+
+# Archived run traces (runtime artifacts)
+data/run_traces/

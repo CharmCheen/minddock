@@ -29,10 +29,17 @@ from app.api.presenters import (
     present_unified_execution_response,
 )
 from app.api.schemas import (
+    ArchivedTraceSummaryItem,
     CancelRunResponse,
     ChatRequest,
     ChatResponse,
+    CitationExportRequestBody,
+    CitationExportResponse,
+    CitationExportItem,
+    CitationItem,
     CompareRequest,
+    ReviewWorkbenchRequestBody,
+    ReviewWorkbenchResponseBody,
     CompareResponse,
     DeleteSourceResponse,
     IngestRequest,
@@ -52,6 +59,7 @@ from app.api.schemas import (
     LocalAsrStatusResponse,
     LocalAsrModelStatusResponse,
     LocalAsrModelPreloadRequest,
+    RunTraceResponse,
     SearchRequest,
     SearchResponse,
     SkillDetailResponse,
@@ -65,12 +73,22 @@ from app.api.schemas import (
     SourceDetailResponse,
     SummarizeRequest,
     SummarizeResponse,
+    TraceArchiveListResponse,
     UnifiedExecutionRequestBody,
     UnifiedExecutionResponseBody,
 )
 from app.api.streaming import inject_heartbeat_events, project_run_events, serialize_client_event_sse
-from app.application.events import ExecutionRunStatus
-from app.application.client_events import ClientEventKind
+from app.application.events import ExecutionRun, ExecutionRunStatus
+from app.application.run_trace_archive import list_run_traces, load_run_trace
+from app.services.citation_export_service import format_citation_entries
+from app.services.review_workbench_service import ReviewWorkbenchRequest, run_review_workbench
+from app.application.client_events import (
+    ClientEvent,
+    ClientEventChannel,
+    ClientEventKind,
+    ClientHeartbeatPayload,
+    EventVisibility,
+)
 from app.core.config import get_settings
 from app.core.exceptions import RunNotFoundError, SkillNotFoundError, SkillNotPublicError
 from app.core.logging import TRACE_LEVEL_NUM
@@ -1140,3 +1158,86 @@ def cancel_run(run_id: str) -> CancelRunResponse:
     if updated.status in {ExecutionRunStatus.COMPLETED, ExecutionRunStatus.FAILED, ExecutionRunStatus.CANCELLED, ExecutionRunStatus.EXPIRED}:
         return present_cancel_run_response(updated, accepted=False, detail="Run is no longer active; cancellation request recorded but will not change the outcome.")
     return present_cancel_run_response(updated, accepted=True, detail="Cancellation requested. Best-effort cancellation will be attempted at safe execution boundaries.")
+
+
+@router.get("/frontend/traces", response_model=TraceArchiveListResponse, summary="List archived run traces (survive restarts)")
+def list_archived_traces(limit: int = Query(default=50, ge=1, le=500)) -> TraceArchiveListResponse:
+    logger.debug("Trace archive list endpoint called: limit=%s", limit)
+    traces = list_run_traces(limit=limit)
+    return TraceArchiveListResponse(traces=[ArchivedTraceSummaryItem(**item) for item in traces], count=len(traces))
+
+
+@router.get("/frontend/traces/{run_id}", response_model=RunTraceResponse, summary="Load one archived run trace (survive restarts)")
+def get_archived_trace(run_id: str) -> RunTraceResponse:
+    logger.debug("Trace archive load endpoint called: run_id=%s", run_id)
+    data = load_run_trace(run_id)
+    if data is None:
+        return RunTraceResponse(run_id=run_id, found=False, data=None)
+    return RunTraceResponse(run_id=run_id, found=True, data=data)
+
+
+@router.post("/frontend/citations/export", response_model=CitationExportResponse, summary="Export citations as BibTeX / GB/T 7714 / APA")
+def export_citations(payload: CitationExportRequestBody) -> CitationExportResponse:
+    logger.debug("Citation export endpoint called: format=%s entries=%s", payload.format, len(payload.entries))
+    result = format_citation_entries(payload.entries, payload.format)
+    return CitationExportResponse(
+        format=str(result["format"]),
+        count=int(result["count"]),
+        text=str(result["text"]),
+        items=[CitationExportItem(**item) for item in result["items"]],
+    )
+
+
+@router.post("/frontend/review-workbench", response_model=ReviewWorkbenchResponseBody, summary="Multi-source related-work review table (PRD FR-7 MVP)")
+def run_review_workbench_endpoint(payload: ReviewWorkbenchRequestBody) -> ReviewWorkbenchResponseBody:
+    logger.info("Review workbench endpoint called: sources=%s topic=%s", payload.sources, payload.topic[:60])
+    request = ReviewWorkbenchRequest(topic=payload.topic, sources=tuple(payload.sources), top_k=payload.top_k)
+    # PRD v1.2 D-1: inject the real generation runtime so LLM synthesis and the
+    # LLM self-check layer actually run; degradation must be explicit, never
+    # silent. Resolution failures degrade to runtime=None (honest fallback).
+    runtime = _resolve_review_runtime()
+    result = run_review_workbench(request, runtime=runtime)
+
+    from app.application.evidence_badge import compute_evidence_badge
+
+    trace = result.metadata.workflow_trace or {}
+    badge = compute_evidence_badge(
+        task_type="review_workbench",
+        support_status=result.metadata.support_status,
+        insufficient_evidence=result.metadata.insufficient_evidence,
+        refusal_reason=result.metadata.refusal_reason,
+        warnings=result.metadata.warnings,
+        workflow_trace=trace,
+    )
+    return ReviewWorkbenchResponseBody(
+        answer_markdown=result.answer_markdown,
+        payload=result.payload,
+        citations=[CitationItem.from_record(record) for record in result.citations],
+        evidence_badge=badge,
+        workflow_trace=trace,
+        warnings=list(result.metadata.warnings),
+    )
+
+
+def _resolve_review_runtime():
+    """Resolve a generation runtime for the review workbench endpoint."""
+
+    try:
+        from app.application.models import CitationPolicy, ExecutionPolicy, OutputMode, SkillPolicy, SkillPolicyMode
+        from app.runtime.models import RuntimeSelectionPolicy, RuntimeSelectionRequest
+
+        facade = frontend_facade
+        match = facade.runtime_resolver.resolve(
+            RuntimeSelectionRequest(
+                task_type="summarize",
+                output_mode=OutputMode.TEXT.value,
+                citation_policy=CitationPolicy.PREFERRED.value,
+                skill_policy=SkillPolicyMode.DISABLED.value,
+                execution_policy=ExecutionPolicy(),
+                policy=RuntimeSelectionPolicy(),
+            )
+        )
+        return facade.runtime_factory.create(match.binding)
+    except Exception as exc:
+        logger.warning("Review workbench runtime resolution failed; using honest no-runtime fallback: %s", exc)
+        return None

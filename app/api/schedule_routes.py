@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 
 from app.api.schedule_schemas import (
     ScheduleCandidateItem,
@@ -17,6 +18,7 @@ from app.api.schedule_schemas import (
 )
 from app.schedule.models import ScheduleCandidate
 from app.services.schedule_candidate_service import ScheduleCandidateService
+from app.services.schedule_ics_service import build_ics_calendar
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,30 @@ def dismiss_schedule_candidate(candidate_id: str) -> ScheduleStatusUpdateRespons
     if candidate is None:
         raise HTTPException(status_code=404, detail=f"Candidate '{candidate_id}' not found.")
     return ScheduleStatusUpdateResponse(found=True, candidate=_to_item(candidate))
+
+
+@router.get(
+    "/frontend/schedule-candidates/export.ics",
+    response_class=PlainTextResponse,
+    summary="Export schedule candidates as an RFC 5545 .ics calendar (PRD FR-9)",
+)
+def export_schedule_candidates_ics(
+    status: str = Query(default="confirmed", description="Which candidates to export: confirmed, pending, or all"),
+) -> PlainTextResponse:
+    if status not in {*_VALID_STATUSES, "all"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{status}'. Must be one of: pending, confirmed, dismissed, all",
+        )
+    logger.info("Schedule ICS export endpoint called: status=%s", status)
+    listing_status = None if status == "all" else status
+    candidates = _service.list_candidates(status=listing_status)
+    ics_text = build_ics_calendar(candidates)
+    return PlainTextResponse(
+        content=ics_text,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="minddock-schedule.ics"'},
+    )
 
 
 @router.post(

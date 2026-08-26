@@ -5,6 +5,166 @@ Update it before every push.
 
 ## Unreleased
 
+### Changed — Deep Audit Pass
+
+- **Self-check reason reconciliation** (`citation_self_check.py`): when the
+  LLM layer upgrades a rule verdict, a stale rule-layer downgrade note
+  (e.g. `downgraded_hit_only_fallback`) no longer survives next to a
+  `supported` final status; the reason trail stays consistent with the verdict.
+- **MCP tool result shape** (`tools/minddock_mcp_server.py`): raw hits moved
+  out of typed content items (strict clients validate `{type, text}`) into a
+  result-level `structuredContent` payload.
+- **Trace archive completeness + retention** (`run_trace_archive.py`,
+  `orchestrators.py`): failed and cancelled runs are now archived too with an
+  error summary (status/error/detail), closing the debugging-evidence gap; a
+  newest-first retention cap (default 500 files) bounds disk growth — closes
+  PRD appendix B#1.
+- **Dead code removal**: `_short_log_guard` and unused `math` import dropped
+  from `frontmatter_rerank.py`.
+
+### Fixed — Repair Sprint (PRD v1.2 Appendix D-5)
+
+- **D-1/P0 review-workbench fake signals removed** (`app/services/review_workbench_service.py`):
+  quality trace is now computed honestly — `quality_ok`/`low_confidence`/
+  `quality_reasons` derive from real coverage, self-check outcome, and LLM
+  layer status; `support_status` is only "supported" when source coverage is
+  full, the self-check passes, and both LLM layers actually ran; skipped/failed
+  layers surface as visible warnings and degrade to `partially_supported`.
+  The self-check now receives the real runtime instead of a hardcoded `None`.
+- **D-1/P0 runtime injection** (`app/api/routes.py`): the review-workbench
+  endpoint resolves a generation runtime through the facade resolver/factory
+  (summarize-shaped selection) and injects it; resolution failure falls back
+  to no-runtime explicitly with a warning log. task_type for badge computation
+  renamed from masquerading `"summarize"` to honest `"review_workbench"`.
+- **Self-check merge policy fix** (`app/services/citation_self_check.py`):
+  `_merge_statuses` previously blocked ALL upgrades from the rule verdict;
+  now only the conservative guard remains (structural `unsupported` can reach
+  at most `partial` via the LLM layer), so genuine semantic support upgrades a
+  lexical `partial`.
+- **D-2/P1 frontend repairs**: single trust conclusion — the deterministic
+  Evidence badge replaces the legacy Supported chip when present, with a Beta
+  tooltip disclosing the mapping basis and reasons (raw-artifact-viewer.tsx,
+  dead `if (false && …)` branches removed); SSE `info` events (verification
+  results) are now visible in the turn timeline with their message
+  (agent-message-list.tsx + ClientEventKind type); the self-check panel renders
+  per-item reasons and clicking an item opens the cited source;
+  BibTeX export additionally downloads `minddock-citations.bib`
+  (citation-list.tsx).
+- **FR-3 filter UI** (agent-input.tsx / execution.ts / api types): collapsible
+  Filters row in the composer with exactly three fields (Author comma list,
+  Year from, Year to), wired into `/frontend/execute/stream` request filters.
+
+### Documentation
+
+- CI governance progress note: dependency pins verified compatible offline —
+  `chromadb 0.6.3 + langchain-chroma 0.2.x + langchain-core 0.3.86` coexist
+  cleanly with langgraph 0.3/langchain-openai pins (`pip check` clean). The
+  remaining bootstrap blocker is chromadb's import-time ONNX MiniLM download
+  (S3), which requires one online step; documented as the exact CI setup
+  requirement rather than a code defect.
+
+### Documentation
+
+- PRD upgraded to v1.2 (`docs/PRD_可验证文献工作台_v1.2.md`, renamed from v1.1):
+  four-way double-round debate record added as Appendix D (PM × CTO × frontend
+  expert × backend expert) with final rulings on all four contested topics —
+  retrieval-quality mainline confirmed over deployment; review workbench gets a
+  phase-1 standalone repair (fake-signal removal + runtime injection +
+  task_type rename) before a phase-2 unified-pipeline migration; badge display
+  gated behind defect fixes with red/yellow first and green held until ≥85%
+  agreement; MCP frozen except a ≤1-day real-client smoke that must first
+  verify transport framing.
+- New P0/P1 defect register from the debate: review-workbench hardcoded quality
+  signals + missing runtime injection + task_type masquerading as "summarize"
+  (P0); SSE info event invisible, dual-badge conflict, self-check panel dropping
+  reasons, no .bib download, no filter UI (P1). Next milestone set as a repair
+  sprint (fix:new-feature = 2:1) with explicit per-role red lines.
+
+- PRD upgraded to v1.1 (`docs/PRD_可验证文献工作台_v1.1.md`, renamed from v1.0):
+  added revision history, appendix C implementation-status matrix mapping every
+  FR to its commit with remaining gaps and honest deviations (FR-3b flag-off,
+  FR-9 delivered early, self-check LLM layer sequencing), annotated appendix B
+  open questions as resolved/open, and recorded milestone progress against the
+  M1–M3 plan.
+
+### Added — Verifiable Literature Workbench (PRD `docs/PRD_可验证文献工作台_v1.1.md`)
+
+- **FR-1 Evidence-sufficiency badge** (`app/application/evidence_badge.py`):
+  deterministic mapping over existing signals only (support_status,
+  low_confidence, quality_reasons, trace_warnings, mock/fallback flags) into
+  green/yellow/red/unknown levels; attached to chat/summarize/compare text
+  artifacts as `evidence_badge` metadata and rendered as an "Evidence:" chip
+  in the frontend. Compare runs degrade to `unknown` until pipeline-style
+  quality fields exist. No numeric thresholds before the 50-case eval set.
+- **FR-2 Citation self-check** (`app/services/citation_self_check.py`):
+  two-layer per-citation verification — a synchronous rule layer (structural
+  validity + lexical alignment with conservative thresholds) plus one bounded
+  LLM layer (NLI-style three-state verdicts; skipped without runtime; failures
+  degrade to rule results). Report attaches as `citation_self_check` artifact
+  metadata, summarizes into workflow_trace, streams after the answer via a new
+  `verification_completed` internal event projected to an `info` client event.
+  Unsupported citations render grayed with a "Not supported" chip in the UI.
+- **Run-trace archive** (`app/application/run_trace_archive.py`): best-effort
+  JSON persistence of workflow traces/badges/self-checks under
+  `data/run_traces/` (gitignored); new read-only endpoints
+  `GET /frontend/traces` and `GET /frontend/traces/{run_id}` so verification
+  reports survive backend restarts.
+- **FR-3 Academic metadata + filters** (`app/rag/frontmatter_metadata.py`):
+  ingest-time extraction of `doc_authors` / `doc_year` for eligible file
+  sources (pdf/md/txt; media/csv excluded); `MetadataFilters` and
+  `RetrievalFilters` gained `authors` / `year_from` / `year_to`; year ranges
+  compile into Chroma `$and` operator conditions while authors use inflated
+  candidate fetch + case-insensitive substring post-filtering.
+- **FR-4 Citation export** (`app/services/citation_export_service.py`):
+  BibTeX / GB-T 7714 / APA formatters with explicit missing-field degradation;
+  new endpoint `POST /frontend/citations/export`; frontend footer buttons copy
+  formatted references to the clipboard.
+- **FR-6 Compare quality signals** (`build_compare_quality_trace`):
+  compare results now derive pipeline-style quality fields so evidence badges
+  apply the full mapping and citation self-check covers compare outputs.
+- **FR-3b Frontmatter-aware rerank port** (`app/rag/frontmatter_rerank.py`):
+  production adaptation of the experiment's `soft_rerank_v4_frontmatter` role
+  bonus/penalty layer on top of the heuristic base score; gated behind the new
+  `frontmatter_rerank_enabled` setting (default off) until the multi-document
+  regression harness reports a baseline (PRD: 先泛化验证再上线). Query-intent
+  extraction, page-1 role classification, and per-intent bonuses are ported
+  verbatim; unit tests cover intent detection, role classification, promotion,
+  and no-op behavior for non-front-matter queries.
+- **FR-9 Schedule .ics export** (`app/services/schedule_ics_service.py`):
+  RFC 5545 calendar export at `GET /frontend/schedule-candidates/export.ics`
+  (status filter: confirmed/pending/dismissed/all); timed and all-day events,
+  text escaping, default one-hour duration, evidence/source in DESCRIPTION.
+  Closes the schedule-candidate review loop without OAuth or write access.
+- **FR-5 Eval set expansion (partial)**: `eval/benchmark/sample_eval_set.jsonl`
+  grows 13 → 29 hand-curated cases with offline-verified chunk maps over the
+  four bundled markdown sources (search 7 / chat 6 / compare 3 additions plus
+  a second evidence-insufficient scenario); dataset-guard test updated from
+  the old ≤15 small-set cap to the FR-5 growth floor with an anti-bloat
+  ceiling. Remaining ~21 cases require runtime annotation against the bundled
+  academic PDFs.
+- **FR-7 Review Workbench MVP** (`app/services/review_workbench_service.py`):
+  multi-source related-work generation at `POST /frontend/review-workbench` —
+  per-source scoped retrieval, LLM synthesis into a `review.v1` payload
+  (overview / dimension table / takeaways) with deterministic extractive
+  fallback when no runtime, deduplicated unified citations, quality trace
+  fields so evidence badges apply, and citation self-check summary.
+- **FR-8 MCP server POC** (`tools/minddock_mcp_server.py`): read-only
+  Model Context Protocol server over stdio (newline-delimited JSON-RPC 2.0,
+  no SDK) exposing `minddock_search` against the running backend; transport
+  separated from protocol handling for unit testing. Run:
+  `python tools/minddock_mcp_server.py`.
+
+### Fixed
+
+- Frontend build blocker: `useAvailabilityStore` was missing the required
+  `onlineTimer: null` initial property.
+
+### Documentation
+
+- Added `docs/PRD_可验证文献工作台_v1.0.md` defining the differentiation
+  strategy ("answers that verify themselves"), P0 scope, revised milestones,
+  decision log from the PM/CTO review, and non-goals.
+
 ### Documentation
 
 - Synchronized `README.md`, `README_ZH.md`, and core `docs/` guidance with the current implementation:

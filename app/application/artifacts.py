@@ -7,6 +7,7 @@ from enum import StrEnum
 from itertools import count
 from typing import Any
 
+from app.application.evidence_badge import compute_evidence_badge
 from app.rag.retrieval_models import SearchHitRecord
 from app.services.service_models import ChatServiceResult, CompareServiceResult, SearchServiceResult, SummarizeServiceResult
 from app.skills.models import SkillInvocationResult
@@ -102,6 +103,7 @@ class ArtifactBuilder:
 
     def build_chat_artifacts(self, result: ChatServiceResult) -> tuple[BaseArtifact, ...]:
         grounded_metadata = self._grounding_metadata(result.metadata)
+        grounded_metadata["evidence_badge"] = self._evidence_badge(result.metadata, task_type="chat")
         citations: tuple[dict[str, object], ...] = ()
         if result.grounded_answer is not None:
             grounded_metadata["grounded_answer"] = result.grounded_answer.to_api_dict()
@@ -121,6 +123,7 @@ class ArtifactBuilder:
 
     def build_summarize_artifacts(self, result: SummarizeServiceResult, *, output_mode: str) -> tuple[BaseArtifact, ...]:
         grounded_metadata = self._grounding_metadata(result.metadata)
+        grounded_metadata["evidence_badge"] = self._evidence_badge(result.metadata, task_type="summarize")
         citations: tuple[dict[str, object], ...] = ()
         if result.grounded_answer is not None:
             grounded_metadata["grounded_answer"] = result.grounded_answer.to_api_dict()
@@ -164,7 +167,10 @@ class ArtifactBuilder:
 
     def build_compare_artifacts(self, result: CompareServiceResult) -> tuple[BaseArtifact, ...]:
         compare_payload = result.compare_result.to_api_dict()
-        compare_metadata: dict[str, object] = {"compare_result": compare_payload}
+        compare_metadata: dict[str, object] = {
+            "compare_result": compare_payload,
+            "evidence_badge": self._evidence_badge(result.metadata, task_type="compare"),
+        }
         if result.metadata.workflow_trace is not None:
             compare_metadata["workflow_trace"] = result.metadata.workflow_trace
 
@@ -242,6 +248,30 @@ class ArtifactBuilder:
             skill_name=result.skill_id,
             payload=dict(result.output),
             summary_text=summary,
+        )
+
+    @staticmethod
+    def _evidence_badge(metadata, *, task_type: str) -> dict[str, object]:
+        """Deterministic evidence badge from existing grounding/quality signals."""
+
+        workflow_trace = metadata.workflow_trace if isinstance(metadata.workflow_trace, dict) else None
+        quality_signals_available = bool(
+            workflow_trace
+            and any(
+                key in workflow_trace
+                for key in ("quality_ok", "low_confidence", "quality_reasons", "retry_count")
+            )
+        )
+        return compute_evidence_badge(
+            task_type=task_type,
+            support_status=metadata.support_status,
+            insufficient_evidence=metadata.insufficient_evidence,
+            refusal_reason=metadata.refusal_reason,
+            warnings=metadata.warnings,
+            workflow_trace=workflow_trace,
+            mock_used=metadata.mock_used,
+            fallback_used=metadata.fallback_used,
+            quality_signals_available=None if task_type != "compare" else quality_signals_available,
         )
 
     @staticmethod

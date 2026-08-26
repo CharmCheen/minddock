@@ -201,6 +201,28 @@ Source 生命周期：
 - `GET /frontend/media-transcript-config/local/model/status`
 - `POST /frontend/media-transcript-config/local/model/preload`
 
+可验证文献工作台（PRD v1.2）：
+
+- `GET /frontend/traces` — 归档 run trace 列表（重启后仍可查，含失败/取消 run）
+- `GET /frontend/traces/{run_id}` — 读取单个归档 trace（含引用自检报告）
+- `POST /frontend/citations/export` — BibTeX / GB/T 7714 / APA 引用导出
+- `POST /frontend/review-workbench` — 多源综述工作台（review.v1 对比表 + 可点击引用）
+
+chat/summarize/compare 的统一执行响应中，text artifact metadata 新增
+`evidence_badge`（green/yellow/red/unknown 证据充分度，确定性映射）与
+`citation_self_check`（逐条引用三态自检报告）；检索过滤新增
+`authors` / `year_from` / `year_to` 学术元数据过滤。
+
+MCP 只读 POC：
+
+```powershell
+# 后端运行中，另开终端：
+python tools/minddock_mcp_server.py
+```
+
+在支持 MCP 的客户端（Claude Desktop / Cursor）中把该命令配置为 stdio
+server，即可调用 `minddock_search` 工具查询本地知识库。
+
 Source Skill 和日程候选：
 
 - `GET /frontend/skills`

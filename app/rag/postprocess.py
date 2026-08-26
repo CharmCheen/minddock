@@ -225,7 +225,15 @@ def get_reranker() -> Reranker:
     provider = settings.rerank_provider.strip().lower()
     if not settings.rerank_enabled or provider == "noop":
         return NoOpReranker()
-    return HeuristicReranker()
+    heuristic = HeuristicReranker()
+    if getattr(settings, "frontmatter_rerank_enabled", False):
+        # PRD FR-3b: experiment-ported front-matter layer on top of the
+        # heuristic base; the flag stays off until the multi-document
+        # regression harness reports a baseline.
+        from app.rag.frontmatter_rerank import FrontMatterAwareReranker
+
+        return FrontMatterAwareReranker(heuristic)
+    return heuristic
 
 
 def get_compressor() -> Compressor:

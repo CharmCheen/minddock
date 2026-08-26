@@ -22,6 +22,7 @@ from app.application.client_events import (
     ClientEvent,
     ClientFailedPayload,
     ClientHeartbeatPayload,
+    ClientInfoPayload,
     ClientProgressPayload,
     ClientRunStartedPayload,
     ClientWarningPayload,
@@ -110,6 +111,12 @@ class MetadataFilters(BaseModel):
     )
     page_from: int | None = Field(default=None, ge=1, description="Lower bound for PDF page filtering")
     page_to: int | None = Field(default=None, ge=1, description="Upper bound for PDF page filtering")
+    authors: list[str] | None = Field(
+        default=None,
+        description="Filter by author names extracted from academic front matter (case-insensitive contains)",
+    )
+    year_from: int | None = Field(default=None, ge=1900, le=2100, description="Lower bound for publication-year filtering")
+    year_to: int | None = Field(default=None, ge=1900, le=2100, description="Upper bound for publication-year filtering")
 
     @field_validator("section", "title_contains", "requested_url_contains")
     @classmethod
@@ -132,10 +139,20 @@ class MetadataFilters(BaseModel):
     ) -> Literal["file", "url"] | list[Literal["file", "url"]] | None:
         return cls._normalize_text_or_list(value)
 
+    @field_validator("authors")
+    @classmethod
+    def normalize_author_values(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [str(item).strip() for item in value if str(item).strip()]
+        return normalized or None
+
     @model_validator(mode="after")
     def validate_page_range(self) -> "MetadataFilters":
         if self.page_from is not None and self.page_to is not None and self.page_from > self.page_to:
             raise ValueError("page_from must be less than or equal to page_to")
+        if self.year_from is not None and self.year_to is not None and self.year_from > self.year_to:
+            raise ValueError("year_from must be less than or equal to year_to")
         return self
 
     def to_retrieval_filters(self) -> RetrievalFilters:
@@ -147,6 +164,9 @@ class MetadataFilters(BaseModel):
             requested_url_contains=self.requested_url_contains,
             page_from=self.page_from,
             page_to=self.page_to,
+            authors=_ensure_tuple(self.authors),
+            year_from=self.year_from,
+            year_to=self.year_to,
         )
 
     @staticmethod
@@ -1397,6 +1417,88 @@ class RunEventListResponse(BaseModel):
     items: list[ClientEventResponseItem] = Field(default_factory=list)
 
 
+class ArchivedTraceSummaryItem(BaseModel):
+    """Summary entry for one archived run trace (PRD FR-2)."""
+
+    run_id: str
+    task_type: str | None = None
+    archived_at: str | None = None
+    self_check_overall: str | None = None
+
+
+class TraceArchiveListResponse(BaseModel):
+    """List of archived run traces."""
+
+    traces: list[ArchivedTraceSummaryItem] = Field(default_factory=list)
+    count: int = 0
+
+
+class RunTraceResponse(BaseModel):
+    """Full archived trace for one run (survives backend restarts)."""
+
+    run_id: str
+    found: bool
+    data: dict[str, Any] | None = None
+
+
+class CitationExportRequestBody(BaseModel):
+    """Request body for citation format export (PRD FR-4)."""
+
+    format: Literal["bibtex", "gbt7714", "apa"]
+    entries: list[dict[str, Any]] = Field(default_factory=list, description="Citation payloads (title/authors/year/source/page/...)")
+
+    @field_validator("entries")
+    @classmethod
+    def limit_entries(cls, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if len(value) > 100:
+            raise ValueError("entries is limited to 100 citations per export")
+        return value
+
+
+class CitationExportItem(BaseModel):
+    index: int
+    text: str
+    missing: list[str] = Field(default_factory=list)
+
+
+class CitationExportResponse(BaseModel):
+    """Formatted citation export result."""
+
+    format: str
+    count: int
+    text: str
+    items: list[CitationExportItem] = Field(default_factory=list)
+
+
+class ReviewWorkbenchRequestBody(BaseModel):
+    """Request body for the review workbench MVP (PRD FR-7)."""
+
+    topic: str = Field(min_length=1, max_length=500)
+    sources: list[str] = Field(min_length=2, max_length=5)
+    top_k: int = Field(default=6, ge=3, le=12)
+
+    @field_validator("sources")
+    @classmethod
+    def normalize_sources(cls, value: list[str]) -> list[str]:
+        normalized = [str(item).strip() for item in value if str(item).strip()]
+        if len(normalized) < 2:
+            raise ValueError("sources must contain at least 2 non-empty entries")
+        return normalized
+
+
+class ReviewWorkbenchResponseBody(BaseModel):
+    """Review workbench response with review.v1 payload and citations."""
+
+    task_type: str = "review_workbench"
+    schema_name: str = "review.v1"
+    answer_markdown: str
+    payload: dict[str, Any]
+    citations: list[CitationItem] = Field(default_factory=list)
+    evidence_badge: dict[str, Any] | None = None
+    workflow_trace: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class CancelRunResponse(BaseModel):
     """Serializable response for a cancel request."""
 
@@ -2378,6 +2480,8 @@ def _client_event_payload_to_dict(payload) -> dict[str, Any]:
         return {"message": payload.message}
     if isinstance(payload, ClientHeartbeatPayload):
         return {"message": payload.message}
+    if isinstance(payload, ClientInfoPayload):
+        return {"message": payload.message, "data": dict(payload.data or {})}
     if isinstance(payload, ClientCompletedPayload):
         return {
             "artifact_count": payload.artifact_count,

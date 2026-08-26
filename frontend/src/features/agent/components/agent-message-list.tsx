@@ -3,6 +3,7 @@ import { useAgentStore } from '../store';
 import type { ConversationTurn } from '../types';
 import { RawArtifactViewer } from './raw-artifact-viewer';
 import { useWorkspacePreferences } from '../../settings/workspace-preferences';
+import { useWorkspaceStore } from '../../workspace/store';
 import { IconSearch } from '../../../components/ui/icons';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -151,6 +152,137 @@ function findWorkflowTrace(turn: ConversationTurn): Record<string, unknown> | nu
   return null;
 }
 
+function findSelfCheckReport(turn: ConversationTurn): Record<string, unknown> | null {
+  for (const artifact of turn.artifacts) {
+    const report = artifact.metadata?.citation_self_check;
+    if (isRecord(report)) return report;
+  }
+  return null;
+}
+
+const SELF_CHECK_OVERALL_STYLE: Record<string, { label: string; color: string; background: string; border: string }> = {
+  pass: { label: 'All citations verified', color: '#15803d', background: '#f0fdf4', border: '#bbf7d0' },
+  partial: { label: 'Some citations partially supported', color: '#b45309', background: '#fffbeb', border: '#fde68a' },
+  fail: { label: 'Citations need review', color: '#b91c1c', background: '#fef2f2', border: '#fecaca' },
+};
+
+const SELF_CHECK_STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  supported: { label: 'Supported', color: '#15803d' },
+  partial: { label: 'Partial', color: '#b45309' },
+  unsupported: { label: 'Not supported', color: '#b91c1c' },
+};
+
+const CitationSelfCheckPanel: React.FC<{ report: Record<string, unknown>; density: 'compact' | 'comfortable' }> = ({ report, density }) => {
+  const [expanded, setExpanded] = useState(false);
+  const { openCitationSource } = useWorkspaceStore();
+  const d = density;
+  const overall = typeof report.overall === 'string' ? report.overall : '';
+  const style = SELF_CHECK_OVERALL_STYLE[overall] || SELF_CHECK_OVERALL_STYLE.partial;
+  const items = Array.isArray(report.items) ? (report.items as Record<string, unknown>[]) : [];
+
+  const handleItemClick = (item: Record<string, unknown>) => {
+    openCitationSource({
+      doc_id: String(item.doc_id || ''),
+      chunk_id: String(item.chunk_id || ''),
+      ref: item.ref ? String(item.ref) : null,
+    } as any);
+  };
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          fontSize: '11px',
+          color: style.color,
+          background: 'var(--color-surface)',
+          border: `1px solid ${style.border}`,
+          cursor: 'pointer',
+          padding: '4px 10px',
+          borderRadius: 'var(--radius-sm)',
+          fontWeight: 600,
+          transition: 'all var(--transition-fast)',
+        }}
+        onMouseOver={(e) => {
+          e.currentTarget.style.borderColor = style.color;
+        }}
+        onMouseOut={(e) => {
+          e.currentTarget.style.borderColor = style.border;
+        }}
+      >
+        <span style={{
+          width: '7px',
+          height: '7px',
+          borderRadius: '50%',
+          background: style.color,
+          flexShrink: 0,
+        }} />
+        Citation self-check · {style.label}
+      </button>
+      {expanded && (
+        <div style={{
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: '0 0 var(--radius-md) var(--radius-md)',
+          padding: d === 'compact' ? '10px 14px' : '12px 16px',
+          marginTop: '-4px',
+          paddingTop: '14px',
+          boxShadow: 'var(--shadow-sm)',
+        }}>
+          <ul style={{
+            margin: 0,
+            paddingLeft: '18px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: d === 'compact' ? '5px' : '6px',
+            color: 'var(--color-text-secondary)',
+            fontSize: '12px',
+            lineHeight: 1.5,
+          }}>
+            {items.map((item, index) => {
+              const status = String(item.status || '');
+              const statusStyle = SELF_CHECK_STATUS_LABELS[status] || { label: status, color: 'var(--color-text-tertiary)' };
+              const ref = item.ref ? String(item.ref) : `[${index + 1}]`;
+              const reasons = Array.isArray(item.reasons) ? (item.reasons as unknown[]).filter((r): r is string => typeof r === 'string') : [];
+              return (
+                <li key={index}>
+                  <button
+                    type="button"
+                    onClick={() => handleItemClick(item)}
+                    title="Open the cited source to verify this claim"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      font: 'inherit',
+                      color: 'var(--color-brand-600)',
+                      textDecoration: 'underline',
+                      fontWeight: 600,
+                    }}
+                  >
+                    [{ref.replace(/[\[\]]/g, '')}] {statusStyle.label} · {String(item.doc_id || '')}
+                  </button>
+                  {reasons.length > 0 && (
+                    <span style={{ color: 'var(--color-text-tertiary)' }}> — {reasons.join(', ')}</span>
+                  )}
+                </li>
+              );
+            })}
+            {items.length === 0 && (
+              <li>No citation verification data.</li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const WorkflowTraceExplanationPanel: React.FC<{ items: string[]; density: 'compact' | 'comfortable' }> = ({ items, density }) => {
   const [expanded, setExpanded] = useState(false);
   if (items.length === 0) return null;
@@ -250,12 +382,14 @@ const TurnWorkflowDetails: React.FC<{ turn: ConversationTurn; density: 'compact'
               width: '6px',
               height: '6px',
               borderRadius: '50%',
-              background: event.event === 'progress' ? 'var(--color-brand-500)' : event.event === 'artifact' ? 'var(--color-success-text)' : event.event === 'failed' ? 'var(--color-error-text)' : 'var(--color-text-tertiary)',
+              background: event.event === 'progress' ? 'var(--color-brand-500)' : event.event === 'artifact' ? 'var(--color-success-text)' : event.event === 'failed' ? 'var(--color-error-text)' : event.event === 'info' ? '#0369a1' : 'var(--color-text-tertiary)',
               flexShrink: 0,
             }} />
             <span style={{ fontWeight: 500 }}>
               {event.event === 'progress'
                 ? (TURN_PHASE_LABELS[(event.data as { phase?: string })?.phase || ''] ?? (event.data as { phase?: string })?.phase)
+                : event.event === 'info'
+                ? ((event.data as { message?: string })?.message ?? 'Verification update')
                 : event.event === 'run_started'
                 ? 'Started'
                 : event.event === 'artifact'
@@ -280,6 +414,7 @@ const TurnView: React.FC<{ turn: ConversationTurn; isActive: boolean; density: '
     () => buildTraceExplanationItems(findWorkflowTrace(turn)),
     [turn],
   );
+  const selfCheckReport = React.useMemo(() => findSelfCheckReport(turn), [turn]);
 
   const detectedIntent = React.useMemo(() => {
     if (turn.taskType !== 'auto') return null;
@@ -491,6 +626,10 @@ const TurnView: React.FC<{ turn: ConversationTurn; isActive: boolean; density: '
         )}
 
         <WorkflowTraceExplanationPanel items={traceExplanationItems} density={density} />
+
+        {selfCheckReport && (
+          <CitationSelfCheckPanel report={selfCheckReport} density={density} />
+        )}
 
         {/* Workflow details toggle per turn */}
         {turn.events.length > 0 && (

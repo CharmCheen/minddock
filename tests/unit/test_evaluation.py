@@ -471,7 +471,10 @@ def test_sample_benchmark_dataset_covers_all_task_types() -> None:
     assert "chat" in task_counts, "sample dataset must include at least one chat case"
     assert "compare" in task_counts, "sample dataset must include at least one compare case"
     assert task_counts["compare"] >= 3, "sample dataset must have at least 3 compare cases (compare is thin at 2)"
-    assert len(cases) <= 15, "sample dataset should remain a small hand-curated set"
+    # PRD FR-5: the set grows toward >=50 curated cases; keep an anti-bloat
+    # ceiling instead of the old small-set cap.
+    assert len(cases) >= 29, "eval set must keep at least the FR-5 expanded floor"
+    assert len(cases) <= 120, "sample dataset should stay hand-curated, not generated bulk"
 
 
 def test_benchmark_script_runs_successfully_with_sample_dataset(tmp_path: Path, monkeypatch) -> None:

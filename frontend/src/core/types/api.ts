@@ -2,6 +2,7 @@ export type ClientEventKind =
   | 'run_started' 
   | 'progress' 
   | 'artifact' 
+  | 'info'
   | 'completed' 
   | 'failed';
 
@@ -89,6 +90,7 @@ export interface ClientEvent {
     | ClientRunStartedPayload
     | ClientProgressPayload
     | ClientArtifactPayload
+    | { message?: string; data?: Record<string, unknown> }
     | ClientCompletedPayload
     | ClientFailedPayload;
   // Backend sends run_id at top level of ClientEventResponseItem

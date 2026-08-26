@@ -3,6 +3,7 @@ import { useAgentStore } from '../store';
 import type { ConversationTurn } from '../types';
 import { RawArtifactViewer } from './raw-artifact-viewer';
 import { useWorkspacePreferences } from '../../settings/workspace-preferences';
+import { useWorkspaceStore } from '../../workspace/store';
 import { IconSearch } from '../../../components/ui/icons';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -173,10 +174,19 @@ const SELF_CHECK_STATUS_LABELS: Record<string, { label: string; color: string }>
 
 const CitationSelfCheckPanel: React.FC<{ report: Record<string, unknown>; density: 'compact' | 'comfortable' }> = ({ report, density }) => {
   const [expanded, setExpanded] = useState(false);
+  const { openCitationSource } = useWorkspaceStore();
   const d = density;
   const overall = typeof report.overall === 'string' ? report.overall : '';
   const style = SELF_CHECK_OVERALL_STYLE[overall] || SELF_CHECK_OVERALL_STYLE.partial;
   const items = Array.isArray(report.items) ? (report.items as Record<string, unknown>[]) : [];
+
+  const handleItemClick = (item: Record<string, unknown>) => {
+    openCitationSource({
+      doc_id: String(item.doc_id || ''),
+      chunk_id: String(item.chunk_id || ''),
+      ref: item.ref ? String(item.ref) : null,
+    } as any);
+  };
 
   return (
     <div>
@@ -237,11 +247,29 @@ const CitationSelfCheckPanel: React.FC<{ report: Record<string, unknown>; densit
               const status = String(item.status || '');
               const statusStyle = SELF_CHECK_STATUS_LABELS[status] || { label: status, color: 'var(--color-text-tertiary)' };
               const ref = item.ref ? String(item.ref) : `[${index + 1}]`;
+              const reasons = Array.isArray(item.reasons) ? (item.reasons as unknown[]).filter((r): r is string => typeof r === 'string') : [];
               return (
                 <li key={index}>
-                  <span style={{ fontWeight: 600, color: statusStyle.color }}>[{ref.replace(/[\[\]]/g, '')}] {statusStyle.label}</span>
-                  {' '}
-                  <span>{String(item.doc_id || '')}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleItemClick(item)}
+                    title="Open the cited source to verify this claim"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      font: 'inherit',
+                      color: 'var(--color-brand-600)',
+                      textDecoration: 'underline',
+                      fontWeight: 600,
+                    }}
+                  >
+                    [{ref.replace(/[\[\]]/g, '')}] {statusStyle.label} · {String(item.doc_id || '')}
+                  </button>
+                  {reasons.length > 0 && (
+                    <span style={{ color: 'var(--color-text-tertiary)' }}> — {reasons.join(', ')}</span>
+                  )}
                 </li>
               );
             })}
@@ -354,12 +382,14 @@ const TurnWorkflowDetails: React.FC<{ turn: ConversationTurn; density: 'compact'
               width: '6px',
               height: '6px',
               borderRadius: '50%',
-              background: event.event === 'progress' ? 'var(--color-brand-500)' : event.event === 'artifact' ? 'var(--color-success-text)' : event.event === 'failed' ? 'var(--color-error-text)' : 'var(--color-text-tertiary)',
+              background: event.event === 'progress' ? 'var(--color-brand-500)' : event.event === 'artifact' ? 'var(--color-success-text)' : event.event === 'failed' ? 'var(--color-error-text)' : event.event === 'info' ? '#0369a1' : 'var(--color-text-tertiary)',
               flexShrink: 0,
             }} />
             <span style={{ fontWeight: 500 }}>
               {event.event === 'progress'
                 ? (TURN_PHASE_LABELS[(event.data as { phase?: string })?.phase || ''] ?? (event.data as { phase?: string })?.phase)
+                : event.event === 'info'
+                ? ((event.data as { message?: string })?.message ?? 'Verification update')
                 : event.event === 'run_started'
                 ? 'Started'
                 : event.event === 'artifact'

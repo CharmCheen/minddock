@@ -62,6 +62,7 @@ type StatusBadge = {
   color: string;
   background: string;
   border: string;
+  title?: string;
 };
 
 const SUPPORT_LABELS: Record<string, string> = {
@@ -149,7 +150,13 @@ function buildStatusBadges(metadata: Record<string, unknown> | undefined, answer
       red: { label: 'Evidence: Weak', color: '#b91c1c', background: '#fef2f2', border: '#fecaca' },
       unknown: { label: 'Evidence: Unverified', color: '#64748b', background: '#f8fafc', border: '#e2e8f0' },
     };
-    badges.push(EVIDENCE_BADGE_STYLE[badgeLevel] || EVIDENCE_BADGE_STYLE.unknown);
+    // PRD v1.2 D-3 gate 3: the tooltip must disclose the mapping basis.
+    const reasons = Array.isArray(evidenceBadgeRaw?.reasons)
+      ? (evidenceBadgeRaw!.reasons as unknown[]).filter((r): r is string => typeof r === 'string').join(', ')
+      : '';
+    const badge = { ...EVIDENCE_BADGE_STYLE[badgeLevel] || EVIDENCE_BADGE_STYLE.unknown };
+    badge.title = `Beta · Deterministic mapping over retrieval signals (support status, low-confidence, trace warnings).${reasons ? ` Reasons: ${reasons}` : ''}`;
+    badges.push(badge);
   }
 
   if (runtimeStatus === 'mock' || mockUsed) {
@@ -186,7 +193,11 @@ function buildStatusBadges(metadata: Record<string, unknown> | undefined, answer
     });
   }
 
-  if (supportStatus) {
+  // PRD v1.2 D-3: single trust conclusion. When the deterministic evidence
+  // badge exists it REPLACES the legacy support-status chip; refusal reasons
+  // are visible in the badge hover breakdown instead of a second chip.
+  const hasEvidenceBadge = badges.some((b) => b.label.startsWith('Evidence:'));
+  if (!hasEvidenceBadge && supportStatus) {
     badges.push({
       label: SUPPORT_LABELS[supportStatus] || humanizeStatus(supportStatus),
       color: insufficientEvidence ? '#b91c1c' : supportStatus === 'supported' ? '#15803d' : '#0369a1',
@@ -195,7 +206,7 @@ function buildStatusBadges(metadata: Record<string, unknown> | undefined, answer
     });
   }
 
-  if (refusalReason) {
+  if (!hasEvidenceBadge && refusalReason) {
     badges.push({
       label: `Refusal: ${humanizeStatus(String(refusalReason))}`,
       color: '#b91c1c',
@@ -215,6 +226,7 @@ function StatusBadges({ badges, density }: { badges: StatusBadge[]; density: 'co
       {badges.map((badge) => (
         <span
           key={badge.label}
+          title={badge.title}
           style={{
             fontSize: '11px',
             fontWeight: 600,
@@ -223,6 +235,7 @@ function StatusBadges({ badges, density }: { badges: StatusBadge[]; density: 'co
             border: `1px solid ${badge.border}`,
             padding: density === 'compact' ? '2px 8px' : '3px 10px',
             borderRadius: 'var(--radius-sm)',
+            cursor: badge.title ? 'help' : 'default',
           }}
         >
           {badge.label}

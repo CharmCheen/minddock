@@ -69,6 +69,18 @@ export const CitationList: React.FC<{
       }));
       const result = await exportCitations(format, entries as unknown as Record<string, unknown>[]);
       await navigator.clipboard.writeText(result.text);
+      // PRD v1.2 D-2#4: BibTeX also gets a real file download, not only clipboard.
+      if (format === 'bibtex') {
+        const blob = new Blob([result.text], { type: 'application/x-bibtex;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'minddock-citations.bib';
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+      }
       setExportState({ format, ok: true });
       setTimeout(() => setExportState(null), 2000);
     } catch {

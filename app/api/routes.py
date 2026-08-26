@@ -1192,13 +1192,17 @@ def export_citations(payload: CitationExportRequestBody) -> CitationExportRespon
 def run_review_workbench_endpoint(payload: ReviewWorkbenchRequestBody) -> ReviewWorkbenchResponseBody:
     logger.info("Review workbench endpoint called: sources=%s topic=%s", payload.sources, payload.topic[:60])
     request = ReviewWorkbenchRequest(topic=payload.topic, sources=tuple(payload.sources), top_k=payload.top_k)
-    result = run_review_workbench(request)
+    # PRD v1.2 D-1: inject the real generation runtime so LLM synthesis and the
+    # LLM self-check layer actually run; degradation must be explicit, never
+    # silent. Resolution failures degrade to runtime=None (honest fallback).
+    runtime = _resolve_review_runtime()
+    result = run_review_workbench(request, runtime=runtime)
 
     from app.application.evidence_badge import compute_evidence_badge
 
     trace = result.metadata.workflow_trace or {}
     badge = compute_evidence_badge(
-        task_type="summarize",
+        task_type="review_workbench",
         support_status=result.metadata.support_status,
         insufficient_evidence=result.metadata.insufficient_evidence,
         refusal_reason=result.metadata.refusal_reason,
@@ -1213,3 +1217,27 @@ def run_review_workbench_endpoint(payload: ReviewWorkbenchRequestBody) -> Review
         workflow_trace=trace,
         warnings=list(result.metadata.warnings),
     )
+
+
+def _resolve_review_runtime():
+    """Resolve a generation runtime for the review workbench endpoint."""
+
+    try:
+        from app.application.models import CitationPolicy, ExecutionPolicy, OutputMode, SkillPolicy, SkillPolicyMode
+        from app.runtime.models import RuntimeSelectionPolicy, RuntimeSelectionRequest
+
+        facade = frontend_facade
+        match = facade.runtime_resolver.resolve(
+            RuntimeSelectionRequest(
+                task_type="summarize",
+                output_mode=OutputMode.TEXT.value,
+                citation_policy=CitationPolicy.PREFERRED.value,
+                skill_policy=SkillPolicyMode.DISABLED.value,
+                execution_policy=ExecutionPolicy(),
+                policy=RuntimeSelectionPolicy(),
+            )
+        )
+        return facade.runtime_factory.create(match.binding)
+    except Exception as exc:
+        logger.warning("Review workbench runtime resolution failed; using honest no-runtime fallback: %s", exc)
+        return None

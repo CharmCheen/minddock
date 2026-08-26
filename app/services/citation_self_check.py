@@ -296,8 +296,17 @@ def _parse_verdict_json(raw: str) -> list[object]:
 
 
 def _merge_statuses(rule_status: str, llm_status: str) -> str:
-    rank = {STATUS_UNSUPPORTED: 0, STATUS_PARTIAL: 1, STATUS_SUPPORTED: 2}
-    return rule_status if rank[rule_status] <= rank[llm_status] else llm_status
+    """Merge rule-layer and LLM-layer verdicts.
+
+    Policy: the semantic LLM verdict wins except for one conservative guard —
+    an ``unsupported`` rule verdict (structural failure: missing chunk id,
+    empty snippet) can never be upgraded straight to ``supported``; the best
+    it can reach is ``partial``.
+    """
+
+    if rule_status == STATUS_UNSUPPORTED and llm_status == STATUS_SUPPORTED:
+        return STATUS_PARTIAL
+    return llm_status
 
 
 def _overall_for(items: Sequence[CitationCheckItem]) -> str:

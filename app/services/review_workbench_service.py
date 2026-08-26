@@ -90,7 +90,8 @@ def run_review_workbench(
         return _insufficient(request, sources, warnings + ["insufficient_source_coverage"], started)
 
     synthesis = _synthesize(topic, per_source_evidence, citations, runtime=runtime)
-    if synthesis.get("llm_layer") != "completed":
+    synthesis_layer = str(synthesis.get("llm_layer") or "unknown")
+    if synthesis_layer != "completed":
         warnings.append("review_llm_fallback_extractive")
 
     payload = _build_payload(
@@ -101,18 +102,48 @@ def run_review_workbench(
         synthesis=synthesis,
     )
     markdown = _render_markdown(payload)
-    self_check = run_citation_self_check(answer_text=markdown, citations=citations, runtime=None)
+    # PRD v1.2 D-1: the LLM verification layer must receive the real runtime;
+    # skipping it is a visible degradation, never a silent half-check.
+    self_check = run_citation_self_check(answer_text=markdown, citations=citations, runtime=runtime)
+    verification_layers = dict(self_check.layers)
+    verify_llm_completed = verification_layers.get("llm") == "completed"
+    if not verify_llm_completed:
+        warnings.append(f"self_check_llm_{verification_layers.get('llm', 'unknown')}")
+
+    # Honest quality signals (PRD v1.2 D-1): no hardcoded green. A clean pass
+    # requires full source coverage, a passing self-check, AND both LLM layers
+    # actually running; anything less degrades visibly.
+    quality_reasons: list[str] = []
+    low_confidence = False
+    if len(covered_sources) < len(sources):
+        low_confidence = True
+        quality_reasons.append("partial_source_coverage")
+    if self_check.overall != "pass":
+        low_confidence = True
+        quality_reasons.append(f"self_check_{self_check.overall}")
+    full_llm = synthesis_layer == "completed" and verify_llm_completed
+    if not full_llm:
+        low_confidence = True
+        quality_reasons.append("llm_layers_degraded")
+
+    support_status = (
+        "supported"
+        if (not low_confidence and self_check.overall == "pass")
+        else "partially_supported"
+    )
 
     trace = {
         "operation": "review_workbench",
-        "quality_ok": True,
-        "low_confidence": False,
-        "quality_reasons": [],
+        "quality_ok": not low_confidence,
+        "low_confidence": low_confidence,
+        "quality_reasons": quality_reasons,
         "retry_count": 0,
         "max_retries": 0,
         "selected_sources_count": len(sources),
         "covered_sources_count": len(covered_sources),
         "final_citation_count": len(citations),
+        "synthesis_llm_layer": synthesis_layer,
+        "verification_layers": verification_layers,
         "citation_self_check": {"overall": self_check.overall, "counts": self_check.counts()},
         "trace_warnings": list(warnings),
     }
@@ -120,7 +151,7 @@ def run_review_workbench(
     metadata = UseCaseMetadata(
         retrieved_count=len(citations),
         mode="review_workbench",
-        support_status="supported",
+        support_status=support_status,
         warnings=tuple(warnings),
         timing=UseCaseTiming(total_ms=round((time.perf_counter() - started) * 1000, 2)),
         workflow_trace=trace,

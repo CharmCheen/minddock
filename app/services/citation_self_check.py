@@ -217,16 +217,22 @@ def run_citation_self_check(
             merged_items.append(item)
             continue
         status, reason = verdict
+        merged_status = _merge_statuses(item.status, status)
+        # Keep the reason trail consistent with the final verdict: a rule-layer
+        # downgrade note must not survive an LLM upgrade past it.
+        reasons = tuple(
+            r for r in item.reasons
+            if not (merged_status == STATUS_SUPPORTED and r == "downgraded_hit_only_fallback")
+        )
         merged_items.append(
             CitationCheckItem(
                 index=item.index,
                 ref=item.ref,
                 chunk_id=item.chunk_id,
                 doc_id=item.doc_id,
-                # Never upgrade an unsupported rule verdict via the LLM layer.
-                status=_merge_statuses(item.status, status),
+                status=merged_status,
                 score=item.score,
-                reasons=item.reasons + (f"llm:{status}" + (f":{reason}" if reason else ""),),
+                reasons=reasons + (f"llm:{status}" + (f":{reason}" if reason else ""),),
             )
         )
 

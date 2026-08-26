@@ -823,6 +823,18 @@ class FrontendFacade:
             except Exception:
                 logger.debug("Run trace archive failed for %s", run.run_id, exc_info=True)
             return run
+        except _RunCancelledError:
+            # A user-initiated cancellation hitting a safe boundary must end
+            # as CANCELLED, not as a generic failure.
+            cancelled_run = self._complete_cancelled_run(run=run, collector=collector)
+            self._archive_non_completed_run(
+                run=cancelled_run,
+                task_type=request.task_type.value,
+                request_summary=run.request_summary,
+                status="cancelled",
+                detail="Cancelled by user.",
+            )
+            return cancelled_run
         except Exception as exc:
             collector.emit(
                 kind=ExecutionEventKind.RUN_FAILED,
@@ -840,7 +852,43 @@ class FrontendFacade:
                 run.run_id,
                 self.event_projector.project_many(run.events, debug=False),
             )
+            self._archive_non_completed_run(
+                run=run,
+                task_type=request.task_type.value,
+                request_summary=run.request_summary,
+                status="failed",
+                detail=str(exc),
+                error_class=exc.__class__.__name__,
+            )
             return run
+
+    def _archive_non_completed_run(
+        self,
+        *,
+        run: ExecutionRun,
+        task_type: str,
+        request_summary: object,
+        status: str,
+        detail: str,
+        error_class: str | None = None,
+    ) -> None:
+        """Archive failed/cancelled runs so debugging evidence survives TTL."""
+
+        try:
+            persist_run_trace(
+                run_id=run.run_id,
+                task_type=task_type,
+                request_summary=request_summary,
+                final_response=None,
+                error_summary={
+                    "status": status,
+                    "error": error_class or status,
+                    "detail": detail[:500],
+                },
+                status=status,
+            )
+        except Exception:
+            logger.debug("Non-completed run trace archive failed for %s", run.run_id, exc_info=True)
 
     def _retrieval_top_k_for_task(self, request: UnifiedExecutionRequest) -> int:
         if request.task_type == TaskType.SUMMARIZE:

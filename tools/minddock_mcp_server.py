@@ -148,9 +148,11 @@ def _handle_tools_call(
             {
                 "type": "text",
                 "text": "\n".join(text_lines).strip(),
-                "_hits": hits,
             }
         ],
+        # Structured payload lives at result level (never inside typed content
+        # items, which strict MCP clients validate against {type, text}).
+        "structuredContent": {"query": query, "hit_count": len(hits), "hits": hits},
         "isError": False,
     })
 

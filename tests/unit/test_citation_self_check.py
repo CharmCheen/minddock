@@ -159,11 +159,45 @@ class TestRunTraceArchive:
         data = load_run_trace("run-123", trace_dir=tmp_path)
         assert data is not None
         assert data["run_id"] == "run-123"
-        assert data["workflow_trace"] is not None or True
+        assert data["status"] == "completed"
         badges = data.get("evidence_badges")
         assert isinstance(badges, list) and len(badges) == 1
         # Metadata carries a warning, so deterministic mapping yields yellow.
         assert badges[0]["badge"]["level"] == "yellow"
+
+    def test_failed_run_archives_error_summary(self, tmp_path):
+        class _Summary:
+            task_type = "chat"
+
+        path = persist_run_trace(
+            run_id="run-fail",
+            task_type="chat",
+            request_summary=_Summary(),
+            final_response=None,
+            error_summary={"status": "failed", "error": "RuntimeError", "detail": "boom"},
+            status="failed",
+            trace_dir=tmp_path,
+        )
+        assert path is not None
+        data = load_run_trace("run-fail", trace_dir=tmp_path)
+        assert data["status"] == "failed"
+        assert data["error_summary"]["detail"] == "boom"
+        assert data["citation_self_check"] is None
+
+    def test_retention_keeps_newest_only(self, tmp_path):
+        import time as _t
+
+        from app.application.run_trace_archive import _enforce_retention
+
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        for i in range(6):
+            path = shared / f"run-{i}.json"
+            path.write_text("{}", encoding="utf-8")
+            _t.sleep(0.01)
+        _enforce_retention(shared, max_files=3)
+        remaining = sorted(p.stem for p in shared.glob("*.json"))
+        assert remaining == ["run-3", "run-4", "run-5"]
 
     def test_load_missing_returns_none(self, tmp_path):
         assert load_run_trace("nope", trace_dir=tmp_path) is None

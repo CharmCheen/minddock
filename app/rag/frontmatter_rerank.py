@@ -14,7 +14,6 @@ multi-document regression harness reports a baseline (PRD: 先泛化验证再上
 from __future__ import annotations
 
 import logging
-import math
 import re
 
 from app.rag.retrieval_models import RetrievedChunk
@@ -373,8 +372,3 @@ def _chunk_order(hit: RetrievedChunk) -> int:
             return int(tail)
         except ValueError:
             return 999
-
-
-def _short_log_guard(value: float) -> float:
-    # Kept for parity with heuristic logging; avoids unused-import drift.
-    return math.log(max(value, 1.0))

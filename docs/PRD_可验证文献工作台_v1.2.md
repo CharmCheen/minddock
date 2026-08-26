@@ -1,8 +1,8 @@
 # PRD 产品需求文档（PRD）
 **项目名称**：MindDock 可验证文献工作台（Verifiable Literature Workbench）
-**版本**：v1.1
+**版本**：v1.2
 **日期**：2026-08-25
-**文档状态**：已评审定稿（v1.0，产品经理提案 × 技术总监代码级评审）；v1.1 同步首轮实现状态
+**文档状态**：多方评审（PM × CTO × 前端专家 × 后端专家 双轮辩论收敛）；替代 v1.1
 **前置文档**：`docs/SRS_个人知识管理助手_v1.0.md`、`docs/ROADMAP.md`、`docs/thesis-alignment.md`
 
 ## 修订记录
@@ -12,6 +12,7 @@
 | v1.0 | 2026-08-25 | 双 agent（PM × CTO）评审定稿：定位、P0 范围、修正后排期、Non-goals、决策纪要 |
 | v1.1 | 2026-08-25 | 同步首轮实现状态（FR-1/2/3/4/6/9 完成，FR-3b 移植完成待回归开启）；FR-9 提前交付；附录 B 开放问题部分关闭；新增第 13 节实现状态与偏差记录 |
 | v1.1.1 | 2026-08-25 | 二轮开发同步：FR-5 扩容至 29 例（部分）、FR-7 综述工作台 MVP、FR-8 MCP POC 完成；附录 C 状态矩阵更新；评测护栏测试随 FR-5 政策调整 |
+| v1.2 | 2026-08-25 | 四方双轮辩论定稿（附录 D）：四大议题裁决——检索攻坚主线确认、综述独立端点修复（一期）+管线并入（二期）、徽章分档分批显示、MCP 冻结+冒烟闭环；新增 P0/P1 缺陷清单（综述假信号/runtime 未注入、SSE info 不可见、双徽章冲突）；下一里程碑 Top-3（修复:新功能 = 2:1） |
 
 ---
 
@@ -298,8 +299,8 @@
 | FR-3b ranking 移植 | 🟡 移植完成，**flag 默认关闭** | `95bdfd6` | `frontmatter_rerank_enabled=false`；开启前置条件：联网环境跑 `eval_cases_front_matter_multi.json`（13 例）出基线 + 10 例基准双回归（维持 v1.0 决议） |
 | FR-9 .ics 导出 | ✅ **提前完成**（原 P2） | `c13736a` | RFC 5545 合规，status 过滤 confirmed/pending/dismissed/all |
 | FR-5 评测集扩容 50 例 | 🟡 部分完成（13→29 例，离线验证 chunk 映射） | `2203823` | 数据集护栏测试同步更新；剩余 ~21 例需对内置学术 PDF 做运行时解析与人工标注；**G2 指标承诺仍挂起** |
-| FR-7 综述工作台 | ✅ MVP 完成（后端） | `f25d285` | `POST /frontend/review-workbench`：review.v1 结构化负载 + 可点击引用 + 无 runtime 时确定性抽取降级；前端专用渲染面板未做（当前走通用 JSON 渲染） |
-| FR-8 MCP POC | ✅ POC 完成 | `dbbf881` | `tools/minddock_mcp_server.py` 只读 stdio server（minddock_search）；未做真实客户端联调（需 Claude Desktop/Cursor 环境） |
+| FR-7 综述工作台 | ✅ MVP 完成（后端） | `f25d285` | `POST /frontend/review-workbench`：review.v1 结构化负载 + 可点击引用 + 无 runtime 时确定性抽取降级；前端专用渲染面板未做（当前走通用 JSON 渲染）。**⚠️ 辩论发现 P0 缺陷，见第 14 节 D-1** |
+| FR-8 MCP POC | ✅ POC 完成 | `dbbf881` | `tools/minddock_mcp_server.py` 只读 stdio server（minddock_search）；未做真实客户端联调；**⚠️ 传输帧格式存疑（newline-delimited vs Content-Length），见第 14 节 D-6** |
 
 ### 里程碑实际进展（对照第 8 节）
 
@@ -307,3 +308,77 @@
 - **M2（工作台成形）**：FR-3/FR-4 已提前完成；剩余为徽章定标展示（依赖 50 例集）与评测扩容。
 - **M3（检索攻坚与验证）**：FR-3b 移植已提前完成（等回归开启）；FR-7、试用招募未开工。
 - 环境注记：本开发环境缺 chromadb/langchain-chroma（导入时联网下载模型受阻），27 个依赖真实向量库的存量测试在基线与本轮完全一致地失败；CI 环境需完整依赖方可运行全量套件。
+
+---
+
+## 14. 附录 D：四方双轮辩论纪要（v1.2，2026-08-25）
+
+参与方：产品经理（PM）、技术总监（CTO）、前端专家、后端专家。流程：第一轮各自立论（含对现有实现的代码级批判）→ 第二轮交叉投喂互辩（反驳 + 让步 + 最终裁决）→ 本附录定稿。
+
+### D-0 辩论议题与最终裁决总表
+
+| 议题 | PM | CTO | 前端 | 后端 | **最终裁决（收敛后）** |
+|---|---|---|---|---|---|
+| ① 部署 vs 检索攻坚 | 检索 | 检索 | 检索 | 检索 | **检索攻坚为主线**；部署维持 P2（高接触装机覆盖 10 人试用即可，不做 pip 包） |
+| ② 综述工作台并入管线 vs 独立端点 | 并入（两期） | 并入（先摘假信号） | 并入 | 并入（先注 runtime） | **一期独立端点修复（2 周可交付）→ 二期并入统一管线**（TaskType/计划分支/事件壳一次到位） |
+| ③ 徽章立即全量显示 | 支持 | 反对 | 条件支持 | 条件支持 | **分档分批**：前置门禁通过后红黄先行，绿章待一致率 ≥85% |
+| ④ MCP 加固转正 vs 冻结观察 | 冻结+联调 | 冻结+联调 | 冻结 | 偏冻结+1 天冒烟 | **冻结功能扩展；放行 ≤1 天真实客户端冒烟闭环，随后冻结生效** |
+
+### D-1 辩论发现的 P0 缺陷（综述工作台，必修）
+
+CTO 与后端独立发现并交叉验证（代码证据已核实）：
+
+1. **假信号**：`review_workbench_service.py` 将 `quality_ok=True`、`low_confidence=False`、`support_status="supported"` 硬编码进手工 trace——综述页面必然出示绿徽章。
+2. **runtime 未注入**：`app/api/routes.py` 调 `run_review_workbench(request)` 未传 runtime → LLM 合成永远落 `skipped_no_runtime` 降级分支且对用户无明示；服务内自检亦显式 `runtime=None`，LLM 层永久关闭。
+3. **task_type 伪装**：路由层把徽章计算 task_type 硬编码为 `"summarize"`。
+4. **定性**：三方一致定性为"自杀级缺陷"——对"敢给答案打分"的定位构成系统性破坏。修复与徽章显示门禁联动（D-3 前置①）。
+
+### D-2 辩论发现的 P1 缺陷（前端，必修）
+
+1. **SSE info 事件不可见**：`verification_completed` → info client event 已投影，但 `agent-message-list.tsx` `TurnWorkflowDetails` 对未知事件仅渲染原始字符串，message 永不展示——自检结果在会话时间线实际不可见。
+2. **双徽章冲突**：`raw-artifact-viewer.tsx` `buildStatusBadges` 同屏渲染新 "Evidence: Strong" 徽章与旧 "Supported" 芯片——同一可信度两套词汇、配色互斥。
+3. **自检面板丢 reasons**：`CitationSelfCheckPanel` 仅渲染 `[ref] status doc_id`，丢弃判定理由、不可点击跳 chunk。
+4. **导出只做一半**：无 `.bib` 文件下载（仅剪贴板）。
+5. **过滤器无 UI**：FR-3 的 author/year 后端已交付，前端设置/输入侧均无入口。
+6. **空状态文案未提**徽章/自检/导出等新能力。
+
+### D-3 徽章显示的放行门禁（议题③裁决细化）
+
+**前置（缺一不可，互为门禁）**：
+1. D-1 假信号摘除完成（runtime 注入 + 真实/缺席质量信号 + task_type 实名）；绿章缺席时援 compare 先例降级 unknown。
+2. 双徽章合并为单一 Evidence 徽章（删旧 Supported 芯片；前后端同源 `compute_evidence_badge`）。
+3. feature flag 默认关 + Beta 标注 + 悬停展示信号构成（tooltip 必须披露映射依据）。
+
+**放行阶梯**：
+- 红黄两档：门禁通过后**默认开**（红黄是风险提示，可先真后全）。
+- 绿章：待自检双层真实跑通 + 一致率 ≥85%（35 例首批定标）再放行。
+- 黄档不得砍（PM 红线）：向用户展示"我们不确定"是差异化诚实卖点。
+
+### D-4 议题②综述工作台的最终技术方案
+
+- **一期（2 周）**：独立端点修复——摘除假信号（真实计算或缺席降级 unknown）、RuntimeResolver 注入 runtime（签名不变）、task_type 实名 `review_workbench`、自检透传 runtime 且 LLM 层 skipped 状态进 trace 驱动徽章降级；前端把 review.v1 作为一等卡片渲染（表格 + CitationList + 徽章，禁止落 JSON dump）。
+- **二期（后续里程碑）**：并入统一执行管线——TaskType 枚举 + 计划分支 + SSE 事件壳一次到位，获得 SSE/取消/trace 归档/run replay；一期接口（runtime 注入点、metadata schema）冻结，二期不得回改。
+
+### D-5 议题①下一里程碑 Top-3（修复：新功能 = 2:1）
+
+1. 【修复】综述假信号根治 + runtime 注入 + CI 依赖治理（安装 chromadb/langchain-chroma），恢复 FR-3b 双回归与 G1/G2 评测资格。
+2. 【修复/度量】35 例首批评测定标跑通（来源一致率接入显示门槛）+ 双徽章合并 + 红黄先行 flag。
+3. 【新功能/修补】前端修复包：SSE info 可见化（S）、.bib 下载（S）、双徽章合并（S）、自检面板 reasons+点击（M）、过滤器 UI 仅作者+年份两输入框（M）。
+
+### D-6 议题④MCP 冒烟验收标准
+
+- 用真实 MCP 客户端（Claude Desktop 或 Cursor）完成一次 initialize + tools/list + tools/call 冒烟并录屏。
+- **先验证传输帧格式**：当前实现为 newline-delimited JSON-RPC，若客户端要求 Content-Length 帧则需先修传输层再冒烟。
+- 冒烟通过 → 冻结生效（不外宣、不加写工具）；转正触发器：试用用户 ≥3 人主动提出，或 G2/G3 达标后进入 Source Skill 边界设计。
+
+### D-7 各方红线（已纳入门禁）
+
+| 方 | 红线 |
+|---|---|
+| PM | 徽章可分期降档，但不能"永远只埋点不上显"；黄档不得砍；tooltip 必须披露结论依据 |
+| CTO | 假信号绝不带病上线（D-1 未修，徽章 flag 禁开）；FR-3b 回归未开启，检索侧改动禁合并；双徽章并存视图禁入对外演示 |
+| 前端×后端（联名） | runtime 注入接口签名冻结；自检 metadata schema 只增不改；SSE 事件壳冻结后再迁 |
+
+### D-8 结论
+
+四方在"先把信任资产修好，再让信任可见"上完全一致。下一里程碑是**修复冲刺**而非功能冲刺：假信号根治、评测地基恢复、显示门禁打通。G3 试用（10 人）在门禁通过后启动，高接触装机。

@@ -7,6 +7,21 @@ Update it before every push.
 
 ### Documentation
 
+- PRD upgraded to v1.2 (`docs/PRD_可验证文献工作台_v1.2.md`, renamed from v1.1):
+  four-way double-round debate record added as Appendix D (PM × CTO × frontend
+  expert × backend expert) with final rulings on all four contested topics —
+  retrieval-quality mainline confirmed over deployment; review workbench gets a
+  phase-1 standalone repair (fake-signal removal + runtime injection +
+  task_type rename) before a phase-2 unified-pipeline migration; badge display
+  gated behind defect fixes with red/yellow first and green held until ≥85%
+  agreement; MCP frozen except a ≤1-day real-client smoke that must first
+  verify transport framing.
+- New P0/P1 defect register from the debate: review-workbench hardcoded quality
+  signals + missing runtime injection + task_type masquerading as "summarize"
+  (P0); SSE info event invisible, dual-badge conflict, self-check panel dropping
+  reasons, no .bib download, no filter UI (P1). Next milestone set as a repair
+  sprint (fix:new-feature = 2:1) with explicit per-role red lines.
+
 - PRD upgraded to v1.1 (`docs/PRD_可验证文献工作台_v1.1.md`, renamed from v1.0):
   added revision history, appendix C implementation-status matrix mapping every
   FR to its commit with remaining gaps and honest deviations (FR-3b flag-off,

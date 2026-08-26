@@ -5,6 +5,47 @@ Update it before every push.
 
 ## Unreleased
 
+### Fixed — Repair Sprint (PRD v1.2 Appendix D-5)
+
+- **D-1/P0 review-workbench fake signals removed** (`app/services/review_workbench_service.py`):
+  quality trace is now computed honestly — `quality_ok`/`low_confidence`/
+  `quality_reasons` derive from real coverage, self-check outcome, and LLM
+  layer status; `support_status` is only "supported" when source coverage is
+  full, the self-check passes, and both LLM layers actually ran; skipped/failed
+  layers surface as visible warnings and degrade to `partially_supported`.
+  The self-check now receives the real runtime instead of a hardcoded `None`.
+- **D-1/P0 runtime injection** (`app/api/routes.py`): the review-workbench
+  endpoint resolves a generation runtime through the facade resolver/factory
+  (summarize-shaped selection) and injects it; resolution failure falls back
+  to no-runtime explicitly with a warning log. task_type for badge computation
+  renamed from masquerading `"summarize"` to honest `"review_workbench"`.
+- **Self-check merge policy fix** (`app/services/citation_self_check.py`):
+  `_merge_statuses` previously blocked ALL upgrades from the rule verdict;
+  now only the conservative guard remains (structural `unsupported` can reach
+  at most `partial` via the LLM layer), so genuine semantic support upgrades a
+  lexical `partial`.
+- **D-2/P1 frontend repairs**: single trust conclusion — the deterministic
+  Evidence badge replaces the legacy Supported chip when present, with a Beta
+  tooltip disclosing the mapping basis and reasons (raw-artifact-viewer.tsx,
+  dead `if (false && …)` branches removed); SSE `info` events (verification
+  results) are now visible in the turn timeline with their message
+  (agent-message-list.tsx + ClientEventKind type); the self-check panel renders
+  per-item reasons and clicking an item opens the cited source;
+  BibTeX export additionally downloads `minddock-citations.bib`
+  (citation-list.tsx).
+- **FR-3 filter UI** (agent-input.tsx / execution.ts / api types): collapsible
+  Filters row in the composer with exactly three fields (Author comma list,
+  Year from, Year to), wired into `/frontend/execute/stream` request filters.
+
+### Documentation
+
+- CI governance progress note: dependency pins verified compatible offline —
+  `chromadb 0.6.3 + langchain-chroma 0.2.x + langchain-core 0.3.86` coexist
+  cleanly with langgraph 0.3/langchain-openai pins (`pip check` clean). The
+  remaining bootstrap blocker is chromadb's import-time ONNX MiniLM download
+  (S3), which requires one online step; documented as the exact CI setup
+  requirement rather than a code defect.
+
 ### Documentation
 
 - PRD upgraded to v1.2 (`docs/PRD_可验证文献工作台_v1.2.md`, renamed from v1.1):

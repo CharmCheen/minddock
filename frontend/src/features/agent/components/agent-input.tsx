@@ -7,14 +7,16 @@ import { ExamplePrompts } from './example-prompts';
 import { ExecutionService } from '../../../lib/api/services/execution';
 import { ClientArtifactPayload, ClientEvent } from '../../../core/types/api';
 import { cancelActiveRun } from '../cancellation';
+import { runReviewWorkbench } from '../../../lib/api/services/review-workbench';
 import { IconFileText } from '../../../components/ui/icons';
 
 export const AgentInput: React.FC<{
   controller: AbortController | null;
   setController: (ctrl: AbortController | null) => void;
 }> = ({ controller, setController }) => {
-  const [query, setQuery] = useState('');
-  // Academic metadata filters (PRD FR-3 UI): author + year range only.
+const [query, setQuery] = useState('');
+const [reviewHint, setReviewHint] = useState<string | null>(null);
+// Academic metadata filters (PRD FR-3 UI): author + year range only.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterAuthor, setFilterAuthor] = useState('');
   const [filterYearFrom, setFilterYearFrom] = useState('');
@@ -48,7 +50,7 @@ export const AgentInput: React.FC<{
     };
   }, [controller]);
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (!query.trim()) return;
     if (backendStatus === 'offline' || backendStatus === 'checking') {
       failRun('Backend is not available. Please wait or retry.');
@@ -61,6 +63,49 @@ export const AgentInput: React.FC<{
       : undefined;
     const yearFrom = filterYearFrom.trim() ? Number(filterYearFrom) : undefined;
     const yearTo = filterYearTo.trim() ? Number(filterYearTo) : undefined;
+
+    // Review mode (PRD FR-7): dedicated endpoint, requires 2-5 selected sources.
+    if (taskType === 'review') {
+      if (sources.length < 2) {
+        setReviewHint('Select at least 2 sources in the left panel to build a review.');
+        return;
+      }
+      setReviewHint(null);
+      const reviewSources = sources.slice(0, 5);
+      reset();
+      prepareRun(query, { selectedSources: reviewSources });
+      startRun(`review-${Date.now()}`, query);
+      try {
+        const result = await runReviewWorkbench(query, reviewSources, defaultTopK);
+        const trace = result.workflow_trace || {};
+        const selfCheck = (trace as Record<string, unknown>).citation_self_check;
+        const sharedMeta: Record<string, unknown> = {
+          evidence_badge: result.evidence_badge || undefined,
+          workflow_trace: trace,
+          citation_self_check: selfCheck,
+        };
+        appendArtifact({
+          artifact_id: 'review-text',
+          kind: 'text',
+          title: 'review',
+          content: { text: result.answer_markdown },
+          metadata: sharedMeta,
+          citations: result.citations,
+        });
+        appendArtifact({
+          artifact_id: 'review-structured',
+          kind: 'structured_json',
+          title: 'review_result',
+          content: { data: result.payload, schema_name: result.schema_name },
+          metadata: sharedMeta,
+          citations: result.citations,
+        });
+        finishRun();
+      } catch (err) {
+        failRun(err instanceof Error ? err.message : 'Review workbench request failed.');
+      }
+      return;
+    }
 
     reset();
     prepareRun(query, { selectedSources: sources });
@@ -140,7 +185,8 @@ export const AgentInput: React.FC<{
     { id: 'auto', label: 'Auto' },
     { id: 'chat', label: 'Chat' },
     { id: 'summarize', label: 'Summarize' },
-    { id: 'compare', label: 'Compare' }
+    { id: 'compare', label: 'Compare' },
+    { id: 'review', label: 'Review' }
   ];
 
   const MODE_INFO: Record<string, { title: string; subtitle: string; placeholder: string }> = {
@@ -164,6 +210,11 @@ export const AgentInput: React.FC<{
       subtitle: 'Find shared claims, differences, conflicts, and a grounded conclusion.',
       placeholder: 'Compare two or more sources on...',
     },
+    review: {
+      title: 'Review workbench',
+      subtitle: 'Build a related-work comparison table across 2-5 selected sources, every cell cited and verifiable.',
+      placeholder: 'Describe the review topic, e.g. retrieval strategies for personal knowledge bases...',
+    },
   };
 
   const currentModeInfo = MODE_INFO[taskType] || MODE_INFO.auto;
@@ -173,7 +224,7 @@ export const AgentInput: React.FC<{
   const getButtonLabel = () => {
     if (isCancelling) return 'Cancelling';
     if (isRunning) return 'Stop';
-    return taskType === 'chat' ? 'Send' : taskType === 'summarize' ? 'Summarize' : taskType === 'compare' ? 'Compare' : 'Send';
+    return taskType === 'chat' ? 'Send' : taskType === 'summarize' ? 'Summarize' : taskType === 'compare' ? 'Compare' : taskType === 'review' ? 'Review' : 'Send';
   };
 
   return (
@@ -396,6 +447,23 @@ export const AgentInput: React.FC<{
               ×
             </button>
           </div>
+        </div>
+      )}
+
+      {reviewHint && (
+        <div style={{
+          textAlign: 'center',
+          fontSize: '12px',
+          color: '#b45309',
+          background: 'var(--color-warning-bg, #fffbeb)',
+          border: '1px solid var(--color-warning-border, #fde68a)',
+          borderRadius: 'var(--radius-sm)',
+          padding: '6px 12px',
+          maxWidth: '760px',
+          margin: '0 auto',
+          width: '100%',
+        }}>
+          {reviewHint}
         </div>
       )}
 

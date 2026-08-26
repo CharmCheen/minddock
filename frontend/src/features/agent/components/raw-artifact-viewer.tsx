@@ -1,6 +1,7 @@
 import { ArtifactResponseItem, CitationItem } from '../../../core/types/api';
 import { CitationList } from './citation-list';
 import { useWorkspacePreferences } from '../../settings/workspace-preferences';
+import { useWorkspaceStore } from '../../workspace/store';
 
 function truthyMetadataFlag(value: unknown): boolean {
   return value === true || String(value ?? '').toLowerCase() === 'true';
@@ -387,6 +388,181 @@ function renderComparePointBadges(pt: any, sectionKey: CompareSectionKey) {
   );
 }
 
+const REVIEW_STATUS_COLORS: Record<string, string> = {
+  supported: '#15803d',
+  partial: '#b45309',
+  unsupported: '#b91c1c',
+};
+
+/** First-class card for the review workbench payload (PRD FR-7, D-4 phase-1). */
+const ReviewResultCard: React.FC<{
+  dataObj: any;
+  citations: CitationItem[];
+  checkStatuses?: Record<number, string>;
+  density: 'compact' | 'comfortable';
+}> = ({ dataObj, citations, checkStatuses, density }) => {
+  const d = density;
+  const { openCitationSource } = useWorkspaceStore();
+  const sources: string[] = Array.isArray(dataObj.sources) ? dataObj.sources : [];
+  const rows: any[] = Array.isArray(dataObj.table) ? dataObj.table : [];
+  const takeaways: string[] = Array.isArray(dataObj.takeaways) ? dataObj.takeaways : [];
+  const insufficient = dataObj.insufficient_evidence === true;
+
+  const cellFor = (row: any, source: string) =>
+    (row.cells || []).find((c: any) => c.source === source);
+
+  const renderCitationChip = (n: number | null | undefined) => {
+    if (n == null || !citations[n - 1]) return null;
+    const citation = citations[n - 1];
+    const status = checkStatuses?.[n - 1];
+    const color = status ? REVIEW_STATUS_COLORS[status] || 'var(--color-brand-600)' : 'var(--color-brand-600)';
+    return (
+      <button
+        type="button"
+        title={status ? `Self-check: ${status}` : 'Open cited source'}
+        onClick={(e) => {
+          e.stopPropagation();
+          openCitationSource(citation);
+        }}
+        style={{
+          marginLeft: '6px',
+          fontSize: '10px',
+          fontWeight: 700,
+          color,
+          background: 'var(--color-surface)',
+          border: `1px solid ${color}`,
+          borderRadius: 'var(--radius-full)',
+          padding: '0 6px',
+          cursor: 'pointer',
+          flexShrink: 0,
+        }}
+      >
+        [{n}]
+      </button>
+    );
+  };
+
+  return (
+    <div style={{
+      ...cardBase(d),
+      display: 'flex',
+      flexDirection: 'column',
+      gap: d === 'compact' ? '12px' : '16px',
+      animation: 'fadeSlideUp 250ms ease-out forwards',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: d === 'compact' ? '6px' : '8px', flexWrap: 'wrap' }}>
+        <span style={typeBadge('#7c3aed', '#f5f3ff', d)}>Review Workbench</span>
+        {Array.isArray(dataObj.covered_sources) && (
+          <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+            {dataObj.covered_sources.length}/{sources.length} sources covered
+          </span>
+        )}
+        {dataObj.llm_layer && dataObj.llm_layer !== 'completed' && (
+          <span style={{
+            fontSize: '10px', fontWeight: 700, color: '#b45309',
+            background: '#fffbeb', border: '1px solid #fde68a',
+            padding: '1px 7px', borderRadius: 'var(--radius-full)',
+          }}>
+            extractive fallback
+          </span>
+        )}
+      </div>
+
+      {insufficient ? (
+        <div style={{ color: 'var(--color-error-text)', fontSize: '14px', lineHeight: 1.7 }}>
+          Insufficient evidence to build the review. Select more sources or broaden the topic.
+        </div>
+      ) : (
+        <>
+          {dataObj.overview ? (
+            <div style={{ fontSize: '13px', lineHeight: 1.7, color: 'var(--color-text-secondary)' }}>
+              {String(dataObj.overview)}
+            </div>
+          ) : null}
+
+          {rows.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{
+                width: '100%', borderCollapse: 'collapse', fontSize: '12px',
+                background: 'var(--color-canvas-subtle)',
+              }}>
+                <thead>
+                  <tr>
+                    <th style={reviewTh(d)}>Dimension</th>
+                    {sources.map((s) => (
+                      <th key={s} style={reviewTh(d)}>{s}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, ri) => (
+                    <tr key={ri}>
+                      <td style={{ ...reviewTd(d), fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>
+                        {row.dimension || '—'}
+                      </td>
+                      {sources.map((s) => {
+                        const cell = cellFor(row, s);
+                        return (
+                          <td key={s} style={reviewTd(d)}>
+                            {cell ? (
+                              <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '2px' }}>
+                                <span>{cell.point || '—'}</span>
+                                {renderCitationChip(cell.citation)}
+                              </span>
+                            ) : '—'}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {takeaways.length > 0 && (
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-text-tertiary)', marginBottom: '4px' }}>
+                Takeaways
+              </div>
+              <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '12px', lineHeight: 1.7, color: 'var(--color-text-secondary)' }}>
+                {takeaways.map((t, i) => <li key={i}>{t}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {citations.length > 0 && <CitationList citations={citations} checkStatuses={checkStatuses} />}
+        </>
+      )}
+    </div>
+  );
+};
+
+function reviewTh(d: 'compact' | 'comfortable'): React.CSSProperties {
+  return {
+    textAlign: 'left',
+    padding: d === 'compact' ? '6px 10px' : '8px 12px',
+    borderBottom: '1px solid var(--color-border-default)',
+    fontSize: '11px',
+    fontWeight: 700,
+    color: 'var(--color-text-secondary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+    whiteSpace: 'nowrap',
+    maxWidth: '220px',
+  };
+}
+
+function reviewTd(d: 'compact' | 'comfortable'): React.CSSProperties {
+  return {
+    padding: d === 'compact' ? '6px 10px' : '8px 12px',
+    borderBottom: '1px solid var(--color-border-subtle)',
+    verticalAlign: 'top',
+    color: 'var(--color-text-secondary)',
+    lineHeight: 1.55,
+  };
+}
+
 export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = ({ artifact }) => {
   const { kind, content, metadata, citations: artifactCitations } = artifact;
   const { density } = useWorkspacePreferences();
@@ -489,6 +665,18 @@ export const RawArtifactViewer: React.FC<{ artifact: ArtifactResponseItem }> = (
       parsed = JSON.stringify(rawData, null, 2);
     } catch {
       parsed = String(rawData);
+    }
+
+    // Special rendering for Review Workbench schema (PRD FR-7)
+    if (typeof rawData === 'object' && rawData !== null && (rawData as any).schema_name === 'review.v1') {
+      return (
+        <ReviewResultCard
+          dataObj={rawData as any}
+          citations={citations || []}
+          checkStatuses={checkStatuses}
+          density={density}
+        />
+      );
     }
 
     // Special rendering for Compare Task schema

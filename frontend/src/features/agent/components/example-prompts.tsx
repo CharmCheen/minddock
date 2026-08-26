@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface ExamplePromptsProps {
-  taskType: 'auto' | 'chat' | 'summarize' | 'compare';
+  taskType: 'auto' | 'chat' | 'summarize' | 'compare' | 'review';
   onSelect: (prompt: string) => void;
 }
 
@@ -25,6 +25,11 @@ export const ExamplePrompts: React.FC<ExamplePromptsProps> = ({ taskType, onSele
       "Compare these sources in terms of system design.",
       "What are the common points and differences?",
       "Are there any conflicting claims between these documents?"
+    ],
+    review: [
+      "Review the retrieval strategies discussed across the selected sources.",
+      "Build a related-work comparison for these documents.",
+      "Summarize how each source approaches evaluation, with citations."
     ]
   };
 

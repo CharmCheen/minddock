@@ -14,6 +14,12 @@ export const AgentInput: React.FC<{
   setController: (ctrl: AbortController | null) => void;
 }> = ({ controller, setController }) => {
   const [query, setQuery] = useState('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  // Academic metadata filters (PRD FR-3 UI): author + year range only.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterAuthor, setFilterAuthor] = useState('');
+  const [filterYearFrom, setFilterYearFrom] = useState('');
+  const [filterYearTo, setFilterYearTo] = useState('');
   const { status, taskType, runId, setTaskType, turns, prepareRun, startRun, appendEvent, appendArtifact, finishRun, failRun, requestCancel, markCancelled, reset } = useAgentStore();
   const { status: backendStatus } = useAvailabilityStore();
   const { selectedDocIds, selectedDocDetails, clearSelectedDocs } = useWorkspaceStore();
@@ -51,6 +57,11 @@ export const AgentInput: React.FC<{
     }
 
     const sources = selectedDocDetails.map((detail) => detail.source).filter(Boolean);
+    const authors = filterAuthor.trim()
+      ? filterAuthor.split(/[,;，；]/).map((a) => a.trim()).filter(Boolean)
+      : undefined;
+    const yearFrom = filterYearFrom.trim() ? Number(filterYearFrom) : undefined;
+    const yearTo = filterYearTo.trim() ? Number(filterYearTo) : undefined;
 
     reset();
     prepareRun(query, { selectedSources: sources });
@@ -65,6 +76,9 @@ export const AgentInput: React.FC<{
         summarize_mode: taskType === 'summarize' ? defaultSummarizeMode : undefined,
         answer_style: defaultAnswerStyle,
         preference_profile: buildUserPreferenceProfile(preferences),
+        authors,
+        year_from: Number.isFinite(yearFrom) ? yearFrom : undefined,
+        year_to: Number.isFinite(yearTo) ? yearTo : undefined,
       },
       {
         onEvent: (event: ClientEvent) => {
@@ -205,6 +219,106 @@ export const AgentInput: React.FC<{
           ))}
         </div>
       </div>
+
+      {/* Academic metadata filters (PRD FR-3 UI): author + year range only */}
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <button
+          type="button"
+          data-testid="filters-toggle"
+          onClick={() => setFiltersOpen(!filtersOpen)}
+          style={{
+            fontSize: '11px',
+            color: filtersOpen || filterAuthor || filterYearFrom || filterYearTo
+              ? 'var(--color-brand-600)'
+              : 'var(--color-text-tertiary)',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '2px 8px',
+            fontWeight: 600,
+          }}
+        >
+          {filtersOpen ? '▾ Filters' : '▸ Filters'}
+          {(filterAuthor || filterYearFrom || filterYearTo) ? ' · active' : ''}
+        </button>
+      </div>
+      {filtersOpen && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          flexWrap: 'wrap',
+          padding: '6px 12px',
+          background: 'var(--color-canvas)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-md)',
+        }}>
+          <label style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', fontWeight: 600 }}>
+            Author
+            <input
+              data-testid="filter-author"
+              value={filterAuthor}
+              onChange={(e) => setFilterAuthor(e.target.value)}
+              placeholder="e.g. Wang Rui"
+              style={{
+                marginLeft: '6px',
+                fontSize: '12px',
+                padding: '4px 8px',
+                width: '160px',
+                border: '1px solid var(--color-border-default)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--color-surface)',
+                color: 'var(--color-text-primary)',
+              }}
+            />
+          </label>
+          <label style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', fontWeight: 600 }}>
+            Year from
+            <input
+              data-testid="filter-year-from"
+              type="number"
+              min={1900}
+              max={2100}
+              value={filterYearFrom}
+              onChange={(e) => setFilterYearFrom(e.target.value)}
+              placeholder="2019"
+              style={{
+                marginLeft: '6px',
+                fontSize: '12px',
+                padding: '4px 8px',
+                width: '72px',
+                border: '1px solid var(--color-border-default)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--color-surface)',
+                color: 'var(--color-text-primary)',
+              }}
+            />
+          </label>
+          <label style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', fontWeight: 600 }}>
+            Year to
+            <input
+              data-testid="filter-year-to"
+              type="number"
+              min={1900}
+              max={2100}
+              value={filterYearTo}
+              onChange={(e) => setFilterYearTo(e.target.value)}
+              placeholder="2026"
+              style={{
+                marginLeft: '6px',
+                fontSize: '12px',
+                padding: '4px 8px',
+                width: '72px',
+                border: '1px solid var(--color-border-default)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--color-surface)',
+                color: 'var(--color-text-primary)',
+              }}
+            />
+          </label>
+        </div>
+      )}
 
       {!isRunning && turns.length === 0 && (
         <div style={{ textAlign: 'center', padding: '0 16px' }}>

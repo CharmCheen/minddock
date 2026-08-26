@@ -112,6 +112,9 @@ export interface UnifiedExecutionRequestBody {
   top_k: number;
   filters?: {
     source?: string | string[];
+    authors?: string[];
+    year_from?: number;
+    year_to?: number;
   };
   output_mode: string;
   citation_policy: string;

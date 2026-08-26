@@ -17,6 +17,10 @@ interface ExecutionInput {
   summarize_mode?: 'basic' | 'map_reduce';
   answer_style?: AnswerStyle;
   preference_profile?: UserPreferenceProfile;
+  // Academic metadata filters (PRD FR-3 UI)
+  authors?: string[];
+  year_from?: number;
+  year_to?: number;
 }
 
 function joinApiPath(baseUrl: string, path: string): string {
@@ -65,6 +69,17 @@ export const ExecutionService = {
 
     if (input.sources && input.sources.length > 0) {
       body.filters = { source: input.sources };
+    }
+
+    // Academic metadata filters (PRD FR-3 UI)
+    if (input.authors && input.authors.length > 0) {
+      body.filters = { ...(body.filters || {}), authors: input.authors };
+    }
+    if (typeof input.year_from === 'number') {
+      body.filters = { ...(body.filters || {}), year_from: input.year_from };
+    }
+    if (typeof input.year_to === 'number') {
+      body.filters = { ...(body.filters || {}), year_to: input.year_to };
     }
 
     if (input.summarize_mode) {

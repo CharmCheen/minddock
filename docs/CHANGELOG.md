@@ -5,6 +5,23 @@ Update it before every push.
 
 ## Unreleased
 
+### Changed — Deep Audit Pass
+
+- **Self-check reason reconciliation** (`citation_self_check.py`): when the
+  LLM layer upgrades a rule verdict, a stale rule-layer downgrade note
+  (e.g. `downgraded_hit_only_fallback`) no longer survives next to a
+  `supported` final status; the reason trail stays consistent with the verdict.
+- **MCP tool result shape** (`tools/minddock_mcp_server.py`): raw hits moved
+  out of typed content items (strict clients validate `{type, text}`) into a
+  result-level `structuredContent` payload.
+- **Trace archive completeness + retention** (`run_trace_archive.py`,
+  `orchestrators.py`): failed and cancelled runs are now archived too with an
+  error summary (status/error/detail), closing the debugging-evidence gap; a
+  newest-first retention cap (default 500 files) bounds disk growth — closes
+  PRD appendix B#1.
+- **Dead code removal**: `_short_log_guard` and unused `math` import dropped
+  from `frontmatter_rerank.py`.
+
 ### Fixed — Repair Sprint (PRD v1.2 Appendix D-5)
 
 - **D-1/P0 review-workbench fake signals removed** (`app/services/review_workbench_service.py`):

@@ -14,7 +14,6 @@ export const AgentInput: React.FC<{
   setController: (ctrl: AbortController | null) => void;
 }> = ({ controller, setController }) => {
   const [query, setQuery] = useState('');
-  const [submitError, setSubmitError] = useState<string | null>(null);
   // Academic metadata filters (PRD FR-3 UI): author + year range only.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterAuthor, setFilterAuthor] = useState('');
